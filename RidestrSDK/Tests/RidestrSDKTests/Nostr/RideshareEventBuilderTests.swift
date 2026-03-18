@@ -1,0 +1,268 @@
+import Foundation
+import Testing
+@testable import RidestrSDK
+
+@Suite("RideshareEventBuilder Tests")
+struct RideshareEventBuilderTests {
+    @Test func buildRideOffer() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let content = RideOfferContent(
+            fareEstimate: 12.50,
+            destination: Location(latitude: 40.758, longitude: -73.985),
+            approxPickup: Location(latitude: 40.71, longitude: -74.01),
+            rideRouteKm: 5.5,
+            rideRouteMin: 12.0,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle", "venmo"]
+        )
+
+        let event = try await RideshareEventBuilder.rideOffer(
+            driverPubkey: driver.publicKeyHex,
+            driverAvailabilityEventId: "avail_123",
+            content: content,
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.rideOffer.rawValue)
+        #expect(event.pubkey == rider.publicKeyHex)
+        #expect(event.isRoadflare)
+        #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
+        #expect(event.referencedEventIds.contains("avail_123"))
+        #expect(event.expirationTimestamp != nil)
+        #expect(EventSigner.verify(event))
+
+        // Content should be encrypted (not readable as JSON)
+        #expect(!event.content.contains("fare_estimate"))
+    }
+
+    @Test func buildRideOfferDecryptable() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let content = RideOfferContent(
+            fareEstimate: 15.00,
+            destination: Location(latitude: 40.0, longitude: -74.0),
+            approxPickup: Location(latitude: 40.1, longitude: -74.1),
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"]
+        )
+
+        let event = try await RideshareEventBuilder.rideOffer(
+            driverPubkey: driver.publicKeyHex,
+            driverAvailabilityEventId: nil,
+            content: content,
+            keypair: rider
+        )
+
+        // Driver should be able to decrypt
+        let decrypted = try NIP44.decrypt(
+            ciphertext: event.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: rider.publicKeyHex
+        )
+        let parsed = try JSONDecoder().decode(RideOfferContent.self, from: Data(decrypted.utf8))
+        #expect(parsed.fareEstimate == 15.00)
+        #expect(parsed.fiatPaymentMethods == ["cash"])
+    }
+
+    @Test func buildConfirmation() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.rideConfirmation(
+            driverPubkey: driver.publicKeyHex,
+            acceptanceEventId: "acc_123",
+            precisePickup: Location(latitude: 40.71234, longitude: -74.00567),
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.rideConfirmation.rawValue)
+        #expect(event.referencedEventIds.contains("acc_123"))
+        #expect(EventSigner.verify(event))
+
+        // Driver can decrypt and see precise pickup
+        let decrypted = try NIP44.decrypt(
+            ciphertext: event.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: rider.publicKeyHex
+        )
+        let parsed = try JSONDecoder().decode(RideConfirmationContent.self, from: Data(decrypted.utf8))
+        #expect(parsed.precisePickup?.latitude == 40.71234)
+    }
+
+    @Test func buildChatMessage() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.chatMessage(
+            recipientPubkey: driver.publicKeyHex,
+            confirmationEventId: "conf_123",
+            message: "On my way out!",
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.chatMessage.rawValue)
+        #expect(event.referencedEventIds.contains("conf_123"))
+
+        // Driver decrypts
+        let parsed = try RideshareEventParser.parseChatMessage(event: event, keypair: driver)
+        #expect(parsed.message == "On my way out!")
+    }
+
+    @Test func buildCancellation() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.cancellation(
+            counterpartyPubkey: driver.publicKeyHex,
+            confirmationEventId: "conf_123",
+            reason: "Changed plans",
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.cancellation.rawValue)
+        #expect(event.referencedEventIds.contains("conf_123"))
+
+        let parsed = try RideshareEventParser.parseCancellation(event: event, keypair: driver)
+        #expect(parsed.reason == "Changed plans")
+    }
+
+    @Test func buildFollowedDriversList() async throws {
+        let rider = try NostrKeypair.generate()
+        let drivers = [
+            FollowedDriver(pubkey: "driver1_pub", name: "Alice"),
+            FollowedDriver(pubkey: "driver2_pub", name: "Bob"),
+        ]
+
+        let event = try await RideshareEventBuilder.followedDriversList(
+            drivers: drivers,
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.followedDriversList.rawValue)
+        #expect(event.dTag == "roadflare-drivers")
+        // Public p-tags for driver discovery
+        #expect(event.referencedPubkeys.contains("driver1_pub"))
+        #expect(event.referencedPubkeys.contains("driver2_pub"))
+
+        // Content is encrypted to self
+        let parsed = try RideshareEventParser.parseFollowedDriversList(event: event, keypair: rider)
+        #expect(parsed.drivers.count == 2)
+        #expect(parsed.drivers[0].pubkey == "driver1_pub")
+    }
+
+    @Test func buildKeyAcknowledgement() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.keyAcknowledgement(
+            driverPubkey: driver.publicKeyHex,
+            keyVersion: 3,
+            keyUpdatedAt: 1700000000,
+            status: "received",
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.keyAcknowledgement.rawValue)
+        #expect(event.expirationTimestamp != nil)
+    }
+
+    @Test func buildRiderRideState() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let history: [RiderRideAction] = [
+            RiderRideAction(type: "location_reveal", at: 1700000000,
+                           locationType: "pickup", locationEncrypted: "enc_loc", status: nil, attempt: nil),
+            RiderRideAction(type: "pin_verify", at: 1700000100,
+                           locationType: nil, locationEncrypted: nil, status: "verified", attempt: 1),
+        ]
+
+        let event = try await RideshareEventBuilder.riderRideState(
+            driverPubkey: driver.publicKeyHex,
+            confirmationEventId: "conf_123",
+            phase: "verified",
+            history: history,
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.riderRideState.rawValue)
+        #expect(event.dTag == "conf_123")
+        #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
+        #expect(EventSigner.verify(event))
+    }
+
+    @Test func expirationTagsSet() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let now = Int(Date.now.timeIntervalSince1970)
+
+        let offer = try await RideshareEventBuilder.rideOffer(
+            driverPubkey: driver.publicKeyHex,
+            driverAvailabilityEventId: nil,
+            content: RideOfferContent(fareEstimate: 10, destination: Location(latitude: 0, longitude: 0), approxPickup: Location(latitude: 0, longitude: 0), paymentMethod: "cash", fiatPaymentMethods: []),
+            keypair: rider
+        )
+
+        // Offer should expire in ~15 minutes
+        let expiry = offer.expirationTimestamp!
+        let diff = expiry - now
+        #expect(diff > 14 * 60 && diff < 16 * 60)
+    }
+
+    @Test func allBuildersProduceVerifiableSignatures() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        // Offer
+        let offer = try await RideshareEventBuilder.rideOffer(
+            driverPubkey: driver.publicKeyHex, driverAvailabilityEventId: nil,
+            content: RideOfferContent(fareEstimate: 10, destination: Location(latitude: 0, longitude: 0), approxPickup: Location(latitude: 0, longitude: 0), paymentMethod: "cash", fiatPaymentMethods: []),
+            keypair: rider
+        )
+        #expect(EventSigner.verify(offer))
+
+        // Confirmation
+        let confirmation = try await RideshareEventBuilder.rideConfirmation(
+            driverPubkey: driver.publicKeyHex, acceptanceEventId: "acc1",
+            precisePickup: Location(latitude: 40.0, longitude: -74.0), keypair: rider
+        )
+        #expect(EventSigner.verify(confirmation))
+
+        // Chat
+        let chat = try await RideshareEventBuilder.chatMessage(
+            recipientPubkey: driver.publicKeyHex, confirmationEventId: "conf1",
+            message: "test", keypair: rider
+        )
+        #expect(EventSigner.verify(chat))
+
+        // Cancellation
+        let cancel = try await RideshareEventBuilder.cancellation(
+            counterpartyPubkey: driver.publicKeyHex, confirmationEventId: "conf1",
+            reason: "test", keypair: rider
+        )
+        #expect(EventSigner.verify(cancel))
+
+        // Followed drivers list
+        let driversList = try await RideshareEventBuilder.followedDriversList(
+            drivers: [FollowedDriver(pubkey: "d1")], keypair: rider
+        )
+        #expect(EventSigner.verify(driversList))
+
+        // Key ack
+        let keyAck = try await RideshareEventBuilder.keyAcknowledgement(
+            driverPubkey: driver.publicKeyHex, keyVersion: 1, keyUpdatedAt: 100,
+            status: "received", keypair: rider
+        )
+        #expect(EventSigner.verify(keyAck))
+
+        // Rider ride state
+        let riderState = try await RideshareEventBuilder.riderRideState(
+            driverPubkey: driver.publicKeyHex, confirmationEventId: "conf1",
+            phase: "verified", history: [], keypair: rider
+        )
+        #expect(EventSigner.verify(riderState))
+    }
+}
