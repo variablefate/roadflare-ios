@@ -138,5 +138,10 @@ final class AppState {
         self.rideCoordinator = coordinator
         coordinator.startLocationSubscriptions()
         coordinator.startKeyShareSubscription()
+
+        // Publish followed drivers list so drivers can discover followers
+        if repo.hasDrivers {
+            await coordinator.publishFollowedDriversList()
+        }
     }
 }

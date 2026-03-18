@@ -123,6 +123,7 @@ extension NostrFilter {
     public static func chatMessages(counterpartyPubkey: String, myPubkey: String) -> NostrFilter {
         NostrFilter()
             .kinds([.chatMessage])
+            .authors([counterpartyPubkey])
             .pTags([myPubkey])
     }
 

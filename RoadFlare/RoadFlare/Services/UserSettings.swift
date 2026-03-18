@@ -2,7 +2,7 @@ import Foundation
 import RidestrSDK
 
 /// Persistent user settings backed by UserDefaults.
-@Observable
+@Observable @MainActor
 final class UserSettings {
     private let defaults: UserDefaults
     private static let paymentMethodsKey = "user_payment_methods"

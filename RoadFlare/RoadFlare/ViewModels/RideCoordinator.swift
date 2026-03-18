@@ -46,6 +46,11 @@ final class RideCoordinator {
 
     var currentFareEstimate: FareEstimate?
     var selectedPaymentMethod: PaymentMethod?
+    var pickupLocation: Location?
+    var destinationLocation: Location?
+
+    /// Set of processed PIN action timestamps to prevent replay.
+    private var processedPinActionTimestamps: Set<Int> = []
 
     // MARK: - Error State
 
@@ -200,6 +205,10 @@ final class RideCoordinator {
 
             _ = try await relayManager.publish(offerEvent)
 
+            // Store locations for later use in confirmation and reveal
+            self.pickupLocation = pickup
+            self.destinationLocation = destination
+
             try stateMachine.startRide(
                 offerEventId: offerEvent.id,
                 driverPubkey: driverPubkey,
@@ -250,14 +259,15 @@ final class RideCoordinator {
             // Generate PIN and transition state
             let pin = try stateMachine.handleAcceptance(acceptanceEventId: acceptanceEventId)
 
-            // Auto-confirm: publish Kind 3175 with precise pickup (RoadFlare = always share precise)
-            // Note: pickup stored from sendRideOffer, using approximate for now
+            // Auto-confirm: publish Kind 3175 with precise pickup
+            // RoadFlare rides always share precise pickup immediately (trusted driver)
             let confirmEvent = try await RideshareEventBuilder.rideConfirmation(
                 driverPubkey: driverPubkey,
                 acceptanceEventId: acceptanceEventId,
-                precisePickup: nil,  // TODO: pass actual precise pickup
+                precisePickup: pickupLocation,
                 keypair: keypair
             )
+            stateMachine.markPrecisePickupShared()
             _ = try await relayManager.publish(confirmEvent)
 
             try stateMachine.recordConfirmation(confirmationEventId: confirmEvent.id)
@@ -314,9 +324,13 @@ final class RideCoordinator {
                 driverState: driverState
             )
 
-            // Handle PIN submission from driver
+            // Handle PIN submission from driver (with replay protection)
             if result != nil {
                 for action in driverState.history where action.isPinSubmitAction {
+                    // Deduplicate by action timestamp
+                    guard !processedPinActionTimestamps.contains(action.at) else { continue }
+                    processedPinActionTimestamps.insert(action.at)
+
                     if let pinEncrypted = action.pinEncrypted,
                        let driverPubkey = stateMachine.driverPubkey {
                         await handlePinSubmission(
@@ -348,10 +362,10 @@ final class RideCoordinator {
             let isCorrect = decryptedPin == stateMachine.pin
             stateMachine.recordPinVerification(verified: isCorrect)
 
-            // Publish pin verify action
+            let now = Int(Date.now.timeIntervalSince1970)
             let action = RiderRideAction(
                 type: "pin_verify",
-                at: Int(Date.now.timeIntervalSince1970),
+                at: now,
                 locationType: nil,
                 locationEncrypted: nil,
                 status: isCorrect ? "verified" : "rejected",
@@ -363,11 +377,23 @@ final class RideCoordinator {
                 // 1100ms delay for NIP-33 ordering
                 try await Task.sleep(for: .milliseconds(1100))
 
-                // Reveal precise destination
+                // Reveal precise destination (NIP-44 encrypted to driver)
+                var encryptedDest = ""
+                if let dest = destinationLocation {
+                    encryptedDest = try RideshareEventParser.encryptLocation(
+                        location: dest,
+                        recipientPubkey: driverPubkey,
+                        keypair: keypair
+                    )
+                }
+
                 let destAction = RiderRideAction(
-                    type: "location_reveal", at: Int(Date.now.timeIntervalSince1970),
-                    locationType: "destination", locationEncrypted: "TODO_encrypt",
-                    status: nil, attempt: nil
+                    type: "location_reveal",
+                    at: Int(Date.now.timeIntervalSince1970),
+                    locationType: "destination",
+                    locationEncrypted: encryptedDest,
+                    status: nil,
+                    attempt: nil
                 )
                 stateMachine.addRiderAction(destAction)
                 stateMachine.markPreciseDestinationShared()
@@ -419,6 +445,9 @@ final class RideCoordinator {
         stateMachine.reset()
         chatMessages = []
         currentFareEstimate = nil
+        pickupLocation = nil
+        destinationLocation = nil
+        processedPinActionTimestamps = []
     }
 
     // MARK: - Step 9: Chat (Kind 3178)
