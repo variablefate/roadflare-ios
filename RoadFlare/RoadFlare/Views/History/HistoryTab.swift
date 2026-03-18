@@ -3,21 +3,28 @@ import RidestrSDK
 
 /// History tab: past rides.
 struct HistoryTab: View {
-    // TODO: Wire up to RideHistoryRepository
-    @State private var rides: [RideHistoryEntry] = []
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         NavigationStack {
             Group {
-                if rides.isEmpty {
+                if appState.rideHistory.rides.isEmpty {
                     ContentUnavailableView {
                         Label("No Rides Yet", systemImage: "clock")
                     } description: {
                         Text("Your completed rides will appear here.")
                     }
                 } else {
-                    List(rides) { ride in
-                        RideHistoryRow(ride: ride)
+                    List {
+                        ForEach(appState.rideHistory.rides) { ride in
+                            RideHistoryRow(ride: ride)
+                        }
+                        .onDelete { indexSet in
+                            for index in indexSet {
+                                let ride = appState.rideHistory.rides[index]
+                                appState.rideHistory.removeRide(id: ride.id)
+                            }
+                        }
                     }
                 }
             }
@@ -45,6 +52,12 @@ struct RideHistoryRow: View {
                 Spacer()
                 Text("$\(ride.fare as NSDecimalNumber)")
                     .font(.subheadline.bold())
+            }
+
+            if let name = ride.counterpartyName {
+                Text("Driver: \(name)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let pickup = ride.pickup.address {

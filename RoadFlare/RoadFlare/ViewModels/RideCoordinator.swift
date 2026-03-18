@@ -14,6 +14,7 @@ final class RideCoordinator {
     private let keypair: NostrKeypair
     private let driversRepository: FollowedDriversRepository
     private let settings: UserSettings
+    private let rideHistory: RideHistoryStore
 
     // MARK: - State Machine
 
@@ -57,11 +58,13 @@ final class RideCoordinator {
     var lastError: String?
 
     init(relayManager: RelayManager, keypair: NostrKeypair,
-         driversRepository: FollowedDriversRepository, settings: UserSettings) {
+         driversRepository: FollowedDriversRepository, settings: UserSettings,
+         rideHistory: RideHistoryStore) {
         self.relayManager = relayManager
         self.keypair = keypair
         self.driversRepository = driversRepository
         self.settings = settings
+        self.rideHistory = rideHistory
 
         // Restore persisted ride state if any
         restoreRideState()
@@ -590,8 +593,28 @@ final class RideCoordinator {
     // MARK: - Step 10: Ride Completion
 
     private func handleRideCompletion() async {
-        // TODO: Save to ride history (SwiftData)
-        // For now just clean up subscriptions
+        // Save to ride history
+        if let driverPubkey = stateMachine.driverPubkey,
+           let confirmationId = stateMachine.confirmationEventId {
+            let pickup = pickupLocation ?? Location(latitude: 0, longitude: 0)
+            let destination = destinationLocation ?? Location(latitude: 0, longitude: 0)
+            let entry = RideHistoryEntry(
+                id: confirmationId,
+                date: .now,
+                counterpartyPubkey: driverPubkey,
+                counterpartyName: driversRepository.cachedDriverName(pubkey: driverPubkey),
+                pickupGeohash: ProgressiveReveal.historyGeohash(for: pickup),
+                dropoffGeohash: ProgressiveReveal.historyGeohash(for: destination),
+                pickup: pickup,
+                destination: destination,
+                fare: currentFareEstimate?.fareUSD ?? 0,
+                paymentMethod: selectedPaymentMethod?.rawValue ?? "cash",
+                distance: currentFareEstimate?.distanceMiles,
+                duration: currentFareEstimate.map { Int($0.durationMinutes) }
+            )
+            rideHistory.addRide(entry)
+        }
+
         await cleanupSubscriptions()
     }
 

@@ -9,6 +9,9 @@ struct RideTab: View {
     @State private var selectedDriverPubkey: String?
     @State private var showChat = false
     @State private var showCancelWarning = false
+    @State private var isCalculatingFare = false
+    @State private var fareError: String?
+    private let mapKit = MapKitServices()
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }
@@ -108,16 +111,30 @@ struct RideTab: View {
                                 }
                             }
 
+                            if let error = fareError {
+                                Section {
+                                    Text(error)
+                                        .foregroundStyle(.red)
+                                        .font(.caption)
+                                }
+                            }
+
                             Section {
                                 Button {
                                     sendOffer()
                                 } label: {
-                                    Text("Send RoadFlare Request")
-                                        .font(.headline)
-                                        .frame(maxWidth: .infinity)
+                                    if isCalculatingFare {
+                                        ProgressView()
+                                            .frame(maxWidth: .infinity)
+                                            .padding()
+                                    } else {
+                                        Text("Send RoadFlare Request")
+                                            .font(.headline)
+                                            .frame(maxWidth: .infinity)
+                                    }
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(pickupAddress.isEmpty || destinationAddress.isEmpty || appState.settings.paymentMethods.isEmpty)
+                                .disabled(pickupAddress.isEmpty || destinationAddress.isEmpty || appState.settings.paymentMethods.isEmpty || isCalculatingFare)
                             }
                         }
                     }
@@ -322,27 +339,43 @@ struct RideTab: View {
     // MARK: - Actions
 
     private func sendOffer() {
-        guard let driverPubkey = selectedDriverPubkey else { return }
+        guard let driverPubkey = selectedDriverPubkey,
+              let calculator = appState.fareCalculator else { return }
 
-        // For MVP: use a placeholder fare estimate
-        // TODO: Calculate real fare via MapKit MKDirections
-        let fare = FareEstimate(
-            distanceMiles: 5.0,
-            durationMinutes: 15.0,
-            fareUSD: appState.fareCalculator?.calculateFare(distanceMiles: 5.0) ?? 10.0,
-            routeSummary: nil
-        )
-
-        let pickup = Location(latitude: 0, longitude: 0, address: pickupAddress)
-        let destination = Location(latitude: 0, longitude: 0, address: destinationAddress)
+        isCalculatingFare = true
+        fareError = nil
 
         Task {
-            await coordinator?.sendRideOffer(
-                driverPubkey: driverPubkey,
-                pickup: pickup,
-                destination: destination,
-                fareEstimate: fare
-            )
+            do {
+                // Geocode addresses to coordinates
+                guard let pickup = try await mapKit.geocode(address: pickupAddress) else {
+                    fareError = "Could not find pickup address"
+                    isCalculatingFare = false
+                    return
+                }
+                guard let destination = try await mapKit.geocode(address: destinationAddress) else {
+                    fareError = "Could not find destination address"
+                    isCalculatingFare = false
+                    return
+                }
+
+                // Calculate fare via MapKit route
+                let fare = try await mapKit.estimateFare(
+                    from: pickup, to: destination, calculator: calculator
+                )
+                coordinator?.currentFareEstimate = fare
+
+                // Send the offer
+                await coordinator?.sendRideOffer(
+                    driverPubkey: driverPubkey,
+                    pickup: pickup,
+                    destination: destination,
+                    fareEstimate: fare
+                )
+            } catch {
+                fareError = "Route calculation failed. Check addresses and try again."
+            }
+            isCalculatingFare = false
         }
     }
 }

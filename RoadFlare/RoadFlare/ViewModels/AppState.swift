@@ -26,6 +26,7 @@ final class AppState {
     private(set) var rideCoordinator: RideCoordinator?
     private(set) var fareCalculator: FareCalculator?
     private(set) var remoteConfigManager: RemoteConfigManager?
+    let rideHistory = RideHistoryStore()
 
     // MARK: - User State
 
@@ -108,7 +109,9 @@ final class AppState {
         await relayManager?.disconnect()
         try? await keyManager?.deleteKeys()
         driversRepository?.clearAll()
+        rideHistory.clearAll()
         settings.clearAll()
+        RideStatePersistence.clear()
         keypair = nil
         rideCoordinator = nil
         authState = .loggedOut
@@ -133,7 +136,8 @@ final class AppState {
         // Set up ride coordinator and start background subscriptions
         let coordinator = RideCoordinator(
             relayManager: rm, keypair: keypair,
-            driversRepository: repo, settings: settings
+            driversRepository: repo, settings: settings,
+            rideHistory: rideHistory
         )
         self.rideCoordinator = coordinator
         coordinator.startLocationSubscriptions()
