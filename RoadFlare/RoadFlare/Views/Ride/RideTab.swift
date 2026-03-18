@@ -44,13 +44,9 @@ struct RideTab: View {
                 Button("Cancel Ride", role: .destructive) {
                     Task { await coordinator?.cancelRide(reason: "Cancelled by rider") }
                 }
-                Button("Keep Riding", role: .cancel) {}
+                Button("Go Back", role: .cancel) {}
             } message: {
-                if coordinator?.stateMachine.pinVerified == true {
-                    Text("The driver may have already verified your PIN. Are you sure?")
-                } else {
-                    Text("Your driver has been notified and is on the way.")
-                }
+                Text("Are you sure you want to cancel and close out this ride?")
             }
         }
     }
@@ -213,9 +209,11 @@ struct RideTab: View {
                 .foregroundStyle(.tint)
             Text("Ride in Progress")
                 .font(.title2.bold())
-            Text("Sit back and enjoy the ride.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+
+            // Payment info card
+            paymentInfoCard
+                .padding(.horizontal)
+
             Spacer()
             Button {
                 showChat = true
@@ -241,27 +239,17 @@ struct RideTab: View {
             Text("Ride Complete!")
                 .font(.title2.bold())
 
-            if let fare = coordinator?.currentFareEstimate,
-               let method = coordinator?.selectedPaymentMethod ?? appState.settings.paymentMethods.first {
-                Text("Pay your driver $\(fare.fareUSD) via \(method.displayName)")
-                    .font(.headline)
-                    .foregroundStyle(.tint)
-            } else {
-                Text("Don't forget to pay your driver.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+            paymentInfoCard
+                .padding(.horizontal)
 
             Spacer()
             Button {
-                coordinator?.stateMachine.reset()
-                coordinator?.chatMessages = []
-                coordinator?.currentFareEstimate = nil
+                Task { await coordinator?.cancelRide() }
                 selectedDriverPubkey = nil
                 pickupAddress = ""
                 destinationAddress = ""
             } label: {
-                Text("Done")
+                Label("I've Paid — Close Ride", systemImage: "checkmark.circle")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
@@ -270,6 +258,44 @@ struct RideTab: View {
             .padding(.horizontal)
         }
         .padding()
+    }
+
+    // MARK: - Payment Info Card
+
+    private var paymentInfoCard: some View {
+        VStack(spacing: 12) {
+            if let fare = coordinator?.currentFareEstimate {
+                HStack {
+                    Text("Fare")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("$\(fare.fareUSD)")
+                        .font(.title3.bold())
+                }
+            }
+
+            if !appState.settings.paymentMethods.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Payment Methods")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        ForEach(appState.settings.paymentMethods, id: \.self) { method in
+                            Text(method.displayName)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(.fill.quaternary)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(.fill.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Shared

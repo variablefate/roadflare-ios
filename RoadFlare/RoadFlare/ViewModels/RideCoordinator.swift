@@ -62,6 +62,43 @@ final class RideCoordinator {
         self.keypair = keypair
         self.driversRepository = driversRepository
         self.settings = settings
+
+        // Restore persisted ride state if any
+        restoreRideState()
+    }
+
+    /// Persist current ride state to UserDefaults.
+    func persistRideState() {
+        RideStatePersistence.save(
+            stateMachine: stateMachine,
+            pickupLocation: pickupLocation,
+            destinationLocation: destinationLocation,
+            fareEstimate: currentFareEstimate,
+            paymentMethod: selectedPaymentMethod
+        )
+    }
+
+    /// Restore ride state after app relaunch.
+    private func restoreRideState() {
+        guard let saved = RideStatePersistence.load(),
+              let driverPubkey = saved.driverPubkey,
+              let confirmationId = saved.confirmationEventId else { return }
+
+        // Restore locations
+        if let lat = saved.pickupLat, let lon = saved.pickupLon {
+            pickupLocation = Location(latitude: lat, longitude: lon, address: saved.pickupAddress)
+        }
+        if let lat = saved.destLat, let lon = saved.destLon {
+            destinationLocation = Location(latitude: lat, longitude: lon, address: saved.destAddress)
+        }
+        if let raw = saved.paymentMethodRaw {
+            selectedPaymentMethod = PaymentMethod(rawValue: raw)
+        }
+
+        // Re-subscribe to active ride events
+        subscribeToDriverState(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
+        subscribeToChat(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
+        subscribeToCancellation(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
     }
 
     // MARK: - Step 2: RoadFlare Location Subscription
@@ -271,6 +308,7 @@ final class RideCoordinator {
             _ = try await relayManager.publish(confirmEvent)
 
             try stateMachine.recordConfirmation(confirmationEventId: confirmEvent.id)
+            persistRideState()
 
             // Close acceptance subscription
             if let subId = acceptanceSubscriptionId {
@@ -342,9 +380,13 @@ final class RideCoordinator {
                 }
             }
 
+            // Persist state after every update
+            persistRideState()
+
             // If completed, save to history and clean up
             if stateMachine.stage == .completed {
                 await handleRideCompletion()
+                RideStatePersistence.clear()
             }
         } catch {
             // Invalid state event, skip
@@ -448,6 +490,7 @@ final class RideCoordinator {
         pickupLocation = nil
         destinationLocation = nil
         processedPinActionTimestamps = []
+        RideStatePersistence.clear()
     }
 
     // MARK: - Step 9: Chat (Kind 3178)
