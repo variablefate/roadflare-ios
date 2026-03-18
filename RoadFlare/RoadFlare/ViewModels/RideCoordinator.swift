@@ -111,10 +111,15 @@ final class RideCoordinator {
         let pubkeys = driversRepository.allPubkeys
         guard !pubkeys.isEmpty else { return }
 
+        // Unsubscribe old subscription before creating new one
+        if let oldId = locationSubscriptionId {
+            Task { await relayManager.unsubscribe(oldId) }
+        }
+        locationTask?.cancel()
+
         let subId = SubscriptionID("roadflare-locations")
         locationSubscriptionId = subId
 
-        locationTask?.cancel()
         locationTask = Task {
             do {
                 let filter = NostrFilter.roadflareLocations(driverPubkeys: pubkeys)
@@ -171,10 +176,14 @@ final class RideCoordinator {
 
     /// Subscribe to incoming key shares from drivers.
     func startKeyShareSubscription() {
+        if let oldId = keyShareSubscriptionId {
+            Task { await relayManager.unsubscribe(oldId) }
+        }
+        keyShareTask?.cancel()
+
         let subId = SubscriptionID("key-shares")
         keyShareSubscriptionId = subId
 
-        keyShareTask?.cancel()
         keyShareTask = Task {
             do {
                 let filter = NostrFilter.keyShares(myPubkey: keypair.publicKeyHex)

@@ -11,7 +11,7 @@ struct RideTab: View {
     @State private var showCancelWarning = false
     @State private var isCalculatingFare = false
     @State private var fareError: String?
-    private let mapKit = MapKitServices()
+    @State private var mapKit = MapKitServices()
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }

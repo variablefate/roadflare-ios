@@ -114,6 +114,10 @@ final class AppState {
         RideStatePersistence.clear()
         keypair = nil
         rideCoordinator = nil
+        relayManager = nil
+        driversRepository = nil
+        fareCalculator = nil
+        remoteConfigManager = nil
         authState = .loggedOut
     }
 

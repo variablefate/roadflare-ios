@@ -52,7 +52,7 @@ struct DriverDetailSheet: View {
 
                 Section("Personal Note") {
                     TextField("Add a note about this driver", text: $note)
-                        .onChange(of: note) {
+                        .onSubmit {
                             appState.driversRepository?.updateDriverNote(
                                 driverPubkey: driver.pubkey, note: note
                             )

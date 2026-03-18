@@ -167,17 +167,23 @@ final class PasskeyManager: NSObject,
         Task { @MainActor in
             let passkeyError = PasskeyError.authenticationFailed(error.localizedDescription)
             self.error = error.localizedDescription
-            registrationContinuation?.resume(throwing: passkeyError)
-            registrationContinuation = nil
-            assertionContinuation?.resume(throwing: passkeyError)
-            assertionContinuation = nil
+            // Only resume the continuation that's actually in flight
+            if let cont = registrationContinuation {
+                cont.resume(throwing: passkeyError)
+                registrationContinuation = nil
+            } else if let cont = assertionContinuation {
+                cont.resume(throwing: passkeyError)
+                assertionContinuation = nil
+            }
         }
     }
 
     // MARK: - Presentation
 
     nonisolated func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        ASPresentationAnchor()
+        let scenes = UIApplication.shared.connectedScenes
+        let windowScene = scenes.first as? UIWindowScene
+        return windowScene?.windows.first ?? ASPresentationAnchor()
     }
 }
 
