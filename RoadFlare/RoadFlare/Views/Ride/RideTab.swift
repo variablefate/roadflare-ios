@@ -8,27 +8,27 @@ struct RideTab: View {
     @State private var destinationAddress = ""
     @State private var selectedDriverPubkey: String?
     @State private var showChat = false
+    @State private var showCancelWarning = false
+
+    private var coordinator: RideCoordinator? { appState.rideCoordinator }
+    private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let sm = appState.rideStateMachine {
-                    switch sm.stage {
-                    case .idle:
-                        idleView
-                    case .waitingForAcceptance:
-                        waitingView
-                    case .driverAccepted, .rideConfirmed:
-                        enRouteView(sm: sm)
-                    case .driverArrived:
-                        arrivedView(sm: sm)
-                    case .inProgress:
-                        inProgressView(sm: sm)
-                    case .completed:
-                        completedView(sm: sm)
-                    }
-                } else {
-                    ProgressView()
+                switch stage {
+                case .idle:
+                    idleView
+                case .waitingForAcceptance:
+                    waitingView
+                case .driverAccepted, .rideConfirmed:
+                    enRouteView
+                case .driverArrived:
+                    arrivedView
+                case .inProgress:
+                    inProgressView
+                case .completed:
+                    completedView
                 }
             }
             .navigationTitle("Ride")
@@ -38,16 +38,27 @@ struct RideTab: View {
                 }
             }
             .sheet(isPresented: $showChat) {
-                ChatView()
+                WiredChatView()
+            }
+            .alert("Cancel Ride?", isPresented: $showCancelWarning) {
+                Button("Cancel Ride", role: .destructive) {
+                    Task { await coordinator?.cancelRide(reason: "Cancelled by rider") }
+                }
+                Button("Keep Riding", role: .cancel) {}
+            } message: {
+                if coordinator?.stateMachine.pinVerified == true {
+                    Text("The driver may have already verified your PIN. Are you sure?")
+                } else {
+                    Text("Your driver has been notified and is on the way.")
+                }
             }
         }
     }
 
-    // MARK: - Idle State
+    // MARK: - Idle
 
     private var idleView: some View {
         VStack(spacing: 0) {
-            // Online drivers
             if let repo = appState.driversRepository {
                 let onlineDrivers = repo.drivers.filter { driver in
                     guard driver.hasKey else { return false }
@@ -83,8 +94,22 @@ struct RideTab: View {
                                 TextField("Pickup address", text: $pickupAddress)
                                 TextField("Destination", text: $destinationAddress)
 
-                                // TODO: Fare estimate display
-                                // TODO: Payment method picker
+                                if let fare = coordinator?.currentFareEstimate {
+                                    LabeledContent("Estimated Fare", value: "$\(fare.fareUSD)")
+                                    LabeledContent("Distance", value: String(format: "%.1f mi", fare.distanceMiles))
+                                }
+                            }
+
+                            Section("Payment") {
+                                if !appState.settings.paymentMethods.isEmpty {
+                                    Text("Sending: \(appState.settings.paymentMethods.map(\.displayName).joined(separator: ", "))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text("No payment methods configured")
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
                             }
 
                             Section {
@@ -96,7 +121,7 @@ struct RideTab: View {
                                         .frame(maxWidth: .infinity)
                                 }
                                 .buttonStyle(.borderedProminent)
-                                .disabled(pickupAddress.isEmpty || destinationAddress.isEmpty)
+                                .disabled(pickupAddress.isEmpty || destinationAddress.isEmpty || appState.settings.paymentMethods.isEmpty)
                             }
                         }
                     }
@@ -105,7 +130,7 @@ struct RideTab: View {
         }
     }
 
-    // MARK: - Waiting for Acceptance
+    // MARK: - Waiting
 
     private var waitingView: some View {
         VStack(spacing: 24) {
@@ -119,16 +144,16 @@ struct RideTab: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Cancel Request", role: .destructive) {
-                appState.rideStateMachine?.reset()
+                Task { await coordinator?.cancelRide(reason: "Cancelled before acceptance") }
             }
             .buttonStyle(.bordered)
             .padding()
         }
     }
 
-    // MARK: - Driver En Route
+    // MARK: - En Route
 
-    private func enRouteView(sm: RideStateMachine) -> some View {
+    private var enRouteView: some View {
         VStack(spacing: 24) {
             Spacer()
             Image(systemName: "car.fill")
@@ -142,29 +167,26 @@ struct RideTab: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal)
             Spacer()
-            chatAndCancelButtons
+            rideActionButtons
         }
         .padding()
     }
 
-    // MARK: - Driver Arrived (Show PIN)
+    // MARK: - Arrived (PIN)
 
-    private func arrivedView(sm: RideStateMachine) -> some View {
+    private var arrivedView: some View {
         VStack(spacing: 24) {
             Spacer()
-
             Image(systemName: "mappin.circle.fill")
                 .font(.system(size: 60))
                 .foregroundStyle(.green)
-
             Text("Driver Has Arrived!")
                 .font(.title2.bold())
-
             Text("Show this PIN to your driver:")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            if let pin = sm.pin {
+            if let pin = coordinator?.stateMachine.pin {
                 Text(pin)
                     .font(.system(size: 64, weight: .bold, design: .monospaced))
                     .padding()
@@ -175,16 +197,15 @@ struct RideTab: View {
             Text("The driver will enter this PIN to verify your identity")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-
             Spacer()
-            chatAndCancelButtons
+            rideActionButtons
         }
         .padding()
     }
 
     // MARK: - In Progress
 
-    private func inProgressView(sm: RideStateMachine) -> some View {
+    private var inProgressView: some View {
         VStack(spacing: 24) {
             Spacer()
             Image(systemName: "road.lanes")
@@ -196,7 +217,6 @@ struct RideTab: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
-
             Button {
                 showChat = true
             } label: {
@@ -212,28 +232,31 @@ struct RideTab: View {
 
     // MARK: - Completed
 
-    private func completedView(sm: RideStateMachine) -> some View {
+    private var completedView: some View {
         VStack(spacing: 24) {
             Spacer()
-
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 60))
                 .foregroundStyle(.green)
-
             Text("Ride Complete!")
                 .font(.title2.bold())
 
-            // TODO: Show fare and payment instructions
-            Text("Don't forget to pay your driver via your agreed payment method.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
+            if let fare = coordinator?.currentFareEstimate,
+               let method = coordinator?.selectedPaymentMethod ?? appState.settings.paymentMethods.first {
+                Text("Pay your driver $\(fare.fareUSD) via \(method.displayName)")
+                    .font(.headline)
+                    .foregroundStyle(.tint)
+            } else {
+                Text("Don't forget to pay your driver.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
-
             Button {
-                sm.reset()
+                coordinator?.stateMachine.reset()
+                coordinator?.chatMessages = []
+                coordinator?.currentFareEstimate = nil
                 selectedDriverPubkey = nil
                 pickupAddress = ""
                 destinationAddress = ""
@@ -249,9 +272,9 @@ struct RideTab: View {
         .padding()
     }
 
-    // MARK: - Shared Components
+    // MARK: - Shared
 
-    private var chatAndCancelButtons: some View {
+    private var rideActionButtons: some View {
         VStack(spacing: 12) {
             Button {
                 showChat = true
@@ -263,8 +286,7 @@ struct RideTab: View {
             .buttonStyle(.bordered)
 
             Button("Cancel Ride", role: .destructive) {
-                // TODO: Publish cancellation event, handle safety warning
-                appState.rideStateMachine?.reset()
+                showCancelWarning = true
             }
             .font(.subheadline)
         }
@@ -274,19 +296,27 @@ struct RideTab: View {
     // MARK: - Actions
 
     private func sendOffer() {
-        // TODO: Build ride offer, encrypt, publish via relay
-        // For now, transition state machine for UI testing
-        guard let sm = appState.rideStateMachine,
-              let driverPubkey = selectedDriverPubkey else { return }
-        do {
-            try sm.startRide(
-                offerEventId: "placeholder_offer_id",
+        guard let driverPubkey = selectedDriverPubkey else { return }
+
+        // For MVP: use a placeholder fare estimate
+        // TODO: Calculate real fare via MapKit MKDirections
+        let fare = FareEstimate(
+            distanceMiles: 5.0,
+            durationMinutes: 15.0,
+            fareUSD: appState.fareCalculator?.calculateFare(distanceMiles: 5.0) ?? 10.0,
+            routeSummary: nil
+        )
+
+        let pickup = Location(latitude: 0, longitude: 0, address: pickupAddress)
+        let destination = Location(latitude: 0, longitude: 0, address: destinationAddress)
+
+        Task {
+            await coordinator?.sendRideOffer(
                 driverPubkey: driverPubkey,
-                paymentMethod: .zelle,
-                fiatPaymentMethods: [.zelle, .venmo, .cash]
+                pickup: pickup,
+                destination: destination,
+                fareEstimate: fare
             )
-        } catch {
-            print("Failed to start ride: \(error)")
         }
     }
 }

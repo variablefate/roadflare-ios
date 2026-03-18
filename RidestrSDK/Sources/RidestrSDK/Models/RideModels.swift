@@ -161,6 +161,12 @@ public struct RiderRideAction: Codable, Sendable {
         case locationEncrypted = "location_encrypted"
     }
 
+    public init(type: String, at: Int, locationType: String?, locationEncrypted: String?,
+                status: String?, attempt: Int?) {
+        self.type = type; self.at = at; self.locationType = locationType
+        self.locationEncrypted = locationEncrypted; self.status = status; self.attempt = attempt
+    }
+
     public var isLocationReveal: Bool { type == "location_reveal" }
     public var isPinVerify: Bool { type == "pin_verify" }
     public var isPinVerified: Bool { isPinVerify && status == "verified" }

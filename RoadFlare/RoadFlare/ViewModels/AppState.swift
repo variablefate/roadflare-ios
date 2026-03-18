@@ -23,7 +23,7 @@ final class AppState {
     private(set) var keyManager: KeyManager?
     private(set) var relayManager: RelayManager?
     private(set) var driversRepository: FollowedDriversRepository?
-    private(set) var rideStateMachine: RideStateMachine?
+    private(set) var rideCoordinator: RideCoordinator?
     private(set) var fareCalculator: FareCalculator?
     private(set) var remoteConfigManager: RemoteConfigManager?
 
@@ -35,7 +35,7 @@ final class AppState {
     // MARK: - Storage
 
     private let keychainStorage = KeychainStorage(service: "com.roadflare.keys")
-    private let driversPersistence = InMemoryFollowedDriversPersistence()  // TODO: UserDefaults persistence
+    private let driversPersistence = UserDefaultsDriversPersistence()
 
     // MARK: - Init
 
@@ -104,12 +104,13 @@ final class AppState {
 
     /// Log out: clear all data.
     func logout() async {
+        await rideCoordinator?.stopAll()
         await relayManager?.disconnect()
         try? await keyManager?.deleteKeys()
         driversRepository?.clearAll()
-        rideStateMachine?.reset()
         settings.clearAll()
         keypair = nil
+        rideCoordinator = nil
         authState = .loggedOut
     }
 
@@ -118,8 +119,8 @@ final class AppState {
     private func setupServices(keypair: NostrKeypair) async {
         let rm = RelayManager(keypair: keypair)
         self.relayManager = rm
-        self.driversRepository = FollowedDriversRepository(persistence: driversPersistence)
-        self.rideStateMachine = RideStateMachine()
+        let repo = FollowedDriversRepository(persistence: driversPersistence)
+        self.driversRepository = repo
         self.fareCalculator = FareCalculator()
         self.remoteConfigManager = RemoteConfigManager(relayManager: rm)
 
@@ -128,5 +129,14 @@ final class AppState {
         } catch {
             print("Failed to connect to relays: \(error)")
         }
+
+        // Set up ride coordinator and start background subscriptions
+        let coordinator = RideCoordinator(
+            relayManager: rm, keypair: keypair,
+            driversRepository: repo, settings: settings
+        )
+        self.rideCoordinator = coordinator
+        coordinator.startLocationSubscriptions()
+        coordinator.startKeyShareSubscription()
     }
 }

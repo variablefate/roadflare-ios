@@ -6,8 +6,8 @@ struct SettingsTab: View {
     @Environment(AppState.self) private var appState
     @State private var showKeyBackup = false
     @State private var showLogoutConfirm = false
-    @State private var savedToPasswords = false
-    @State private var saveError: String?
+    @State private var showShareSheet = false
+    @State private var shareText = ""
 
     var body: some View {
         NavigationStack {
@@ -36,27 +36,17 @@ struct SettingsTab: View {
                         .listRowBackground(Color.clear)
                 }
 
-                Section("Security") {
+                Section("Key Backup") {
                     Button {
                         showKeyBackup = true
                     } label: {
-                        Label("Back Up Private Key", systemImage: "key")
+                        Label("View & Copy Private Key", systemImage: "key")
                     }
 
                     Button {
-                        saveToApplePasswords()
+                        shareKey()
                     } label: {
-                        Label(
-                            savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords",
-                            systemImage: savedToPasswords ? "checkmark.shield" : "lock.shield"
-                        )
-                    }
-                    .disabled(savedToPasswords)
-
-                    if let error = saveError {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.red)
+                        Label("Share Key via...", systemImage: "square.and.arrow.up")
                     }
                 }
 
@@ -80,6 +70,11 @@ struct SettingsTab: View {
             .sheet(isPresented: $showKeyBackup) {
                 NsecBackupSheet()
             }
+            .sheet(isPresented: $showShareSheet) {
+                if !shareText.isEmpty {
+                    ShareSheet(items: [shareText])
+                }
+            }
             .alert("Log Out?", isPresented: $showLogoutConfirm) {
                 Button("Log Out", role: .destructive) {
                     Task { await appState.logout() }
@@ -91,39 +86,11 @@ struct SettingsTab: View {
         }
     }
 
-    private func saveToApplePasswords() {
-        guard let nsec = try? appState.keyManager?.exportNsec(),
-              let npub = appState.keypair?.npub else {
-            saveError = "No key to save"
-            return
-        }
-
-        guard let data = nsec.data(using: .utf8) else {
-            saveError = "Failed to encode key"
-            return
-        }
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassInternetPassword,
-            kSecAttrServer as String: "ridestr.app",
-            kSecAttrAccount as String: npub,
-            kSecValueData as String: data,
-            kSecAttrLabel as String: "RoadFlare Nostr Key",
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked,
-        ]
-
-        // Delete existing
-        SecItemDelete([
-            kSecClass as String: kSecClassInternetPassword,
-            kSecAttrServer as String: "ridestr.app",
-        ] as CFDictionary)
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status == errSecSuccess {
-            savedToPasswords = true
-            saveError = nil
-        } else {
-            saveError = "Could not save (error \(status)). Try the manual backup instead."
+    private func shareKey() {
+        Task {
+            guard let nsec = try? await appState.keyManager?.exportNsec() else { return }
+            shareText = nsec
+            showShareSheet = true
         }
     }
 }

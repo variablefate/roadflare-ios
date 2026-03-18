@@ -1,38 +1,48 @@
 import SwiftUI
 
-/// In-ride chat view.
-struct ChatView: View {
+/// In-ride chat view wired to the RideCoordinator.
+struct WiredChatView: View {
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var messageText = ""
-    @State private var messages: [(id: String, text: String, isMine: Bool)] = []
+
+    private var coordinator: RideCoordinator? { appState.rideCoordinator }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                if messages.isEmpty {
+                if let messages = coordinator?.chatMessages, !messages.isEmpty {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(spacing: 8) {
+                                ForEach(messages, id: \.id) { msg in
+                                    HStack {
+                                        if msg.isMine { Spacer() }
+                                        Text(msg.text)
+                                            .padding(.horizontal, 12)
+                                            .padding(.vertical, 8)
+                                            .background(msg.isMine ? Color.accentColor : Color(.systemGray5))
+                                            .foregroundStyle(msg.isMine ? .white : .primary)
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                        if !msg.isMine { Spacer() }
+                                    }
+                                    .padding(.horizontal)
+                                    .id(msg.id)
+                                }
+                            }
+                            .padding(.vertical)
+                        }
+                        .onChange(of: coordinator?.chatMessages.count) {
+                            if let lastId = coordinator?.chatMessages.last?.id {
+                                proxy.scrollTo(lastId, anchor: .bottom)
+                            }
+                        }
+                    }
+                } else {
                     ContentUnavailableView {
                         Label("No Messages", systemImage: "message")
                     } description: {
                         Text("Send a message to your driver")
-                    }
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(messages, id: \.id) { msg in
-                                HStack {
-                                    if msg.isMine { Spacer() }
-                                    Text(msg.text)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(msg.isMine ? Color.accentColor : Color(.systemGray5))
-                                        .foregroundStyle(msg.isMine ? .white : .primary)
-                                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                                    if !msg.isMine { Spacer() }
-                                }
-                                .padding(.horizontal)
-                            }
-                        }
-                        .padding(.vertical)
                     }
                 }
 
@@ -64,8 +74,9 @@ struct ChatView: View {
     private func sendMessage() {
         let text = messageText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
-        messages.append((id: UUID().uuidString, text: text, isMine: true))
         messageText = ""
-        // TODO: Publish Kind 3178 chat event via relay
+        Task {
+            await coordinator?.sendChatMessage(text)
+        }
     }
 }

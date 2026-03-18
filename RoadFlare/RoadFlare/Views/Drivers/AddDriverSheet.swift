@@ -143,6 +143,12 @@ struct AddDriverSheet: View {
             note: noteInput.isEmpty ? nil : noteInput
         )
         appState.driversRepository?.addDriver(driver)
+
+        // Publish updated Kind 30011 so driver can discover this follower
+        Task {
+            await appState.rideCoordinator?.publishFollowedDriversList()
+        }
+
         dismiss()
     }
 }
