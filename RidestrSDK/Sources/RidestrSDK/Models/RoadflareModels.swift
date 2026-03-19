@@ -8,7 +8,7 @@ public struct RoadflareKey: Codable, Sendable {
     public let privateKeyHex: String
     public let publicKeyHex: String
     public let version: Int
-    public let keyUpdatedAt: Int  // unix timestamp
+    public let keyUpdatedAt: Int?  // unix timestamp, optional (Android omits if <= 0)
 
     enum CodingKeys: String, CodingKey {
         case privateKeyHex = "privateKey"
@@ -17,7 +17,7 @@ public struct RoadflareKey: Codable, Sendable {
         case keyUpdatedAt
     }
 
-    public init(privateKeyHex: String, publicKeyHex: String, version: Int, keyUpdatedAt: Int) {
+    public init(privateKeyHex: String, publicKeyHex: String, version: Int, keyUpdatedAt: Int? = nil) {
         self.privateKeyHex = privateKeyHex
         self.publicKeyHex = publicKeyHex
         self.version = version

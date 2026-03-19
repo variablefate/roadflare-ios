@@ -57,6 +57,29 @@ public final class RideStateMachine: @unchecked Sendable {
 
     public init() {}
 
+    /// Restore state machine from persisted data after app relaunch.
+    public func restore(
+        stage: RiderStage,
+        offerEventId: String?,
+        acceptanceEventId: String?,
+        confirmationEventId: String?,
+        driverPubkey: String?,
+        pin: String?,
+        pinVerified: Bool,
+        paymentMethod: PaymentMethod?,
+        fiatPaymentMethods: [PaymentMethod]
+    ) {
+        self.stage = stage
+        self.offerEventId = offerEventId
+        self.acceptanceEventId = acceptanceEventId
+        self.confirmationEventId = confirmationEventId
+        self.driverPubkey = driverPubkey
+        self.pin = pin
+        self.pinVerified = pinVerified
+        self.paymentMethod = paymentMethod
+        self.fiatPaymentMethods = fiatPaymentMethods
+    }
+
     // MARK: - State Transitions
 
     /// Transition to a new stage. Throws if the transition is invalid.

@@ -249,6 +249,52 @@ struct RideStateMachineTests {
         }
     }
 
+    @Test func restoreFromPersistence() throws {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .driverArrived,
+            offerEventId: "offer1",
+            acceptanceEventId: "acc1",
+            confirmationEventId: "conf1",
+            driverPubkey: "driver_pub",
+            pin: "4321",
+            pinVerified: false,
+            paymentMethod: .zelle,
+            fiatPaymentMethods: [.zelle, .venmo]
+        )
+
+        #expect(sm.stage == .driverArrived)
+        #expect(sm.pin == "4321")
+        #expect(sm.confirmationEventId == "conf1")
+        #expect(sm.driverPubkey == "driver_pub")
+        #expect(!sm.pinVerified)
+        #expect(sm.paymentMethod == .zelle)
+        #expect(sm.fiatPaymentMethods == [.zelle, .venmo])
+
+        // Should be able to process driver state events after restore
+        let state = DriverRideStateContent(currentStatus: "in_progress", history: [])
+        let result = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: state)
+        #expect(result == "in_progress")
+        #expect(sm.stage == .inProgress)
+    }
+
+    @Test func restoreWithPinThenVerify() throws {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .driverArrived,
+            offerEventId: "o1", acceptanceEventId: "a1",
+            confirmationEventId: "c1", driverPubkey: "d1",
+            pin: "5678", pinVerified: false,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+
+        // PIN should survive restore and be verifiable
+        #expect(sm.pin == "5678")
+        sm.recordPinVerification(verified: true)
+        #expect(sm.pinVerified)
+        #expect(sm.pinAttempts == 1)
+    }
+
     @Test func rapidDriverStateTransitions() throws {
         let sm = RideStateMachine()
         try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: [])

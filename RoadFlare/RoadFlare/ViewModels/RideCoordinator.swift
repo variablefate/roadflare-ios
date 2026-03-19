@@ -86,7 +86,23 @@ final class RideCoordinator {
     private func restoreRideState() {
         guard let saved = RideStatePersistence.load(),
               let driverPubkey = saved.driverPubkey,
-              let confirmationId = saved.confirmationEventId else { return }
+              let confirmationId = saved.confirmationEventId,
+              let restoredStage = RiderStage(rawValue: saved.stage) else { return }
+
+        print("[RideCoordinator] Restoring ride: stage=\(saved.stage), driver=\(driverPubkey.prefix(8)), conf=\(confirmationId.prefix(8))")
+
+        // Restore state machine with all persisted fields
+        stateMachine.restore(
+            stage: restoredStage,
+            offerEventId: saved.offerEventId,
+            acceptanceEventId: saved.acceptanceEventId,
+            confirmationEventId: confirmationId,
+            driverPubkey: driverPubkey,
+            pin: saved.pin,
+            pinVerified: saved.pinVerified,
+            paymentMethod: saved.paymentMethodRaw.flatMap { PaymentMethod(rawValue: $0) },
+            fiatPaymentMethods: saved.fiatPaymentMethodsRaw.compactMap { PaymentMethod(rawValue: $0) }
+        )
 
         // Restore locations
         if let lat = saved.pickupLat, let lon = saved.pickupLon {
@@ -98,11 +114,15 @@ final class RideCoordinator {
         if let raw = saved.paymentMethodRaw {
             selectedPaymentMethod = PaymentMethod(rawValue: raw)
         }
+        if let fareStr = saved.fareUSD, let fareDecimal = Decimal(string: fareStr) {
+            currentFareEstimate = FareEstimate(distanceMiles: 0, durationMinutes: 0, fareUSD: fareDecimal)
+        }
 
         // Re-subscribe to active ride events
         subscribeToDriverState(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
         subscribeToChat(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
         subscribeToCancellation(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
+        print("[RideCoordinator] Ride restored successfully at stage: \(restoredStage.rawValue)")
     }
 
     // MARK: - Step 2: RoadFlare Location Subscription
