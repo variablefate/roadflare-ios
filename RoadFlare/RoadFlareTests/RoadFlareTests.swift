@@ -181,4 +181,142 @@ struct UserDefaultsDriversPersistenceTests {
         #expect(p.loadDrivers().isEmpty)
         #expect(p.loadDriverNames().isEmpty)
     }
+
+    @Test func overwriteDrivers() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let p = UserDefaultsDriversPersistence(defaults: defaults)
+        p.saveDrivers([FollowedDriver(pubkey: "d1")])
+        p.saveDrivers([FollowedDriver(pubkey: "d2"), FollowedDriver(pubkey: "d3")])
+        let loaded = p.loadDrivers()
+        #expect(loaded.count == 2)
+        #expect(loaded[0].pubkey == "d2")
+    }
+
+    @Test func driverWithAllFields() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let p = UserDefaultsDriversPersistence(defaults: defaults)
+        let driver = FollowedDriver(
+            pubkey: "d1", addedAt: 1700000000, name: "Alice", note: "Toyota",
+            roadflareKey: RoadflareKey(privateKeyHex: "aa", publicKeyHex: "bb", version: 3, keyUpdatedAt: 1700000000)
+        )
+        p.saveDrivers([driver])
+        let loaded = p.loadDrivers()
+        #expect(loaded[0].note == "Toyota")
+        #expect(loaded[0].roadflareKey?.version == 3)
+        #expect(loaded[0].roadflareKey?.keyUpdatedAt == 1700000000)
+    }
+}
+
+// MARK: - RideStatePersistence Tests
+
+@Suite("RideStatePersistence Tests", .serialized)
+struct RideStatePersistenceTests {
+    init() { RideStatePersistence.clear() }
+
+    private func setupAndSave(stage: RiderStage, pin: String? = "1234", confirmationId: String? = "conf1") {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: stage, offerEventId: "o1", acceptanceEventId: "a1",
+            confirmationEventId: confirmationId, driverPubkey: "d1",
+            pin: pin, pinVerified: false,
+            paymentMethod: .zelle, fiatPaymentMethods: [.zelle, .venmo]
+        )
+        RideStatePersistence.save(
+            stateMachine: sm,
+            pickupLocation: Location(latitude: 40.71, longitude: -74.01, address: "Penn Station"),
+            destinationLocation: Location(latitude: 40.76, longitude: -73.98, address: "Central Park"),
+            fareEstimate: FareEstimate(distanceMiles: 5.5, durationMinutes: 18, fareUSD: 12.50),
+            paymentMethod: .zelle
+        )
+    }
+
+    @Test func saveAndLoad() {
+        setupAndSave(stage: .rideConfirmed)
+        let loaded = RideStatePersistence.load()
+        #expect(loaded != nil)
+        #expect(loaded?.stage == "rideConfirmed")
+        #expect(loaded?.pin == "1234")
+        #expect(loaded?.driverPubkey == "d1")
+        #expect(loaded?.confirmationEventId == "conf1")
+        #expect(loaded?.pickupLat == 40.71)
+        #expect(loaded?.pickupAddress == "Penn Station")
+        #expect(loaded?.destLat == 40.76)
+        #expect(loaded?.destAddress == "Central Park")
+        #expect(loaded?.fareUSD == "12.5")
+        #expect(loaded?.paymentMethodRaw == "zelle")
+        #expect(loaded?.fiatPaymentMethodsRaw == ["zelle", "venmo"])
+        RideStatePersistence.clear()
+    }
+
+    @Test func loadReturnsNilWhenEmpty() {
+        RideStatePersistence.clear()
+        #expect(RideStatePersistence.load() == nil)
+    }
+
+    @Test func loadIgnoresIdle() {
+        setupAndSave(stage: .idle)
+        #expect(RideStatePersistence.load() == nil)
+        RideStatePersistence.clear()
+    }
+
+    @Test func loadIgnoresCompleted() {
+        setupAndSave(stage: .completed)
+        #expect(RideStatePersistence.load() == nil)
+        RideStatePersistence.clear()
+    }
+
+    @Test func loadAcceptsWaitingForAcceptance() {
+        setupAndSave(stage: .waitingForAcceptance)
+        #expect(RideStatePersistence.load()?.stage == "waitingForAcceptance")
+        RideStatePersistence.clear()
+    }
+
+    @Test func loadAcceptsDriverAccepted() {
+        setupAndSave(stage: .driverAccepted)
+        #expect(RideStatePersistence.load()?.stage == "driverAccepted")
+        RideStatePersistence.clear()
+    }
+
+    @Test func loadAcceptsDriverArrived() {
+        setupAndSave(stage: .driverArrived)
+        #expect(RideStatePersistence.load()?.stage == "driverArrived")
+        RideStatePersistence.clear()
+    }
+
+    @Test func loadAcceptsInProgress() {
+        setupAndSave(stage: .inProgress)
+        #expect(RideStatePersistence.load()?.stage == "inProgress")
+        RideStatePersistence.clear()
+    }
+
+    @Test func clearRemovesData() {
+        setupAndSave(stage: .rideConfirmed)
+        #expect(RideStatePersistence.load() != nil)
+        RideStatePersistence.clear()
+        #expect(RideStatePersistence.load() == nil)
+    }
+
+    @Test func saveWithoutLocations() {
+        let sm = RideStateMachine()
+        sm.restore(stage: .waitingForAcceptance, offerEventId: "o1", acceptanceEventId: nil,
+                   confirmationEventId: nil, driverPubkey: "d1", pin: nil,
+                   pinVerified: false, paymentMethod: nil, fiatPaymentMethods: [])
+        RideStatePersistence.save(
+            stateMachine: sm,
+            pickupLocation: nil, destinationLocation: nil,
+            fareEstimate: nil, paymentMethod: nil
+        )
+        let loaded = RideStatePersistence.load()
+        #expect(loaded?.pickupLat == nil)
+        #expect(loaded?.destLat == nil)
+        #expect(loaded?.fareUSD == nil)
+        RideStatePersistence.clear()
+    }
+
+    @Test func pinSurvivesPersistence() {
+        setupAndSave(stage: .driverArrived, pin: "5678")
+        let loaded = RideStatePersistence.load()
+        #expect(loaded?.pin == "5678")
+        RideStatePersistence.clear()
+    }
 }
