@@ -480,12 +480,34 @@ struct RideCoordinatorTests {
         #expect(locSubs.isEmpty)  // No subscription when no drivers
     }
 
+    // MARK: - handleAcceptance Full Side Effects
+
     @MainActor
-    @Test func cancelRideUnsubscribesFromAllRideEvents() async throws {
+    @Test func handleAcceptancePublishesConfirmationWithPrecisePickup() async throws {
         let (coordinator, fake, _) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
 
-        // Setup a confirmed ride (creates subscriptions)
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: .zelle, fiatPaymentMethods: [.zelle]
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71234, longitude: -74.00567, address: "Penn Station")
+
+        await coordinator.handleAcceptance(acceptanceEventId: "acc1", driverPubkey: driver.publicKeyHex)
+
+        let confs = fake.publishedEvents.filter { $0.kind == EventKind.rideConfirmation.rawValue }
+        #expect(confs.count == 1)
+        #expect(coordinator.stateMachine.precisePickupShared)
+        #expect(coordinator.stateMachine.stage == .rideConfirmed)
+        #expect(coordinator.stateMachine.pin != nil)
+        #expect(coordinator.stateMachine.pin?.count == 4)
+    }
+
+    @MainActor
+    @Test func handleAcceptancePersistsState() async throws {
+        let (coordinator, _, _) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
         try coordinator.stateMachine.startRide(
             offerEventId: "o1", driverPubkey: driver.publicKeyHex,
             paymentMethod: nil, fiatPaymentMethods: []
@@ -493,12 +515,244 @@ struct RideCoordinatorTests {
         coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
         await coordinator.handleAcceptance(acceptanceEventId: "acc1", driverPubkey: driver.publicKeyHex)
 
-        let subsBeforeCancel = fake.subscribeCalls.count
+        let loaded = RideStatePersistence.load()
+        #expect(loaded?.stage == "rideConfirmed")
+        #expect(loaded?.pin != nil)
+        #expect(loaded?.driverPubkey == driver.publicKeyHex)
+        RideStatePersistence.clear()
+    }
+
+    // MARK: - handleDriverStateEvent Full Side Effects
+
+    @MainActor
+    @Test func handleDriverStateArrivedTransitionsStage() async throws {
+        let (coordinator, _, riderKeypair) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+        _ = try coordinator.stateMachine.handleAcceptance(acceptanceEventId: "acc1")
+        try coordinator.stateMachine.recordConfirmation(confirmationEventId: "conf1")
+
+        let stateJSON = """
+        {"current_status":"arrived","history":[{"action":"status","at":100,"status":"arrived","approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null}]}
+        """
+        let encrypted = try NIP44.encrypt(
+            plaintext: stateJSON,
+            senderPrivateKeyHex: driver.privateKeyHex,
+            recipientPublicKeyHex: riderKeypair.publicKeyHex
+        )
+        let event = NostrEvent(
+            id: "ds1", pubkey: driver.publicKeyHex,
+            createdAt: Int(Date.now.timeIntervalSince1970),
+            kind: EventKind.driverRideState.rawValue,
+            tags: [["d", "conf1"]], content: encrypted, sig: "sig"
+        )
+
+        await coordinator.handleDriverStateEvent(event, confirmationEventId: "conf1")
+        #expect(coordinator.stateMachine.stage == .driverArrived)
+    }
+
+    @MainActor
+    @Test func handleDriverStateDeduplicate() async throws {
+        let (coordinator, _, riderKeypair) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+        _ = try coordinator.stateMachine.handleAcceptance(acceptanceEventId: "acc1")
+        try coordinator.stateMachine.recordConfirmation(confirmationEventId: "conf1")
+
+        let encrypted = try NIP44.encrypt(
+            plaintext: "{\"current_status\":\"arrived\",\"history\":[]}",
+            senderPrivateKeyHex: driver.privateKeyHex,
+            recipientPublicKeyHex: riderKeypair.publicKeyHex
+        )
+        let event = NostrEvent(
+            id: "ds_same", pubkey: driver.publicKeyHex,
+            createdAt: Int(Date.now.timeIntervalSince1970),
+            kind: EventKind.driverRideState.rawValue,
+            tags: [["d", "conf1"]], content: encrypted, sig: "sig"
+        )
+
+        await coordinator.handleDriverStateEvent(event, confirmationEventId: "conf1")
+        await coordinator.handleDriverStateEvent(event, confirmationEventId: "conf1")
+        #expect(coordinator.stateMachine.stage == .driverArrived)
+    }
+
+    // MARK: - handlePinSubmission Full Side Effects
+
+    @MainActor
+    @Test func handlePinCorrectPublishesVerifiedAndRevealsDestination() async throws {
+        let (coordinator, fake, riderKeypair) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        coordinator.stateMachine.restore(
+            stage: .driverArrived, offerEventId: "o1", acceptanceEventId: "a1",
+            confirmationEventId: "conf1", driverPubkey: driver.publicKeyHex,
+            pin: "1234", pinVerified: false,
+            paymentMethod: .zelle, fiatPaymentMethods: [.zelle]
+        )
+        coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98)
+
+        let encryptedPin = try NIP44.encrypt(
+            plaintext: "1234",
+            senderPrivateKeyHex: driver.privateKeyHex,
+            recipientPublicKeyHex: riderKeypair.publicKeyHex
+        )
+
+        await coordinator.handlePinSubmission(
+            pinEncrypted: encryptedPin,
+            driverPubkey: driver.publicKeyHex,
+            confirmationEventId: "conf1"
+        )
+
+        #expect(coordinator.stateMachine.pinVerified)
+        #expect(coordinator.stateMachine.preciseDestinationShared)
+        let riderStates = fake.publishedEvents.filter { $0.kind == EventKind.riderRideState.rawValue }
+        #expect(riderStates.count == 1)
+        #expect(coordinator.stateMachine.riderStateHistory.count == 2)
+    }
+
+    @MainActor
+    @Test func handlePinWrongDoesNotRevealDestination() async throws {
+        let (coordinator, fake, riderKeypair) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        coordinator.stateMachine.restore(
+            stage: .driverArrived, offerEventId: "o1", acceptanceEventId: "a1",
+            confirmationEventId: "conf1", driverPubkey: driver.publicKeyHex,
+            pin: "1234", pinVerified: false,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+
+        let encryptedPin = try NIP44.encrypt(
+            plaintext: "9999",
+            senderPrivateKeyHex: driver.privateKeyHex,
+            recipientPublicKeyHex: riderKeypair.publicKeyHex
+        )
+
+        await coordinator.handlePinSubmission(
+            pinEncrypted: encryptedPin,
+            driverPubkey: driver.publicKeyHex,
+            confirmationEventId: "conf1"
+        )
+
+        #expect(!coordinator.stateMachine.pinVerified)
+        #expect(!coordinator.stateMachine.preciseDestinationShared)
+        #expect(coordinator.stateMachine.riderStateHistory.count == 1)
+        #expect(coordinator.stateMachine.riderStateHistory[0].status == "rejected")
+    }
+
+    @MainActor
+    @Test func handlePinMaxAttemptsAutoCancels() async throws {
+        let (coordinator, fake, riderKeypair) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        coordinator.stateMachine.restore(
+            stage: .driverArrived, offerEventId: "o1", acceptanceEventId: "a1",
+            confirmationEventId: "conf1", driverPubkey: driver.publicKeyHex,
+            pin: "1234", pinVerified: false,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+
+        for i in 0..<RideConstants.maxPinAttempts {
+            let encryptedPin = try NIP44.encrypt(
+                plaintext: "000\(i)",
+                senderPrivateKeyHex: driver.privateKeyHex,
+                recipientPublicKeyHex: riderKeypair.publicKeyHex
+            )
+            await coordinator.handlePinSubmission(
+                pinEncrypted: encryptedPin,
+                driverPubkey: driver.publicKeyHex,
+                confirmationEventId: "conf1"
+            )
+        }
+
+        #expect(coordinator.stateMachine.stage == .idle)
+        let cancels = fake.publishedEvents.filter { $0.kind == EventKind.cancellation.rawValue }
+        #expect(cancels.count == 1)
+    }
+
+    // MARK: - sendRideOffer Guards
+
+    @MainActor
+    @Test func sendRideOfferRejectsWhenNotIdle() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: "d1",
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
         fake.resetRecording()
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5.0, durationMinutes: 15, fareUSD: 10.0)
+        )
+        let offers = fake.publishedEvents.filter { $0.kind == EventKind.rideOffer.rawValue }
+        #expect(offers.isEmpty)
+    }
+
+    // MARK: - cancelRide Edge Cases
+
+    @MainActor
+    @Test func cancelRideWithoutDriverJustResets() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+        await coordinator.cancelRide(reason: "test")
+        #expect(fake.publishedEvents.isEmpty)
+        #expect(coordinator.stateMachine.stage == .idle)
+    }
+
+    @MainActor
+    @Test func cancelRideClearsAllRideData() async throws {
+        let (coordinator, _, _) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: .zelle, fiatPaymentMethods: [.zelle]
+        )
+        _ = try coordinator.stateMachine.handleAcceptance(acceptanceEventId: "acc1")
+        try coordinator.stateMachine.recordConfirmation(confirmationEventId: "conf1")
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
+        coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98)
+        coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5.0, durationMinutes: 15, fareUSD: 10.0)
 
         await coordinator.cancelRide(reason: "test")
 
-        // Should have unsubscribed from driver state, chat, and cancellation
+        #expect(coordinator.stateMachine.stage == .idle)
+        #expect(coordinator.stateMachine.pin == nil)
+        #expect(coordinator.stateMachine.confirmationEventId == nil)
+        #expect(coordinator.pickupLocation == nil)
+        #expect(coordinator.destinationLocation == nil)
+        #expect(coordinator.currentFareEstimate == nil)
+        #expect(coordinator.chat.chatMessages.isEmpty)
+    }
+
+    // MARK: - Subscription Wiring Verification
+
+    @MainActor
+    @Test func cancelRideUnsubscribesFromAllRideEvents() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
+        await coordinator.handleAcceptance(acceptanceEventId: "acc1", driverPubkey: driver.publicKeyHex)
+
+        fake.resetRecording()
+        await coordinator.cancelRide(reason: "test")
+
         #expect(fake.unsubscribeCalls.count >= 3)
     }
 }
