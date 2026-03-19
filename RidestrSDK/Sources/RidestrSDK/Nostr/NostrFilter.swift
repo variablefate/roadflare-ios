@@ -132,6 +132,7 @@ extension NostrFilter {
         NostrFilter()
             .kinds([.roadflareLocation])
             .authors(driverPubkeys)
+            .dTags(["roadflare-location"])
             .limit(UInt32(driverPubkeys.count))
     }
 

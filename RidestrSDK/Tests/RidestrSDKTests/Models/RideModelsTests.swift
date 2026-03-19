@@ -75,9 +75,9 @@ struct RideModelsTests {
 
     @Test func driverRideStateCodable() throws {
         let json = """
-        {"current_status":"arrived","history":[{"type":"status","at":1700000000,"status":"en_route_pickup",\
+        {"current_status":"arrived","history":[{"action":"status","at":1700000000,"status":"en_route_pickup",\
         "approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null},\
-        {"type":"status","at":1700000100,"status":"arrived","approx_location":null,\
+        {"action":"status","at":1700000100,"status":"arrived","approx_location":null,\
         "final_fare":null,"invoice":null,"pin_encrypted":null}]}
         """.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(DriverRideStateContent.self, from: json)
@@ -89,7 +89,7 @@ struct RideModelsTests {
 
     @Test func driverRideActionPinSubmit() throws {
         let json = """
-        {"type":"pin_submit","at":1700000000,"status":null,"approx_location":null,\
+        {"action":"pin_submit","at":1700000000,"status":null,"approx_location":null,\
         "final_fare":null,"invoice":null,"pin_encrypted":"encrypted_pin_data"}
         """.data(using: .utf8)!
         let action = try JSONDecoder().decode(DriverRideAction.self, from: json)
@@ -103,8 +103,8 @@ struct RideModelsTests {
     @Test func riderRideStateCodable() throws {
         let json = """
         {"current_phase":"verified","history":[\
-        {"type":"location_reveal","at":1700000000,"location_type":"pickup","location_encrypted":"enc_loc","status":null,"attempt":null},\
-        {"type":"pin_verify","at":1700000100,"location_type":null,"location_encrypted":null,"status":"verified","attempt":1}]}
+        {"action":"location_reveal","at":1700000000,"location_type":"pickup","location_encrypted":"enc_loc","status":null,"attempt":null},\
+        {"action":"pin_verify","at":1700000100,"location_type":null,"location_encrypted":null,"status":"verified","attempt":1}]}
         """.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(RiderRideStateContent.self, from: json)
         #expect(decoded.currentPhase == "verified")
@@ -118,7 +118,7 @@ struct RideModelsTests {
 
     @Test func riderRideActionPinRejected() throws {
         let json = """
-        {"type":"pin_verify","at":1700000000,"location_type":null,"location_encrypted":null,"status":"rejected","attempt":2}
+        {"action":"pin_verify","at":1700000000,"location_type":null,"location_encrypted":null,"status":"rejected","attempt":2}
         """.data(using: .utf8)!
         let action = try JSONDecoder().decode(RiderRideAction.self, from: json)
         #expect(action.isPinVerify)

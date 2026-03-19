@@ -254,12 +254,44 @@ struct ErrorPathTests {
         #expect(dict["currentStatus"] == nil)
     }
 
+    @Test func driverRideActionUsesActionFieldName() throws {
+        let json = """
+        {"action":"pin_submit","at":1700000000,"status":null,"approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":"enc_pin"}
+        """.data(using: .utf8)!
+        let action = try JSONDecoder().decode(DriverRideAction.self, from: json)
+        #expect(action.isPinSubmitAction)
+        #expect(action.pinEncrypted == "enc_pin")
+
+        // Verify we encode back as "action" not "type"
+        let reencoded = try JSONEncoder().encode(action)
+        let dict = try JSONSerialization.jsonObject(with: reencoded) as! [String: Any]
+        #expect(dict["action"] != nil)
+        #expect(dict["type"] == nil)
+    }
+
+    @Test func riderRideActionUsesActionFieldName() throws {
+        let action = RiderRideAction(type: "pin_verify", at: 1700000000, locationType: nil, locationEncrypted: nil, status: "verified", attempt: 1)
+        let data = try JSONEncoder().encode(action)
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(dict["action"] != nil)
+        #expect(dict["type"] == nil)
+        #expect(dict["action"] as? String == "pin_verify")
+    }
+
     @Test func riderRideStateContentFieldNames() throws {
         let state = RiderRideStateContent(currentPhase: "verified", history: [])
         let data = try JSONEncoder().encode(state)
         let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         #expect(dict["current_phase"] != nil)
         #expect(dict["currentPhase"] == nil)
+    }
+
+    @Test func cancellationContentIncludesStatus() throws {
+        let cancel = CancellationContent(reason: "Changed plans")
+        let data = try JSONEncoder().encode(cancel)
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(dict["status"] as? String == "cancelled")
+        #expect(dict["reason"] as? String == "Changed plans")
     }
 
     @Test func locationFieldNames() throws {

@@ -119,7 +119,8 @@ public struct DriverRideAction: Codable, Sendable {
     public let pinEncrypted: String?
 
     enum CodingKeys: String, CodingKey {
-        case type, at, status, invoice
+        case type = "action"
+        case at, status, invoice
         case approxLocation = "approx_location"
         case finalFare = "final_fare"
         case pinEncrypted = "pin_encrypted"
@@ -156,7 +157,8 @@ public struct RiderRideAction: Codable, Sendable {
     public let attempt: Int?
 
     enum CodingKeys: String, CodingKey {
-        case type, at, status, attempt
+        case type = "action"
+        case at, status, attempt
         case locationType = "location_type"
         case locationEncrypted = "location_encrypted"
     }
@@ -183,7 +185,13 @@ public struct ChatMessageContent: Codable, Sendable {
 
 /// Content of a cancellation event (Kind 3179).
 public struct CancellationContent: Codable, Sendable {
+    public let status: String
     public let reason: String?
+
+    public init(reason: String?) {
+        self.status = "cancelled"
+        self.reason = reason
+    }
 }
 
 // MARK: - User Profile (Kind 0)
