@@ -72,6 +72,7 @@ struct AddressSearchField: View {
 }
 
 /// MKLocalSearchCompleter wrapper for SwiftUI.
+/// Delegate callbacks dispatch to main thread for safe @Observable updates.
 @Observable
 class AddressCompleter: NSObject, MKLocalSearchCompleterDelegate {
     var results: [MKLocalSearchCompletion] = []
@@ -92,6 +93,7 @@ class AddressCompleter: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        // MKLocalSearchCompleter calls delegate on main thread
         results = completer.results
     }
 

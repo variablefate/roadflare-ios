@@ -27,6 +27,12 @@ struct SettingsTab: View {
                                 TextField("Your name", text: Bindable(appState.settings).profileName)
                                     .font(RFFont.body(15))
                                     .foregroundColor(Color.rfOnSurface)
+                                    .onSubmit {
+                                        // Prevent empty name — restore previous if cleared
+                                        if appState.settings.profileName.trimmingCharacters(in: .whitespaces).isEmpty {
+                                            appState.settings.profileName = "Rider"
+                                        }
+                                    }
                             }
                             .padding(16)
                             .background(Color.rfSurfaceContainer)

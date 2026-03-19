@@ -402,6 +402,7 @@ struct RideTab: View {
     // MARK: - Actions
 
     private func sendOffer() {
+        guard !isCalculatingFare else { return }  // Prevent double-tap
         guard let driverPubkey = selectedDriverPubkey,
               let calculator = appState.fareCalculator else { return }
         isCalculatingFare = true; fareError = nil
