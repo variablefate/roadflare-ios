@@ -126,6 +126,7 @@ struct WelcomeView: View {
     }
 
     private func importKey() {
+        guard !isLoading else { return }
         isLoading = true; errorMessage = nil
         Task {
             do {
@@ -212,6 +213,7 @@ struct ImportKeySheet: View {
     }
 
     private func loginWithPasskey() {
+        guard !isLoading else { return }
         isLoading = true
         Task {
             do {

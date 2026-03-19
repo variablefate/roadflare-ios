@@ -84,6 +84,11 @@ final class ChatCoordinator {
                 isMine: true,
                 timestamp: Int(Date.now.timeIntervalSince1970)
             ))
+            // Enforce same 500-message cap as received messages
+            if chatMessages.count > 500 {
+                let removed = chatMessages.removeFirst()
+                chatMessageIds.remove(removed.id)
+            }
         } catch {
             lastError = "Failed to send message: \(error.localizedDescription)"
         }
