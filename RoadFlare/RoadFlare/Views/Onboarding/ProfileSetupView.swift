@@ -4,7 +4,7 @@ import RidestrSDK
 struct ProfileSetupView: View {
     @Environment(AppState.self) private var appState
     @State private var displayName = ""
-    @State private var showNsecBackup = false
+    @State private var showBackup = false
 
     var body: some View {
         ZStack {
@@ -39,25 +39,11 @@ struct ProfileSetupView: View {
                 }
                 .padding(.horizontal, 24)
 
-                if let npub = appState.keypair?.npub {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Your Public Key")
-                            .font(RFFont.caption())
-                            .foregroundColor(Color.rfOnSurfaceVariant)
-                        Text(npub)
-                            .font(RFFont.mono(11))
-                            .foregroundColor(Color.rfOnSurfaceVariant)
-                            .textSelection(.enabled)
-                            .lineLimit(2)
-                    }
-                    .padding(.horizontal, 24)
-                }
-
                 Spacer()
 
                 VStack(spacing: 16) {
-                    Button { showNsecBackup = true } label: {
-                        Label("Back Up Your Key", systemImage: "key")
+                    Button { showBackup = true } label: {
+                        Label("Back Up Account Key", systemImage: "key")
                     }
                     .buttonStyle(RFSecondaryButtonStyle())
 
@@ -72,16 +58,18 @@ struct ProfileSetupView: View {
                 Spacer().frame(height: 20)
             }
         }
-        .sheet(isPresented: $showNsecBackup) {
-            NsecBackupSheet()
+        .sheet(isPresented: $showBackup) {
+            BackupKeySheet()
         }
     }
 }
 
-struct NsecBackupSheet: View {
+/// Backup key sheet — user-friendly language, no Nostr jargon.
+struct BackupKeySheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @State private var nsec: String?
+    @State private var backupKey: String?
+    @State private var showFullKey = false
     @State private var copied = false
 
     var body: some View {
@@ -93,27 +81,36 @@ struct NsecBackupSheet: View {
                         .font(.system(size: 40))
                         .foregroundColor(Color.rfTertiary)
 
-                    Text("Save This Key Securely")
+                    Text("Save Your Backup Key")
                         .font(RFFont.headline(20))
                         .foregroundColor(Color.rfOnSurface)
 
-                    Text("This is your private key. Anyone with this key can access your account. Store it somewhere safe — we cannot recover it.")
+                    Text("This key is required to recover your account on a new device. Keep it somewhere safe — we can't recover it for you.")
                         .font(RFFont.body(14))
                         .foregroundColor(Color.rfOnSurfaceVariant)
                         .multilineTextAlignment(.center)
 
-                    if let nsec {
+                    if let key = backupKey {
                         VStack(spacing: 12) {
-                            Text(nsec)
-                                .font(RFFont.mono(11))
-                                .foregroundColor(Color.rfOnSurface)
-                                .padding(12)
-                                .background(Color.rfSurfaceContainerLow)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .textSelection(.enabled)
+                            // Truncated by default, full on tap
+                            Button { showFullKey.toggle() } label: {
+                                Text(showFullKey ? key : truncateKey(key))
+                                    .font(RFFont.mono(showFullKey ? 11 : 13))
+                                    .foregroundColor(Color.rfOnSurface)
+                                    .padding(12)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.rfSurfaceContainerLow)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .textSelection(.enabled)
+                            }
+                            .buttonStyle(.plain)
+
+                            Text(showFullKey ? "Tap to hide" : "Tap to reveal full key")
+                                .font(RFFont.caption(11))
+                                .foregroundColor(Color.rfOffline)
 
                             Button {
-                                UIPasteboard.general.string = nsec
+                                UIPasteboard.general.string = key
                                 copied = true
                             } label: {
                                 Label(copied ? "Copied!" : "Copy to Clipboard", systemImage: copied ? "checkmark" : "doc.on.doc")
@@ -123,10 +120,24 @@ struct NsecBackupSheet: View {
                     } else {
                         ProgressView().tint(Color.rfPrimary)
                     }
+
+                    // Collapsible "About Your Keys" section
+                    DisclosureGroup {
+                        Text("RoadFlare is built on Nostr, an open protocol where your identity is a cryptographic key pair — not an email or phone number. Your backup key (nsec) is your private key. Your Account ID (npub) is your public identity. Never share your backup key with anyone.")
+                            .font(RFFont.caption(12))
+                            .foregroundColor(Color.rfOffline)
+                            .padding(.top, 8)
+                    } label: {
+                        Text("About Your Keys")
+                            .font(RFFont.caption(13))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                    }
+                    .tint(Color.rfOnSurfaceVariant)
+
                     Spacer()
                 }
                 .padding(24)
-                .navigationTitle("Key Backup")
+                .navigationTitle("Backup Key")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(Color.rfSurface, for: .navigationBar)
                 .toolbar {
@@ -136,6 +147,11 @@ struct NsecBackupSheet: View {
                 }
             }
         }
-        .task { nsec = try? await appState.keyManager?.exportNsec() }
+        .task { backupKey = try? await appState.keyManager?.exportNsec() }
+    }
+
+    private func truncateKey(_ key: String) -> String {
+        guard key.count > 28 else { return key }
+        return String(key.prefix(20)) + "..." + String(key.suffix(8))
     }
 }

@@ -24,19 +24,6 @@ struct SettingsTab: View {
                                 if !appState.settings.profileName.isEmpty {
                                     SettingsRow(icon: "person", label: "Name", value: appState.settings.profileName)
                                 }
-                                if let npub = appState.keypair?.npub {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("Your Public Key")
-                                            .font(RFFont.caption(11))
-                                            .foregroundColor(Color.rfOffline)
-                                        Text(npub)
-                                            .font(RFFont.mono(10))
-                                            .foregroundColor(Color.rfOnSurfaceVariant)
-                                            .textSelection(.enabled)
-                                            .lineLimit(2)
-                                    }
-                                    .padding(16)
-                                }
                             }
                             .background(Color.rfSurfaceContainer)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -50,16 +37,16 @@ struct SettingsTab: View {
 
                         // Key Backup
                         VStack(alignment: .leading, spacing: 12) {
-                            SectionLabel("Key Backup")
+                            SectionLabel("Account")
                             VStack(spacing: 0) {
-                                SettingsButton(icon: "key", label: "View & Copy Private Key") {
+                                SettingsButton(icon: "key", label: "View Backup Key") {
                                     showKeyBackup = true
                                 }
                                 SettingsButton(icon: "lock.shield", label: savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords") {
                                     saveToPasswords()
                                 }
                                 .disabled(savedToPasswords)
-                                SettingsButton(icon: "square.and.arrow.up", label: "Share Key via...") {
+                                SettingsButton(icon: "square.and.arrow.up", label: "Share Backup Key") {
                                     shareKey()
                                 }
                             }
@@ -100,7 +87,7 @@ struct SettingsTab: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
             }
-            .sheet(isPresented: $showKeyBackup) { NsecBackupSheet() }
+            .sheet(isPresented: $showKeyBackup) { BackupKeySheet() }
             .sheet(isPresented: $showShareSheet) {
                 if !shareText.isEmpty { ShareSheet(items: [shareText]) }
             }

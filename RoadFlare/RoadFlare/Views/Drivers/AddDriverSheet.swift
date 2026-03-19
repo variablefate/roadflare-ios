@@ -37,9 +37,9 @@ struct AddDriverSheet: View {
 
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Driver's Public Key")
+                        Text("Driver's Account ID")
                             .font(.subheadline.bold())
-                        TextField("npub1... or hex public key", text: $pubkeyInput)
+                        TextField("Paste driver's Account ID", text: $pubkeyInput)
                             .autocorrectionDisabled()
                             .textInputAutocapitalization(.never)
                             .font(.system(.body, design: .monospaced))
@@ -48,11 +48,11 @@ struct AddDriverSheet: View {
                             }
 
                         if isValid {
-                            Label("Valid key", systemImage: "checkmark.circle.fill")
+                            Label("Valid Account ID", systemImage: "checkmark.circle.fill")
                                 .font(.caption)
                                 .foregroundStyle(.green)
                         } else if !pubkeyInput.isEmpty {
-                            Label("Enter a valid npub or 64-character hex key", systemImage: "xmark.circle")
+                            Label("Enter a valid Account ID", systemImage: "xmark.circle")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -60,7 +60,7 @@ struct AddDriverSheet: View {
                 } header: {
                     Text("Manual Entry")
                 } footer: {
-                    Text("Ask your driver for their npub, or scan their QR code.")
+                    Text("Ask your driver for their Account ID, or scan their QR code.")
                 }
 
                 Section("Note (optional)") {

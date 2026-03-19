@@ -66,7 +66,7 @@ struct WelcomeView: View {
                     Button {
                         showImport = true
                     } label: {
-                        Text("I Have a Key")
+                        Text("Log In With Existing Account")
                     }
                     .buttonStyle(RFGhostButtonStyle())
                     .disabled(isLoading)
@@ -130,7 +130,7 @@ struct WelcomeView: View {
                 try await appState.importKey(importText)
                 showImport = false
             } catch {
-                errorMessage = "Invalid key. Enter an nsec or hex private key."
+                errorMessage = "Invalid backup key. Check that you pasted the full key."
             }
             isLoading = false
         }
@@ -161,7 +161,7 @@ struct ImportKeySheet: View {
                         .buttonStyle(RFPrimaryButtonStyle())
                         .disabled(isLoading)
 
-                        Text("Use your existing passkey to recover your Nostr key")
+                        Text("Use your existing passkey to recover your account")
                             .font(RFFont.caption())
                             .foregroundColor(Color.rfOnSurfaceVariant)
 
@@ -170,12 +170,12 @@ struct ImportKeySheet: View {
                             .frame(height: 1)
                             .padding(.vertical, 4)
 
-                        Text("Or enter your key manually:")
+                        Text("Or enter your backup key:")
                             .font(RFFont.body(14))
                             .foregroundColor(Color.rfOnSurfaceVariant)
                     }
 
-                    TextField("nsec1... or hex key", text: $importText)
+                    TextField("Paste your backup key", text: $importText)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .font(RFFont.mono(14))
@@ -190,14 +190,14 @@ struct ImportKeySheet: View {
                             .foregroundColor(Color.rfError)
                     }
 
-                    Button("Import Key") { onImport() }
+                    Button("Log In") { onImport() }
                         .buttonStyle(RFSecondaryButtonStyle())
                         .disabled(importText.trimmingCharacters(in: .whitespaces).isEmpty)
 
                     Spacer()
                 }
                 .padding(24)
-                .navigationTitle("Import Key")
+                .navigationTitle("Log In")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(Color.rfSurface, for: .navigationBar)
                 .toolbar {

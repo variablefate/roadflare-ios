@@ -21,7 +21,7 @@ struct DriverDetailSheet: View {
                     LabeledContent("Status", value: statusText)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Public Key")
+                        Text("Account ID")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text(driver.pubkey)

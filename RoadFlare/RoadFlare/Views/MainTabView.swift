@@ -10,7 +10,7 @@ struct MainTabView: View {
                 .tag(0)
 
             RideTab()
-                .tabItem { Label("Ride", systemImage: "car") }
+                .tabItem { Label("RoadFlare", systemImage: "car") }
                 .tag(1)
 
             HistoryTab()

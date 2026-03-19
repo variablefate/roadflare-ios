@@ -29,7 +29,7 @@ struct RideTab: View {
                 case .completed: completedView
                 }
             }
-            .navigationTitle("Ride")
+            .navigationTitle("RoadFlare")
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {

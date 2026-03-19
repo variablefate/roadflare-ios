@@ -12,7 +12,7 @@ struct ConnectivityIndicator: View {
                 Circle()
                     .fill(connected ? Color.rfOnline : Color.rfError)
                     .frame(width: 6, height: 6)
-                Text(connected ? "Live" : "Offline")
+                Text(connected ? "Connected" : "Offline")
                     .font(RFFont.caption(10))
                     .foregroundColor(Color.rfOnSurfaceVariant)
             }
