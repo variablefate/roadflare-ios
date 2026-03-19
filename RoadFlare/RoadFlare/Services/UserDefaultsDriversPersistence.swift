@@ -23,7 +23,14 @@ public final class UserDefaultsDriversPersistence: FollowedDriversPersistence, @
     }
 
     public func loadDriverNames() -> [String: String] {
-        defaults.dictionary(forKey: namesKey) as? [String: String] ?? [:]
+        let names = defaults.dictionary(forKey: namesKey) as? [String: String] ?? [:]
+        // Clean up orphaned names for drivers that no longer exist
+        let driverPubkeys = Set(loadDrivers().map(\.pubkey))
+        let cleaned = names.filter { driverPubkeys.contains($0.key) }
+        if cleaned.count != names.count {
+            defaults.set(cleaned, forKey: namesKey)  // Persist cleanup
+        }
+        return cleaned
     }
 
     public func saveDriverNames(_ names: [String: String]) {
