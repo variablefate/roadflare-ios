@@ -10,9 +10,9 @@ import RidestrSDK
 final class RideCoordinator {
     // MARK: - Dependencies
 
-    private let relayManager: RelayManager
+    let relayManager: any RelayManagerProtocol
     private let keypair: NostrKeypair
-    private let driversRepository: FollowedDriversRepository
+    let driversRepository: FollowedDriversRepository
     private let settings: UserSettings
     private let rideHistory: RideHistoryStore
 
@@ -58,7 +58,7 @@ final class RideCoordinator {
 
     var lastError: String?
 
-    init(relayManager: RelayManager, keypair: NostrKeypair,
+    init(relayManager: any RelayManagerProtocol, keypair: NostrKeypair,
          driversRepository: FollowedDriversRepository, settings: UserSettings,
          rideHistory: RideHistoryStore) {
         self.relayManager = relayManager
@@ -83,7 +83,7 @@ final class RideCoordinator {
     }
 
     /// Restore ride state after app relaunch.
-    private func restoreRideState() {
+    func restoreRideState() {
         guard let saved = RideStatePersistence.load(),
               let driverPubkey = saved.driverPubkey,
               let confirmationId = saved.confirmationEventId,
@@ -157,7 +157,7 @@ final class RideCoordinator {
         }
     }
 
-    private func handleLocationEvent(_ event: NostrEvent) async {
+    func handleLocationEvent(_ event: NostrEvent) async {
         let driverPubkey = event.pubkey
         guard let key = driversRepository.getRoadflareKey(driverPubkey: driverPubkey) else { return }
 
@@ -226,7 +226,7 @@ final class RideCoordinator {
         }
     }
 
-    private func handleKeyShareEvent(_ event: NostrEvent) async {
+    func handleKeyShareEvent(_ event: NostrEvent) async {
         do {
             let keyShare = try RideshareEventParser.parseKeyShare(event: event, keypair: keypair)
             print("[RideCoordinator] Key share parsed: driver=\(keyShare.driverPubkey.prefix(8)), version=\(keyShare.roadflareKey.version)")
@@ -308,7 +308,7 @@ final class RideCoordinator {
 
     // MARK: - Step 6: Acceptance Subscription + Auto-Confirm
 
-    private func subscribeToAcceptance(offerEventId: String, driverPubkey: String) {
+    func subscribeToAcceptance(offerEventId: String, driverPubkey: String) {
         let subId = SubscriptionID("acceptance-\(offerEventId)")
         acceptanceSubscriptionId = subId
 
@@ -334,7 +334,7 @@ final class RideCoordinator {
         }
     }
 
-    private func handleAcceptance(acceptanceEventId: String, driverPubkey: String) async {
+    func handleAcceptance(acceptanceEventId: String, driverPubkey: String) async {
         do {
             // Generate PIN and transition state
             let pin = try stateMachine.handleAcceptance(acceptanceEventId: acceptanceEventId)
@@ -370,7 +370,7 @@ final class RideCoordinator {
 
     // MARK: - Step 7: Driver State Subscription (Kind 30180)
 
-    private func subscribeToDriverState(driverPubkey: String, confirmationEventId: String) {
+    func subscribeToDriverState(driverPubkey: String, confirmationEventId: String) {
         let subId = SubscriptionID("driver-state-\(confirmationEventId)")
         driverStateSubscriptionId = subId
 
@@ -393,7 +393,7 @@ final class RideCoordinator {
         }
     }
 
-    private func handleDriverStateEvent(_ event: NostrEvent, confirmationEventId: String) async {
+    func handleDriverStateEvent(_ event: NostrEvent, confirmationEventId: String) async {
         do {
             let driverState = try RideshareEventParser.parseDriverRideState(
                 event: event, keypair: keypair
@@ -436,7 +436,7 @@ final class RideCoordinator {
         }
     }
 
-    private func handlePinSubmission(pinEncrypted: String, driverPubkey: String, confirmationEventId: String) async {
+    func handlePinSubmission(pinEncrypted: String, driverPubkey: String, confirmationEventId: String) async {
         do {
             let decryptedPin = try RideshareEventParser.decryptPin(
                 pinEncrypted: pinEncrypted,
@@ -540,7 +540,7 @@ final class RideCoordinator {
 
     // MARK: - Step 9: Chat (Kind 3178)
 
-    private func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
+    func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
         let subId = SubscriptionID("chat-\(confirmationEventId)")
         chatSubscriptionId = subId
 
@@ -563,7 +563,7 @@ final class RideCoordinator {
         }
     }
 
-    private func handleChatEvent(_ event: NostrEvent) async {
+    func handleChatEvent(_ event: NostrEvent) async {
         do {
             let content = try RideshareEventParser.parseChatMessage(event: event, keypair: keypair)
             let isMine = event.pubkey == keypair.publicKeyHex
@@ -603,7 +603,7 @@ final class RideCoordinator {
 
     // MARK: - Step 9 cont: Cancellation Subscription
 
-    private func subscribeToCancellation(driverPubkey: String, confirmationEventId: String) {
+    func subscribeToCancellation(driverPubkey: String, confirmationEventId: String) {
         let subId = SubscriptionID("cancel-\(confirmationEventId)")
         cancellationSubscriptionId = subId
 
@@ -635,7 +635,7 @@ final class RideCoordinator {
 
     // MARK: - Step 10: Ride Completion
 
-    private func handleRideCompletion() async {
+    func handleRideCompletion() async {
         // Save to ride history
         if let driverPubkey = stateMachine.driverPubkey,
            let confirmationId = stateMachine.confirmationEventId {
