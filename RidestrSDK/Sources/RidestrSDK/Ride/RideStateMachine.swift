@@ -184,6 +184,8 @@ public final class RideStateMachine: @unchecked Sendable {
         guard confirmationId == confirmationEventId || preConfirmation else { return false }
         processedCancellationEventIds.insert(eventId)
         stage = .idle
+        confirmationEventId = nil  // Prevent late events from matching
+        driverPubkey = nil
         return true
     }
 
