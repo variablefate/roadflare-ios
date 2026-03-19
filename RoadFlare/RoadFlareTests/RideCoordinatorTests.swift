@@ -362,4 +362,143 @@ struct RideCoordinatorTests {
         // No location update (no key to decrypt)
         #expect(coordinator.driversRepository.driverLocations[driver.publicKeyHex] == nil)
     }
+
+    // MARK: - Subscription Wiring Verification
+    // These tests verify that the coordinator subscribes to the RIGHT events
+    // with the RIGHT filters — catching wiring bugs where the wrong kind/tag is used.
+
+    @MainActor
+    @Test func sendOfferSubscribesToAcceptanceWithCorrectFilter() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        let fare = FareEstimate(distanceMiles: 5.0, durationMinutes: 15, fareUSD: 10.0)
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: fare
+        )
+
+        // Find the acceptance subscription
+        let acceptanceSubs = fake.subscribeCalls.filter { sub in
+            sub.filter.kinds?.contains(EventKind.rideAcceptance.rawValue) == true
+        }
+        #expect(acceptanceSubs.count == 1)
+
+        // Verify the filter uses e-tag with the offer event ID
+        let offerEventId = coordinator.stateMachine.offerEventId!
+        #expect(acceptanceSubs.first?.filter.tagFilters["e"]?.contains(offerEventId) == true)
+    }
+
+    @MainActor
+    @Test func acceptanceTriggersDriverStateChatCancellationSubscriptions() async throws {
+        let (coordinator, fake, riderKeypair) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        // Setup: start ride and simulate acceptance handling
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: .zelle, fiatPaymentMethods: [.zelle]
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
+
+        fake.resetRecording()  // Clear offer publish calls
+        await coordinator.handleAcceptance(acceptanceEventId: "acc1", driverPubkey: driver.publicKeyHex)
+
+        // Should have published Kind 3175 confirmation
+        let confirmations = fake.publishedEvents.filter { $0.kind == EventKind.rideConfirmation.rawValue }
+        #expect(confirmations.count == 1)
+
+        // Should have subscribed to 3 event types
+        let subKinds = fake.subscribeCalls.map { $0.filter.kinds?.first }
+
+        // Driver state (Kind 30180)
+        let driverStateSubs = fake.subscribeCalls.filter { $0.filter.kinds?.contains(EventKind.driverRideState.rawValue) == true }
+        #expect(driverStateSubs.count == 1)
+        // Verify d-tag matches confirmation event ID
+        let confEventId = coordinator.stateMachine.confirmationEventId!
+        #expect(driverStateSubs.first?.filter.tagFilters["d"]?.contains(confEventId) == true)
+        // Verify author filter is the driver
+        #expect(driverStateSubs.first?.filter.authors?.contains(driver.publicKeyHex) == true)
+
+        // Chat (Kind 3178)
+        let chatSubs = fake.subscribeCalls.filter { $0.filter.kinds?.contains(EventKind.chatMessage.rawValue) == true }
+        #expect(chatSubs.count == 1)
+        // Verify author filter is the driver (counterparty)
+        #expect(chatSubs.first?.filter.authors?.contains(driver.publicKeyHex) == true)
+
+        // Cancellation (Kind 3179)
+        let cancelSubs = fake.subscribeCalls.filter { $0.filter.kinds?.contains(EventKind.cancellation.rawValue) == true }
+        #expect(cancelSubs.count == 1)
+        // Verify p-tag is the rider's pubkey (cancellation addressed to us)
+        #expect(cancelSubs.first?.filter.tagFilters["p"]?.contains(riderKeypair.publicKeyHex) == true)
+    }
+
+    @MainActor
+    @Test func startKeyShareSubscriptionUsesCorrectFilter() async throws {
+        let (coordinator, fake, riderKeypair) = try await makeCoordinator()
+
+        coordinator.startKeyShareSubscription()
+        // Allow the Task to start
+        try await Task.sleep(for: .milliseconds(50))
+
+        let keyShareSubs = fake.subscribeCalls.filter { $0.filter.kinds?.contains(EventKind.keyShare.rawValue) == true }
+        #expect(keyShareSubs.count == 1)
+        // Must filter by our pubkey in p-tag
+        #expect(keyShareSubs.first?.filter.tagFilters["p"]?.contains(riderKeypair.publicKeyHex) == true)
+    }
+
+    @MainActor
+    @Test func startLocationSubscriptionsUsesCorrectFilter() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: "d1"))
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: "d2"))
+
+        coordinator.startLocationSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        let locSubs = fake.subscribeCalls.filter { $0.filter.kinds?.contains(EventKind.roadflareLocation.rawValue) == true }
+        #expect(locSubs.count == 1)
+        // Must filter by all followed driver pubkeys
+        #expect(locSubs.first?.filter.authors?.contains("d1") == true)
+        #expect(locSubs.first?.filter.authors?.contains("d2") == true)
+        // Must include d-tag for replaceable event
+        #expect(locSubs.first?.filter.tagFilters["d"]?.contains("roadflare-location") == true)
+    }
+
+    @MainActor
+    @Test func startLocationSubscriptionsSkipsWhenNoDrivers() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+
+        // No drivers added
+        coordinator.startLocationSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        let locSubs = fake.subscribeCalls.filter { $0.filter.kinds?.contains(EventKind.roadflareLocation.rawValue) == true }
+        #expect(locSubs.isEmpty)  // No subscription when no drivers
+    }
+
+    @MainActor
+    @Test func cancelRideUnsubscribesFromAllRideEvents() async throws {
+        let (coordinator, fake, _) = try await makeCoordinator()
+        let driver = try NostrKeypair.generate()
+
+        // Setup a confirmed ride (creates subscriptions)
+        try coordinator.stateMachine.startRide(
+            offerEventId: "o1", driverPubkey: driver.publicKeyHex,
+            paymentMethod: nil, fiatPaymentMethods: []
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
+        await coordinator.handleAcceptance(acceptanceEventId: "acc1", driverPubkey: driver.publicKeyHex)
+
+        let subsBeforeCancel = fake.subscribeCalls.count
+        fake.resetRecording()
+
+        await coordinator.cancelRide(reason: "test")
+
+        // Should have unsubscribed from driver state, chat, and cancellation
+        #expect(fake.unsubscribeCalls.count >= 3)
+    }
 }
