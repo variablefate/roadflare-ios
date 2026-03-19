@@ -23,7 +23,7 @@ struct RideTab: View {
                 switch stage {
                 case .idle: idleView
                 case .waitingForAcceptance: waitingView
-                case .driverAccepted, .rideConfirmed: enRouteView
+                case .driverAccepted, .rideConfirmed, .enRoute: enRouteView
                 case .driverArrived: arrivedView
                 case .inProgress: inProgressView
                 case .completed: completedView
@@ -36,6 +36,13 @@ struct RideTab: View {
                 ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
             }
             .sheet(isPresented: $showChat) { WiredChatView() }
+            .onAppear {
+                // Pick up driver selection from DriverDetailSheet navigation
+                if let pubkey = appState.requestRideDriverPubkey {
+                    selectedDriverPubkey = pubkey
+                    appState.requestRideDriverPubkey = nil
+                }
+            }
             .alert("Cancel Ride?", isPresented: $showCancelWarning) {
                 Button("Cancel Ride", role: .destructive) {
                     Task { await coordinator?.cancelRide(reason: "Cancelled by rider") }
@@ -105,23 +112,23 @@ struct RideTab: View {
                                 SectionLabel("Ride Details")
 
                                 VStack(spacing: 0) {
-                                    HStack(spacing: 12) {
-                                        Circle().fill(Color.rfOnline).frame(width: 8, height: 8)
-                                        TextField("Pickup address", text: $pickupAddress)
-                                            .font(RFFont.body())
-                                            .foregroundColor(Color.rfOnSurface)
-                                    }
-                                    .padding(14)
+                                    AddressSearchField(
+                                        placeholder: "Pickup address",
+                                        icon: "circle.fill",
+                                        iconColor: .rfOnline,
+                                        text: $pickupAddress,
+                                        onSelect: { _ in }
+                                    )
 
                                     Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
 
-                                    HStack(spacing: 12) {
-                                        Circle().fill(Color.rfPrimary).frame(width: 8, height: 8)
-                                        TextField("Destination", text: $destinationAddress)
-                                            .font(RFFont.body())
-                                            .foregroundColor(Color.rfOnSurface)
-                                    }
-                                    .padding(14)
+                                    AddressSearchField(
+                                        placeholder: "Destination",
+                                        icon: "circle.fill",
+                                        iconColor: .rfPrimary,
+                                        text: $destinationAddress,
+                                        onSelect: { _ in }
+                                    )
                                 }
                                 .background(Color.rfSurfaceContainer)
                                 .clipShape(RoundedRectangle(cornerRadius: 16))

@@ -18,6 +18,13 @@ final class AppState {
 
     var authState: AuthState = .loading
 
+    // MARK: - Navigation
+
+    /// Set by DriverDetailSheet to navigate to ride tab with driver pre-selected.
+    var requestRideDriverPubkey: String?
+    /// Set to switch tabs programmatically.
+    var selectedTab: Int = 0
+
     // MARK: - SDK Services
 
     private(set) var keyManager: KeyManager?
@@ -27,6 +34,7 @@ final class AppState {
     private(set) var fareCalculator: FareCalculator?
     private(set) var remoteConfigManager: RemoteConfigManager?
     let rideHistory = RideHistoryStore()
+    let savedLocations = SavedLocationsStore()
 
     // MARK: - User State
 
@@ -110,6 +118,7 @@ final class AppState {
         try? await keyManager?.deleteKeys()
         driversRepository?.clearAll()
         rideHistory.clearAll()
+        savedLocations.clearAll()
         settings.clearAll()
         RideStatePersistence.clear()
         keypair = nil

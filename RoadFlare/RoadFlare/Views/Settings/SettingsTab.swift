@@ -39,6 +39,33 @@ struct SettingsTab: View {
                             PaymentMethodPicker(settings: appState.settings)
                         }
 
+                        // Saved Locations
+                        VStack(alignment: .leading, spacing: 12) {
+                            NavigationLink {
+                                SavedLocationsView()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "mappin.and.ellipse")
+                                        .frame(width: 20)
+                                        .foregroundColor(Color.rfPrimary)
+                                    Text("Saved Locations")
+                                        .font(RFFont.body(15))
+                                        .foregroundColor(Color.rfOnSurface)
+                                    Spacer()
+                                    Text("\(appState.savedLocations.favorites.count) favorites")
+                                        .font(RFFont.caption(12))
+                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(Color.rfOffline)
+                                }
+                                .padding(16)
+                                .background(Color.rfSurfaceContainer)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         // Key Backup
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Account")

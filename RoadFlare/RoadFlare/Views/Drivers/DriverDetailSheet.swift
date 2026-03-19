@@ -62,7 +62,8 @@ struct DriverDetailSheet: View {
                 Section {
                     if driver.hasKey {
                         Button("Request Ride") {
-                            // TODO: Navigate to ride tab with this driver selected
+                            appState.requestRideDriverPubkey = driver.pubkey
+                            appState.selectedTab = 1  // Switch to RoadFlare tab
                             dismiss()
                         }
                         .bold()

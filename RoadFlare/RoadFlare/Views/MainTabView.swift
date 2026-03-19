@@ -1,10 +1,12 @@
 import SwiftUI
 
 struct MainTabView: View {
-    @State private var selectedTab = 0
+    @Environment(AppState.self) private var appState
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        @Bindable var state = appState
+
+        TabView(selection: $state.selectedTab) {
             DriversTab()
                 .tabItem { Label("Drivers", systemImage: "person.2") }
                 .tag(0)
