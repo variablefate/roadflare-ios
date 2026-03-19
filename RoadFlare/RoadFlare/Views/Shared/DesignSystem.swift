@@ -198,6 +198,18 @@ extension View {
     }
 }
 
+// MARK: - Fare Formatting
+
+/// Format a Decimal fare as a currency string (e.g., "$12.50").
+func formatFare(_ fare: Decimal) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .currency
+    formatter.currencyCode = "USD"
+    formatter.maximumFractionDigits = 2
+    formatter.minimumFractionDigits = 2
+    return formatter.string(from: fare as NSDecimalNumber) ?? "$\(fare)"
+}
+
 // MARK: - Status Dot
 
 struct StatusDot: View {

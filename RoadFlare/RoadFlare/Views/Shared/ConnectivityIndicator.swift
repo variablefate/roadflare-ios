@@ -23,6 +23,8 @@ struct ConnectivityIndicator: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Relay connection: \(connected ? "Connected" : "Offline")")
+        .accessibilityHint("Tap to view relay details")
         .sheet(isPresented: $showRelaySheet) { RelayManagementSheet() }
         .task { await checkConnection() }
     }

@@ -158,7 +158,7 @@ struct RideTab: View {
                                             .font(RFFont.caption())
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Spacer()
-                                        Text("$\(fare.fareUSD)")
+                                        Text(formatFare(fare.fareUSD))
                                             .font(RFFont.headline(24))
                                             .foregroundColor(Color.rfPrimary)
                                     }
@@ -272,6 +272,8 @@ struct RideTab: View {
                     .background(Color.rfSurfaceContainer)
                     .clipShape(RoundedRectangle(cornerRadius: 20))
                     .rfAmbientShadow(color: .rfPrimary, radius: 24, opacity: 0.15)
+                    .accessibilityLabel("Your ride PIN is \(pin.map(String.init).joined(separator: " "))")
+                    .accessibilityHint("Show this number to your driver")
             }
 
             Text("The driver enters this to verify your identity")
@@ -348,7 +350,7 @@ struct RideTab: View {
                         .font(RFFont.body(15))
                         .foregroundColor(Color.rfOnSurfaceVariant)
                     Spacer()
-                    Text("$\(fare.fareUSD)")
+                    Text(formatFare(fare.fareUSD))
                         .font(RFFont.headline(24))
                         .foregroundColor(Color.rfPrimary)
                 }

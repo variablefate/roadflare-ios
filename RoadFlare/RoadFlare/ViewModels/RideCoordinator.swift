@@ -89,7 +89,7 @@ final class RideCoordinator {
               let confirmationId = saved.confirmationEventId,
               let restoredStage = RiderStage(rawValue: saved.stage) else { return }
 
-        print("[RideCoordinator] Restoring ride: stage=\(saved.stage), driver=\(driverPubkey.prefix(8))")
+        AppLogger.ride.info(" Restoring ride: stage=\(saved.stage), driver=\(driverPubkey.prefix(8))")
 
         stateMachine.restore(
             stage: restoredStage,
@@ -117,7 +117,7 @@ final class RideCoordinator {
         subscribeToDriverState(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
         chat.subscribeToChat(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
         subscribeToCancellation(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
-        print("[RideCoordinator] Ride restored at stage: \(restoredStage.rawValue)")
+        AppLogger.ride.info(" Ride restored at stage: \(restoredStage.rawValue)")
     }
 
     // MARK: - Send Ride Offer (Kind 3173)

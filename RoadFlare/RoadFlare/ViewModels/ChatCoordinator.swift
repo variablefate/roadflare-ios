@@ -55,6 +55,7 @@ final class ChatCoordinator {
             chatMessageIds.insert(event.id)
             chatMessages.append((id: event.id, text: content.message, isMine: isMine, timestamp: event.createdAt))
             chatMessages.sort { $0.timestamp < $1.timestamp }
+            if !isMine { HapticManager.messageReceived() }
         } catch {
             // Invalid chat message, skip
         }

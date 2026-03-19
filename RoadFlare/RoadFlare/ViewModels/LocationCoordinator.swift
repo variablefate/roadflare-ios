@@ -89,18 +89,18 @@ final class LocationCoordinator {
 
             do {
                 let filter = NostrFilter.keyShares(myPubkey: keypair.publicKeyHex)
-                print("[LocationCoordinator] Subscribing to key shares for \(keypair.publicKeyHex.prefix(8))...")
+                AppLogger.location.info(" Subscribing to key shares for \(keypair.publicKeyHex.prefix(8))...")
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
-                print("[LocationCoordinator] Key share subscription active")
+                AppLogger.location.info(" Key share subscription active")
 
                 for await event in stream {
                     guard !Task.isCancelled else { break }
-                    print("[LocationCoordinator] Received Kind \(event.kind) from \(event.pubkey.prefix(8))...")
+                    AppLogger.location.info(" Received Kind \(event.kind) from \(event.pubkey.prefix(8))...")
                     await handleKeyShareEvent(event)
                 }
-                print("[LocationCoordinator] Key share stream ended")
+                AppLogger.location.info(" Key share stream ended")
             } catch {
-                print("[LocationCoordinator] Key share subscription FAILED: \(error)")
+                AppLogger.location.info(" Key share subscription FAILED: \(error)")
                 lastError = "Key share subscription failed: \(error.localizedDescription)"
             }
         }
@@ -109,13 +109,13 @@ final class LocationCoordinator {
     func handleKeyShareEvent(_ event: NostrEvent) async {
         do {
             let keyShare = try RideshareEventParser.parseKeyShare(event: event, keypair: keypair)
-            print("[LocationCoordinator] Key share parsed: driver=\(keyShare.driverPubkey.prefix(8)), version=\(keyShare.roadflareKey.version)")
+            AppLogger.location.info(" Key share parsed: driver=\(keyShare.driverPubkey.prefix(8)), version=\(keyShare.roadflareKey.version)")
 
             driversRepository.updateDriverKey(
                 driverPubkey: keyShare.driverPubkey,
                 roadflareKey: keyShare.roadflareKey
             )
-            print("[LocationCoordinator] Driver key updated in repository")
+            AppLogger.location.info(" Driver key updated in repository")
 
             // Send acknowledgement (Kind 3188)
             let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
@@ -126,12 +126,12 @@ final class LocationCoordinator {
                 keypair: keypair
             )
             _ = try await relayManager.publish(ackEvent)
-            print("[LocationCoordinator] Key acknowledgement published")
+            AppLogger.location.info(" Key acknowledgement published")
 
             // Restart location subscriptions to include newly-keyed driver
             startLocationSubscriptions()
         } catch {
-            print("[LocationCoordinator] Key share handling FAILED: \(error)")
+            AppLogger.location.info(" Key share handling FAILED: \(error)")
         }
     }
 

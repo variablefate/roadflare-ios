@@ -57,7 +57,7 @@ struct RideHistoryCard: View {
                         .font(RFFont.title(15))
                         .foregroundColor(Color.rfOnSurface)
                     Spacer()
-                    Text("$\(ride.fare as NSDecimalNumber)")
+                    Text(formatFare(ride.fare))
                         .font(RFFont.headline(18))
                         .foregroundColor(Color.rfPrimary)
                 }

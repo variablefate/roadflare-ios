@@ -103,6 +103,8 @@ struct DriverCard: View {
                 .foregroundColor(Color.rfOffline)
         }
         .rfCard()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(displayName ?? "Driver"), \(statusText)")
     }
 
     private var statusString: String {
