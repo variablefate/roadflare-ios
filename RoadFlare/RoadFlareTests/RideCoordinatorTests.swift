@@ -62,7 +62,7 @@ struct RideCoordinatorTests {
             content: encrypted, sig: "sig"
         )
 
-        await coordinator.handleKeyShareEvent(event)
+        await coordinator.location.handleKeyShareEvent(event)
 
         // Driver should have key now
         let updatedDriver = coordinator.driversRepository.getDriver(pubkey: driver.publicKeyHex)
@@ -98,7 +98,7 @@ struct RideCoordinatorTests {
             content: encrypted, sig: "sig"
         )
 
-        await coordinator.handleKeyShareEvent(event)
+        await coordinator.location.handleKeyShareEvent(event)
 
         // No ack should be published (driver not in repository, key share parsing fails for unknown driver)
         // Actually the key share IS parsed but updateDriverKey on unknown pubkey is a no-op
@@ -128,11 +128,11 @@ struct RideCoordinatorTests {
             content: encrypted, sig: "sig"
         )
 
-        await coordinator.handleChatEvent(event)
-        await coordinator.handleChatEvent(event)  // Duplicate
+        await coordinator.chat.handleChatEvent(event)
+        await coordinator.chat.handleChatEvent(event)  // Duplicate
 
-        #expect(coordinator.chatMessages.count == 1)
-        #expect(coordinator.chatMessages.first?.text == "Hello!")
+        #expect(coordinator.chat.chatMessages.count == 1)
+        #expect(coordinator.chat.chatMessages.first?.text == "Hello!")
     }
 
     @MainActor
@@ -153,13 +153,13 @@ struct RideCoordinatorTests {
                 tags: [["p", riderKeypair.publicKeyHex]],
                 content: encrypted, sig: "sig"
             )
-            await coordinator.handleChatEvent(event)
+            await coordinator.chat.handleChatEvent(event)
         }
 
-        #expect(coordinator.chatMessages.count == 3)
-        #expect(coordinator.chatMessages[0].timestamp == 100)
-        #expect(coordinator.chatMessages[1].timestamp == 200)
-        #expect(coordinator.chatMessages[2].timestamp == 300)
+        #expect(coordinator.chat.chatMessages.count == 3)
+        #expect(coordinator.chat.chatMessages[0].timestamp == 100)
+        #expect(coordinator.chat.chatMessages[1].timestamp == 200)
+        #expect(coordinator.chat.chatMessages[2].timestamp == 300)
     }
 
     // MARK: - Send Offer
@@ -214,7 +214,7 @@ struct RideCoordinatorTests {
 
         // State should be reset
         #expect(coordinator.stateMachine.stage == .idle)
-        #expect(coordinator.chatMessages.isEmpty)
+        #expect(coordinator.chat.chatMessages.isEmpty)
     }
 
     @MainActor
@@ -256,9 +256,9 @@ struct RideCoordinatorTests {
 
         let chats = fake.publishedEvents.filter { $0.kind == EventKind.chatMessage.rawValue }
         #expect(chats.count == 1)
-        #expect(coordinator.chatMessages.count == 1)
-        #expect(coordinator.chatMessages.first?.text == "On my way out!")
-        #expect(coordinator.chatMessages.first?.isMine == true)
+        #expect(coordinator.chat.chatMessages.count == 1)
+        #expect(coordinator.chat.chatMessages.first?.text == "On my way out!")
+        #expect(coordinator.chat.chatMessages.first?.isMine == true)
     }
 
     // MARK: - Publish Followed Drivers List
@@ -335,7 +335,7 @@ struct RideCoordinatorTests {
             content: encrypted, sig: "sig"
         )
 
-        await coordinator.handleLocationEvent(event)
+        await coordinator.location.handleLocationEvent(event)
 
         let cached = coordinator.driversRepository.driverLocations[driver.publicKeyHex]
         #expect(cached?.latitude == 36.17)
@@ -357,7 +357,7 @@ struct RideCoordinatorTests {
             tags: [], content: "encrypted", sig: "sig"
         )
 
-        await coordinator.handleLocationEvent(event)
+        await coordinator.location.handleLocationEvent(event)
 
         // No location update (no key to decrypt)
         #expect(coordinator.driversRepository.driverLocations[driver.publicKeyHex] == nil)
