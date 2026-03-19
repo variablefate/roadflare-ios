@@ -132,9 +132,12 @@ final class AppState {
         self.remoteConfigManager = RemoteConfigManager(relayManager: rm)
 
         do {
+            print("[AppState] Connecting to \(DefaultRelays.all.count) relays...")
             try await rm.connect(to: DefaultRelays.all)
+            let connected = await rm.isConnected
+            print("[AppState] Relay connection: \(connected ? "SUCCESS" : "FAILED")")
         } catch {
-            print("Failed to connect to relays: \(error)")
+            print("[AppState] Relay connection FAILED: \(error)")
         }
 
         // Set up ride coordinator and start background subscriptions
@@ -144,6 +147,7 @@ final class AppState {
             rideHistory: rideHistory
         )
         self.rideCoordinator = coordinator
+        print("[AppState] Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
         coordinator.startLocationSubscriptions()
         coordinator.startKeyShareSubscription()
 

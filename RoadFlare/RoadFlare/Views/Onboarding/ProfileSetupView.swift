@@ -1,4 +1,5 @@
 import SwiftUI
+import Security
 import RidestrSDK
 
 struct ProfileSetupView: View {
@@ -71,6 +72,7 @@ struct BackupKeySheet: View {
     @State private var backupKey: String?
     @State private var showFullKey = false
     @State private var copied = false
+    @State private var savedToPasswords = false
 
     var body: some View {
         ZStack {
@@ -121,6 +123,28 @@ struct BackupKeySheet: View {
                         ProgressView().tint(Color.rfPrimary)
                     }
 
+                    // Save to Apple Passwords
+                    if let key = backupKey, let npub = appState.keypair?.npub {
+                        Button {
+                            SecAddSharedWebCredential(
+                                "roadflare.app" as CFString,
+                                npub as CFString,
+                                key as CFString
+                            ) { error in
+                                DispatchQueue.main.async {
+                                    if error == nil { savedToPasswords = true }
+                                }
+                            }
+                        } label: {
+                            Label(
+                                savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords",
+                                systemImage: savedToPasswords ? "checkmark.shield" : "lock.shield"
+                            )
+                        }
+                        .buttonStyle(RFSecondaryButtonStyle())
+                        .disabled(savedToPasswords)
+                    }
+
                     // Collapsible "About Your Keys" section
                     DisclosureGroup {
                         Text("RoadFlare is built on Nostr, an open protocol where your identity is a cryptographic key pair — not an email or phone number. Your backup key (nsec) is your private key. Your Account ID (npub) is your public identity. Never share your backup key with anyone.")
@@ -137,7 +161,6 @@ struct BackupKeySheet: View {
                     Spacer()
                 }
                 .padding(24)
-                .navigationTitle("Backup Key")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(Color.rfSurface, for: .navigationBar)
                 .toolbar {

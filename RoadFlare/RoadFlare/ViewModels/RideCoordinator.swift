@@ -187,13 +187,18 @@ final class RideCoordinator {
         keyShareTask = Task {
             do {
                 let filter = NostrFilter.keyShares(myPubkey: keypair.publicKeyHex)
+                print("[RideCoordinator] Subscribing to key shares for \(keypair.publicKeyHex.prefix(8))...")
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
+                print("[RideCoordinator] Key share subscription active")
 
                 for await event in stream {
                     guard !Task.isCancelled else { break }
+                    print("[RideCoordinator] Received Kind \(event.kind) from \(event.pubkey.prefix(8))...")
                     await handleKeyShareEvent(event)
                 }
+                print("[RideCoordinator] Key share stream ended")
             } catch {
+                print("[RideCoordinator] Key share subscription FAILED: \(error)")
                 lastError = "Key share subscription failed: \(error.localizedDescription)"
             }
         }
@@ -202,10 +207,13 @@ final class RideCoordinator {
     private func handleKeyShareEvent(_ event: NostrEvent) async {
         do {
             let keyShare = try RideshareEventParser.parseKeyShare(event: event, keypair: keypair)
+            print("[RideCoordinator] Key share parsed: driver=\(keyShare.driverPubkey.prefix(8)), version=\(keyShare.roadflareKey.version)")
+
             driversRepository.updateDriverKey(
                 driverPubkey: keyShare.driverPubkey,
                 roadflareKey: keyShare.roadflareKey
             )
+            print("[RideCoordinator] Driver key updated in repository")
 
             // Send acknowledgement (Kind 3188)
             let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
@@ -216,11 +224,12 @@ final class RideCoordinator {
                 keypair: keypair
             )
             _ = try await relayManager.publish(ackEvent)
+            print("[RideCoordinator] Key acknowledgement published")
 
             // Restart location subscriptions to include newly-keyed driver
             startLocationSubscriptions()
         } catch {
-            // Expired or invalid key share, ignore
+            print("[RideCoordinator] Key share handling FAILED: \(error)")
         }
     }
 

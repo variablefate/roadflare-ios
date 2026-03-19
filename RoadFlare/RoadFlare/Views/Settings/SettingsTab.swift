@@ -20,11 +20,15 @@ struct SettingsTab: View {
                         // Profile
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Profile")
-                            VStack(spacing: 0) {
-                                if !appState.settings.profileName.isEmpty {
-                                    SettingsRow(icon: "person", label: "Name", value: appState.settings.profileName)
-                                }
+                            HStack(spacing: 12) {
+                                Image(systemName: "person")
+                                    .frame(width: 20)
+                                    .foregroundColor(Color.rfPrimary)
+                                TextField("Your name", text: Bindable(appState.settings).profileName)
+                                    .font(RFFont.body(15))
+                                    .foregroundColor(Color.rfOnSurface)
                             }
+                            .padding(16)
                             .background(Color.rfSurfaceContainer)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                         }

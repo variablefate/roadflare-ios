@@ -3,13 +3,16 @@ import NostrSDK
 
 /// Manages Nostr relay connections, event publishing, and subscriptions.
 ///
-/// Wraps rust-nostr's `Client` inside an actor for thread-safe access.
-/// Uses `streamEvents` for real-time subscriptions via `AsyncStream`.
+/// Uses rust-nostr's `Client.subscribe()` for persistent subscriptions and
+/// `Client.handleNotifications()` for real-time event delivery.
+/// `streamEvents` is used only for one-shot EOSE-aware fetches.
 public actor RelayManager: RelayManagerProtocol {
     private var client: Client?
     private let keypair: NostrKeypair
     private var activeStreams: [SubscriptionID: Task<Void, Never>] = [:]
     private var connectedRelayURLs: [URL] = []
+    private var notificationHandler: NotificationRouter?
+    private var notificationTask: Task<Void, Never>?
 
     public init(keypair: NostrKeypair) {
         self.keypair = keypair
@@ -28,22 +31,41 @@ public actor RelayManager: RelayManagerProtocol {
         }
 
         await newClient.connect()
+
+        // Brief wait for relay handshake to complete
+        try? await Task.sleep(for: .seconds(1))
+
         self.client = newClient
         self.connectedRelayURLs = Array(relays.prefix(RelayConstants.maxRelays))
+
+        // Start the global notification handler
+        let router = NotificationRouter()
+        self.notificationHandler = router
+        let clientRef = newClient
+        notificationTask = Task.detached { [router] in
+            do {
+                try await clientRef.handleNotifications(handler: router)
+            } catch {
+                // handleNotifications only returns on disconnect or error
+                print("[RelayManager] Notification handler stopped: \(error)")
+            }
+        }
     }
 
     public func disconnect() async {
-        // Cancel all active subscription streams
         for (_, task) in activeStreams {
             task.cancel()
         }
         activeStreams.removeAll()
+        notificationTask?.cancel()
+        notificationHandler?.removeAll()
 
         if let client {
             await client.disconnect()
         }
         client = nil
         connectedRelayURLs = []
+        notificationHandler = nil
     }
 
     public var isConnected: Bool {
@@ -62,13 +84,15 @@ public actor RelayManager: RelayManagerProtocol {
         return event.id
     }
 
-    // MARK: - Subscriptions (streaming)
+    // MARK: - Persistent Subscriptions
 
+    /// Subscribe to events matching a filter. Returns an AsyncStream that stays alive
+    /// as long as the relay is connected. Events are delivered via handleNotifications.
     public func subscribe(
         filter: NostrFilter,
         id: SubscriptionID
     ) async throws -> AsyncStream<NostrEvent> {
-        guard let client else {
+        guard let client, let router = notificationHandler else {
             throw RidestrError.relayNotConnected
         }
 
@@ -80,38 +104,21 @@ public actor RelayManager: RelayManagerProtocol {
 
         let rustFilter = try filter.toRustNostrFilter()
 
-        // Use streamEvents for real-time event delivery
-        let stream = try await client.streamEvents(
-            filter: rustFilter,
-            timeout: RelayConstants.eoseTimeoutSeconds
-        )
+        // Register subscription with the relay (persistent, not EOSE-limited)
+        let output = try await client.subscribe(filter: rustFilter)
+        let subscriptionId = output.id
 
-        // Wrap in AsyncStream with a background task consuming the EventStream
+        // Create AsyncStream backed by the notification router
         let (asyncStream, continuation) = AsyncStream<NostrEvent>.makeStream()
 
-        let task = Task { [weak self] in
-            defer { continuation.finish() }
+        // Register this subscription's continuation with the router
+        router.addSubscription(relaySubscriptionId: subscriptionId, continuation: continuation)
 
-            while !Task.isCancelled {
-                guard let rustEvent = await stream.next() else {
-                    break  // Stream ended
-                }
-                guard let event = try? EventSigner.fromRustEvent(rustEvent) else {
-                    continue  // Skip events that fail conversion
-                }
-                continuation.yield(event)
-            }
+        // Track for cleanup
+        activeStreams[id] = Task { /* placeholder for tracking */ }
 
-            // Clean up from the active streams map
-            if let self {
-                await self.removeStream(id: id)
-            }
-        }
-
-        activeStreams[id] = task
-
-        continuation.onTermination = { _ in
-            task.cancel()
+        continuation.onTermination = { [weak router] _ in
+            router?.removeSubscription(relaySubscriptionId: subscriptionId)
         }
 
         return asyncStream
@@ -146,5 +153,53 @@ public actor RelayManager: RelayManagerProtocol {
 
     private func removeStream(id: SubscriptionID) {
         activeStreams[id] = nil
+    }
+}
+
+// MARK: - Notification Router
+
+/// Routes events from rust-nostr's handleNotifications callback to the correct
+/// subscription's AsyncStream continuation. Thread-safe via NSLock.
+final class NotificationRouter: HandleNotification, @unchecked Sendable {
+    private let lock = NSLock()
+    private var subscriptions: [String: AsyncStream<NostrEvent>.Continuation] = [:]
+
+    func addSubscription(relaySubscriptionId: String, continuation: AsyncStream<NostrEvent>.Continuation) {
+        lock.withLock {
+            subscriptions[relaySubscriptionId] = continuation
+        }
+    }
+
+    func removeSubscription(relaySubscriptionId: String) {
+        lock.withLock {
+            subscriptions[relaySubscriptionId]?.finish()
+            subscriptions[relaySubscriptionId] = nil
+        }
+    }
+
+    func removeAll() {
+        lock.withLock {
+            for (_, cont) in subscriptions {
+                cont.finish()
+            }
+            subscriptions.removeAll()
+        }
+    }
+
+    // MARK: - HandleNotification
+
+    func handleMsg(relayUrl: RelayUrl, msg: RelayMessage) async {
+        // Not used — we handle individual events via handle()
+    }
+
+    func handle(relayUrl: RelayUrl, subscriptionId: String, event: Event) async {
+        guard let nostrEvent = try? EventSigner.fromRustEvent(event) else { return }
+
+        lock.withLock {
+            // Route event to the matching subscription continuation
+            if let cont = subscriptions[subscriptionId] {
+                cont.yield(nostrEvent)
+            }
+        }
     }
 }

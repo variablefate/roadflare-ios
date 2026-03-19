@@ -21,6 +21,7 @@ struct ConnectivityIndicator: View {
             .background(Color.rfSurfaceContainerHigh)
             .clipShape(Capsule())
         }
+        .buttonStyle(.plain)
         .sheet(isPresented: $showRelaySheet) { RelayManagementSheet() }
         .task { await checkConnection() }
     }
