@@ -97,21 +97,19 @@ struct AdversarialEventTests {
 
     // MARK: - Spoofed Events
 
-    @Test func driverStateFromWrongPubkeyRejected() throws {
+    /// State machine does NOT validate pubkey — that's the RideCoordinator's
+    /// responsibility via relay subscription author filters. This test documents
+    /// that the state machine trusts its caller to pre-validate.
+    @Test func stateMachineAcceptsEventRegardlessOfPubkey() throws {
         let sm = RideStateMachine()
         try sm.startRide(offerEventId: "o1", driverPubkey: "correct_driver",
                          paymentMethod: nil, fiatPaymentMethods: [])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
 
-        // State event with matching confirmation but from WRONG driver
-        // The state machine doesn't check pubkey — that's the coordinator's job
-        // But the confirmationId filter should prevent cross-ride contamination
         let state = DriverRideStateContent(currentStatus: "completed", history: [])
         let result = try sm.handleDriverStateUpdate(eventId: "ds_fake", confirmationId: "conf1", driverState: state)
-        // State machine processes it because confirmationId matches
-        // Coordinator must validate pubkey before calling handleDriverStateUpdate
-        #expect(result == "completed")
+        #expect(result == "completed")  // Accepted because confirmationId matches
     }
 
     @Test func cancellationWithWrongConfirmationIdRejected() throws {
@@ -265,14 +263,103 @@ struct AdversarialEventTests {
     }
 
     @Test func geohashWithExtremeCoordinates() {
-        // Should not crash
         let gh1 = Geohash(latitude: 90, longitude: 180, precision: 5)
         #expect(gh1.hash.count == 5)
-
         let gh2 = Geohash(latitude: -90, longitude: -180, precision: 5)
         #expect(gh2.hash.count == 5)
-
         let gh3 = Geohash(latitude: 0, longitude: 0, precision: 1)
         #expect(gh3.hash.count == 1)
+    }
+
+    // MARK: - Missing Edge Cases (From Audit)
+
+    @Test func locationApproximatePreservesSign() {
+        let negative = Location(latitude: -33.86789, longitude: 151.20567)
+        let approx = negative.approximate()
+        #expect(approx.latitude == -33.87)
+        #expect(approx.longitude == 151.21)
+    }
+
+    @Test func locationDistancePrecision() {
+        // NYC to LA: known distance ~3,944 km — tighten tolerance to 1%
+        let nyc = Location(latitude: 40.7128, longitude: -74.0060)
+        let la = Location(latitude: 34.0522, longitude: -118.2437)
+        let dist = nyc.distance(to: la)
+        #expect(abs(dist - 3944) < 50)  // Within 50km (1.3%)
+    }
+
+    @Test func locationWithinMileBoundary() {
+        let origin = Location(latitude: 40.0, longitude: -74.0)
+        // 1.6 km = threshold. Test just inside and just outside.
+        let justInside = Location(latitude: 40.0143, longitude: -74.0)  // ~1.59 km
+        let justOutside = Location(latitude: 40.0145, longitude: -74.0)  // ~1.61 km
+        #expect(origin.isWithinMile(of: justInside))
+        #expect(!origin.isWithinMile(of: justOutside))
+    }
+
+    @Test func geohashContainsBoundary() {
+        let gh = Geohash(latitude: 40.7128, longitude: -74.0060, precision: 5)
+        let bb = gh.boundingBox
+        // Center should be inside
+        #expect(gh.contains(latitude: gh.latitude, longitude: gh.longitude))
+        // Corner should be inside
+        #expect(gh.contains(latitude: bb.minLat, longitude: bb.minLon))
+        // Just outside should NOT be inside
+        #expect(!gh.contains(latitude: bb.maxLat + 0.001, longitude: bb.maxLon + 0.001))
+    }
+
+    @Test func fareCalculatorDecimalPrecision() {
+        let config = FareConfig(baseFareUsd: 1.11, rateUsdPerMile: 0.33, minimumFareUsd: 0.50)
+        let calc = FareCalculator(config: config)
+        // 3.33 miles: 1.11 + (3.33 × 0.33) = 1.11 + 1.0989 = 2.2089
+        let fare = calc.calculateFare(distanceMiles: 3.33)
+        #expect(fare > 2.20 && fare < 2.22)  // Tight tolerance
+    }
+
+    @Test func eventWithDuplicateTagNames() throws {
+        let json = """
+        {"id":"abc","pubkey":"def","created_at":1700000000,"kind":3173,\
+        "tags":[["p","pub1"],["p","pub2"],["t","a"],["t","b"],["t","c"]],\
+        "content":"test","sig":"sig"}
+        """.data(using: .utf8)!
+        let event = try JSONDecoder().decode(NostrEvent.self, from: json)
+        // tag("p") returns first, tagValues("p") returns all
+        #expect(event.tag("p") == "pub1")
+        #expect(event.tagValues("p") == ["pub1", "pub2"])
+        #expect(event.tagValues("t") == ["a", "b", "c"])
+    }
+
+    @Test func eventWithFutureTimestamp() throws {
+        let futureTs = Int(Date.now.timeIntervalSince1970) + 86400  // Tomorrow
+        let json = """
+        {"id":"abc","pubkey":"def","created_at":\(futureTs),"kind":1,"tags":[],"content":"","sig":"sig"}
+        """.data(using: .utf8)!
+        let event = try JSONDecoder().decode(NostrEvent.self, from: json)
+        // Should parse without error — timestamp validation is caller's responsibility
+        #expect(event.createdAt == futureTs)
+    }
+
+    @Test func pinGenerationDistribution() {
+        // Generate 1000 PINs and verify they're in valid range
+        var pins: Set<String> = []
+        for _ in 0..<1000 {
+            let pin = RideStateMachine.generatePin()
+            #expect(pin.count == 4)
+            let value = Int(pin)!
+            #expect(value >= 0 && value <= 9999)
+            pins.insert(pin)
+        }
+        // Should have reasonable distribution (at least 500 unique out of 1000)
+        #expect(pins.count > 500)
+    }
+
+    @Test func riderStageFromInvalidRawValue() {
+        let invalid = RiderStage(rawValue: "nonexistent_stage")
+        #expect(invalid == nil)
+    }
+
+    @Test func paymentMethodFromInvalidRawValue() {
+        let invalid = PaymentMethod(rawValue: "bitcoin")  // Not in v1
+        #expect(invalid == nil)
     }
 }
