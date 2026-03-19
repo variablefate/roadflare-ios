@@ -37,6 +37,9 @@ struct ProfileSetupView: View {
                         .background(Color.rfSurfaceContainerLow)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .foregroundColor(Color.rfOnSurface)
+                        .onChange(of: displayName) {
+                            if displayName.count > 50 { displayName = String(displayName.prefix(50)) }
+                        }
                 }
                 .padding(.horizontal, 24)
 

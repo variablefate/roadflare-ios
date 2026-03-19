@@ -131,6 +131,11 @@ final class RideCoordinator {
         driverPubkey: String, pickup: Location,
         destination: Location, fareEstimate: FareEstimate
     ) async {
+        // Prevent concurrent ride starts
+        guard stateMachine.stage == .idle else {
+            AppLogger.ride.warning("sendRideOffer called while stage is \(stateMachine.stage.rawValue) — ignoring")
+            return
+        }
         do {
             let offerContent = RideOfferContent(
                 fareEstimate: fareEstimate.fareUSD,
@@ -249,6 +254,8 @@ final class RideCoordinator {
             if result != nil {
                 for action in driverState.history where action.isPinSubmitAction {
                     guard !processedPinActionTimestamps.contains(action.at) else { continue }
+                    // Safety cap — should never exceed maxPinAttempts in practice
+                    guard processedPinActionTimestamps.count < 10 else { continue }
                     processedPinActionTimestamps.insert(action.at)
                     if let pinEncrypted = action.pinEncrypted,
                        let driverPubkey = stateMachine.driverPubkey {

@@ -101,6 +101,7 @@ struct WelcomeView: View {
     }
 
     private func createWithPasskey() {
+        guard !isLoading else { return }
         isLoading = true; errorMessage = nil
         Task {
             do {
@@ -115,6 +116,7 @@ struct WelcomeView: View {
     }
 
     private func generateTraditionalKey() {
+        guard !isLoading else { return }  // Prevent rapid double-tap
         isLoading = true; errorMessage = nil
         Task {
             do { try await appState.generateNewKey() }
