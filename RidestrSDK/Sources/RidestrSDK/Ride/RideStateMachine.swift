@@ -156,7 +156,9 @@ public final class RideStateMachine: @unchecked Sendable {
     /// Handle a cancellation event. Returns true if processed, false if deduplicated.
     public func handleCancellation(eventId: String, confirmationId: String) -> Bool {
         guard !processedCancellationEventIds.contains(eventId) else { return false }
-        guard confirmationId == confirmationEventId || confirmationEventId == nil else { return false }
+        // Only process if confirmation IDs match, OR if we're pre-confirmation (waiting/accepted)
+        let preConfirmation = (stage == .waitingForAcceptance || stage == .driverAccepted)
+        guard confirmationId == confirmationEventId || preConfirmation else { return false }
         processedCancellationEventIds.insert(eventId)
         stage = .idle
         return true

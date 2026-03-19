@@ -9,7 +9,7 @@ import NostrSDK
 public actor RelayManager: RelayManagerProtocol {
     private var client: Client?
     private let keypair: NostrKeypair
-    private var activeStreams: [SubscriptionID: Task<Void, Never>] = [:]
+    private var activeStreams: [SubscriptionID: String] = [:]  // maps our ID → relay subscription ID
     private var connectedRelayURLs: [URL] = []
     private var notificationHandler: NotificationRouter?
     private var notificationTask: Task<Void, Never>?
@@ -53,12 +53,10 @@ public actor RelayManager: RelayManagerProtocol {
     }
 
     public func disconnect() async {
-        for (_, task) in activeStreams {
-            task.cancel()
-        }
+        // Finish all subscription continuations via router
+        notificationHandler?.removeAll()
         activeStreams.removeAll()
         notificationTask?.cancel()
-        notificationHandler?.removeAll()
 
         if let client {
             await client.disconnect()
@@ -97,8 +95,8 @@ public actor RelayManager: RelayManagerProtocol {
         }
 
         // Cancel any existing subscription with the same ID
-        if let existing = activeStreams[id] {
-            existing.cancel()
+        if let oldRelaySubId = activeStreams[id] {
+            router.removeSubscription(relaySubscriptionId: oldRelaySubId)
             activeStreams[id] = nil
         }
 
@@ -106,27 +104,27 @@ public actor RelayManager: RelayManagerProtocol {
 
         // Register subscription with the relay (persistent, not EOSE-limited)
         let output = try await client.subscribe(filter: rustFilter)
-        let subscriptionId = output.id
+        let relaySubId = output.id
 
         // Create AsyncStream backed by the notification router
         let (asyncStream, continuation) = AsyncStream<NostrEvent>.makeStream()
 
         // Register this subscription's continuation with the router
-        router.addSubscription(relaySubscriptionId: subscriptionId, continuation: continuation)
+        router.addSubscription(relaySubscriptionId: relaySubId, continuation: continuation)
 
-        // Track for cleanup
-        activeStreams[id] = Task { /* placeholder for tracking */ }
+        // Track relay subscription ID for cleanup
+        activeStreams[id] = relaySubId
 
-        continuation.onTermination = { [weak router] _ in
-            router?.removeSubscription(relaySubscriptionId: subscriptionId)
+        continuation.onTermination = { [router] _ in
+            router.removeSubscription(relaySubscriptionId: relaySubId)
         }
 
         return asyncStream
     }
 
     public func unsubscribe(_ id: SubscriptionID) async {
-        if let task = activeStreams[id] {
-            task.cancel()
+        if let relaySubId = activeStreams[id] {
+            notificationHandler?.removeSubscription(relaySubscriptionId: relaySubId)
             activeStreams[id] = nil
         }
     }

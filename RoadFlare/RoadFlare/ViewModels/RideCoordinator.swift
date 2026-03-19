@@ -23,6 +23,7 @@ final class RideCoordinator {
     // MARK: - Chat State
 
     var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
+    private var chatMessageIds: Set<String> = []
 
     // MARK: - Active Ride Tracking
 
@@ -111,16 +112,17 @@ final class RideCoordinator {
         let pubkeys = driversRepository.allPubkeys
         guard !pubkeys.isEmpty else { return }
 
-        // Unsubscribe old subscription before creating new one
-        if let oldId = locationSubscriptionId {
-            Task { await relayManager.unsubscribe(oldId) }
-        }
+        // Cancel old subscription
         locationTask?.cancel()
+        let oldId = locationSubscriptionId
 
         let subId = SubscriptionID("roadflare-locations")
         locationSubscriptionId = subId
 
         locationTask = Task {
+            // Clean up old subscription
+            if let oldId { await relayManager.unsubscribe(oldId) }
+
             do {
                 let filter = NostrFilter.roadflareLocations(driverPubkeys: pubkeys)
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
@@ -176,15 +178,15 @@ final class RideCoordinator {
 
     /// Subscribe to incoming key shares from drivers.
     func startKeyShareSubscription() {
-        if let oldId = keyShareSubscriptionId {
-            Task { await relayManager.unsubscribe(oldId) }
-        }
         keyShareTask?.cancel()
+        let oldId = keyShareSubscriptionId
 
         let subId = SubscriptionID("key-shares")
         keyShareSubscriptionId = subId
 
         keyShareTask = Task {
+            if let oldId { await relayManager.unsubscribe(oldId) }
+
             do {
                 let filter = NostrFilter.keyShares(myPubkey: keypair.publicKeyHex)
                 print("[RideCoordinator] Subscribing to key shares for \(keypair.publicKeyHex.prefix(8))...")
@@ -424,6 +426,7 @@ final class RideCoordinator {
 
             let isCorrect = decryptedPin == stateMachine.pin
             stateMachine.recordPinVerification(verified: isCorrect)
+            let currentAttempt = stateMachine.pinAttempts  // Read AFTER increment
 
             let now = Int(Date.now.timeIntervalSince1970)
             let action = RiderRideAction(
@@ -432,7 +435,7 @@ final class RideCoordinator {
                 locationType: nil,
                 locationEncrypted: nil,
                 status: isCorrect ? "verified" : "rejected",
-                attempt: stateMachine.pinAttempts
+                attempt: currentAttempt
             )
             stateMachine.addRiderAction(action)
 
@@ -507,6 +510,7 @@ final class RideCoordinator {
         await cleanupSubscriptions()
         stateMachine.reset()
         chatMessages = []
+        chatMessageIds = []
         currentFareEstimate = nil
         pickupLocation = nil
         destinationLocation = nil
@@ -544,7 +548,8 @@ final class RideCoordinator {
             let content = try RideshareEventParser.parseChatMessage(event: event, keypair: keypair)
             let isMine = event.pubkey == keypair.publicKeyHex
             // Deduplicate by event ID
-            guard !chatMessages.contains(where: { $0.id == event.id }) else { return }
+            guard !chatMessageIds.contains(event.id) else { return }
+            chatMessageIds.insert(event.id)
             chatMessages.append((id: event.id, text: content.message, isMine: isMine, timestamp: event.createdAt))
             chatMessages.sort { $0.timestamp < $1.timestamp }
         } catch {

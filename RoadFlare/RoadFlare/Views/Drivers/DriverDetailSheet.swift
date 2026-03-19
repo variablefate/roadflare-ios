@@ -72,6 +72,8 @@ struct DriverDetailSheet: View {
                 Section {
                     Button("Remove Driver", role: .destructive) {
                         appState.driversRepository?.removeDriver(pubkey: driver.pubkey)
+                        // Republish updated list so driver knows
+                        Task { await appState.rideCoordinator?.publishFollowedDriversList() }
                         dismiss()
                     }
                 }

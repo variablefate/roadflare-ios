@@ -15,6 +15,7 @@ struct ConnectivityIndicator: View {
                 Text(connected ? "Connected" : "Offline")
                     .font(RFFont.caption(10))
                     .foregroundColor(Color.rfOnSurfaceVariant)
+                    .fixedSize()
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
