@@ -1,95 +1,96 @@
 import SwiftUI
 import RidestrSDK
 
-/// First screen: welcome + create account via passkey or traditional key.
 struct WelcomeView: View {
     @Environment(AppState.self) private var appState
     @State private var passkeyManager = PasskeyManager()
     @State private var showImport = false
-    @State private var showManualCreate = false
     @State private var importText = ""
     @State private var errorMessage: String?
     @State private var isLoading = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 32) {
+        ZStack {
+            Color.rfSurface.ignoresSafeArea()
+
+            VStack(spacing: 40) {
                 Spacer()
 
-                Image(systemName: "car.circle.fill")
-                    .font(.system(size: 80))
-                    .foregroundStyle(.tint)
+                // Logo
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient.rfFlare)
+                        .frame(width: 100, height: 100)
+                        .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
+                    Image(systemName: "car.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.black)
+                }
 
                 VStack(spacing: 8) {
                     Text("RoadFlare")
-                        .font(.largeTitle.bold())
+                        .font(RFFont.headline(36))
+                        .foregroundColor(Color.rfOnSurface)
                     Text("Your personal driver network")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
+                        .font(RFFont.body(17))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
                 }
 
-                Text("Request rides from drivers you know and trust. No strangers, no platform fees.")
-                    .font(.body)
+                Text("Request rides from drivers you know and trust.\nNo strangers. No platform fees.")
+                    .font(RFFont.body(15))
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
+                    .foregroundColor(Color.rfOnSurfaceVariant)
+                    .padding(.horizontal, 32)
 
                 Spacer()
 
                 VStack(spacing: 16) {
-                    // Primary: Passkey (iOS 18+)
                     if #available(iOS 18.0, *) {
                         Button {
                             createWithPasskey()
                         } label: {
                             Label("Create with Passkey", systemImage: "person.badge.key.fill")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                                .padding()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(RFPrimaryButtonStyle())
                         .disabled(isLoading)
                     }
 
-                    // Secondary: Traditional key generation
                     Button {
                         generateTraditionalKey()
                     } label: {
                         Text(isPasskeyAvailable ? "Create Without Passkey" : "Create New Account")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(RFSecondaryButtonStyle())
                     .disabled(isLoading)
 
-                    // Import existing key
                     Button {
                         showImport = true
                     } label: {
                         Text("I Have a Key")
-                            .font(.subheadline)
                     }
+                    .buttonStyle(RFGhostButtonStyle())
                     .disabled(isLoading)
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 24)
 
                 if isLoading {
                     ProgressView()
+                        .tint(.rfPrimary)
                 }
 
                 if let error = errorMessage {
                     Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
+                        .font(RFFont.caption())
+                        .foregroundColor(Color.rfError)
+                        .padding(.horizontal, 24)
                 }
+
+                Spacer().frame(height: 20)
             }
-            .padding()
-            .sheet(isPresented: $showImport) {
-                ImportKeySheet(importText: $importText, errorMessage: $errorMessage) {
-                    importKey()
-                }
+        }
+        .sheet(isPresented: $showImport) {
+            ImportKeySheet(importText: $importText, errorMessage: $errorMessage) {
+                importKey()
             }
         }
     }
@@ -100,41 +101,30 @@ struct WelcomeView: View {
     }
 
     private func createWithPasskey() {
-        isLoading = true
-        errorMessage = nil
+        isLoading = true; errorMessage = nil
         Task {
             do {
                 let keypair = try await passkeyManager.createPasskeyAndDeriveKey()
-                // Store the derived key in keychain so the app can use it
                 try await appState.importKey(keypair.exportNsec())
                 appState.authState = .profileIncomplete
             } catch {
-                errorMessage = error.localizedDescription
-                // If passkey fails, suggest traditional method
-                if errorMessage?.contains("cancelled") == true {
-                    errorMessage = nil  // User cancelled, not an error
-                }
+                if !"\(error)".contains("cancelled") { errorMessage = error.localizedDescription }
             }
             isLoading = false
         }
     }
 
     private func generateTraditionalKey() {
-        isLoading = true
-        errorMessage = nil
+        isLoading = true; errorMessage = nil
         Task {
-            do {
-                try await appState.generateNewKey()
-            } catch {
-                errorMessage = error.localizedDescription
-            }
+            do { try await appState.generateNewKey() }
+            catch { errorMessage = error.localizedDescription }
             isLoading = false
         }
     }
 
     private func importKey() {
-        isLoading = true
-        errorMessage = nil
+        isLoading = true; errorMessage = nil
         Task {
             do {
                 try await appState.importKey(importText)
@@ -147,7 +137,6 @@ struct WelcomeView: View {
     }
 }
 
-/// Import key sheet — supports passkey login or manual nsec/hex entry.
 struct ImportKeySheet: View {
     @Binding var importText: String
     @Binding var errorMessage: String?
@@ -158,61 +147,63 @@ struct ImportKeySheet: View {
     @State private var isLoading = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                // Passkey login option
-                if #available(iOS 18.0, *) {
-                    VStack(spacing: 8) {
+        ZStack {
+            Color.rfSurface.ignoresSafeArea()
+
+            NavigationStack {
+                VStack(spacing: 24) {
+                    if #available(iOS 18.0, *) {
                         Button {
                             loginWithPasskey()
                         } label: {
                             Label("Sign In with Passkey", systemImage: "person.badge.key.fill")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
-                                .padding()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(RFPrimaryButtonStyle())
                         .disabled(isLoading)
 
                         Text("Use your existing passkey to recover your Nostr key")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(RFFont.caption())
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+
+                        Rectangle()
+                            .fill(Color.rfSurfaceContainerHigh)
+                            .frame(height: 1)
+                            .padding(.vertical, 4)
+
+                        Text("Or enter your key manually:")
+                            .font(RFFont.body(14))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
                     }
 
-                    Divider()
-                        .padding(.vertical, 4)
+                    TextField("nsec1... or hex key", text: $importText)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .font(RFFont.mono(14))
+                        .padding(12)
+                        .background(Color.rfSurfaceContainerLow)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .foregroundColor(Color.rfOnSurface)
 
-                    Text("Or enter your key manually:")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(RFFont.caption())
+                            .foregroundColor(Color.rfError)
+                    }
+
+                    Button("Import Key") { onImport() }
+                        .buttonStyle(RFSecondaryButtonStyle())
+                        .disabled(importText.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                    Spacer()
                 }
-
-                TextField("nsec1... or hex key", text: $importText)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .font(.system(.body, design: .monospaced))
-
-                if let error = errorMessage {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-
-                Button("Import Key") {
-                    onImport()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(importText.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                Spacer()
-            }
-            .padding()
-            .navigationTitle("Import Key")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                .padding(24)
+                .navigationTitle("Import Key")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(Color.rfSurface, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { dismiss() }.foregroundColor(Color.rfOnSurfaceVariant)
+                    }
                 }
             }
         }
@@ -226,10 +217,7 @@ struct ImportKeySheet: View {
                 try await appState.importKey(keypair.exportNsec())
                 dismiss()
             } catch {
-                errorMessage = error.localizedDescription
-                if errorMessage?.contains("cancelled") == true {
-                    errorMessage = nil
-                }
+                if !"\(error)".contains("cancelled") { errorMessage = error.localizedDescription }
             }
             isLoading = false
         }

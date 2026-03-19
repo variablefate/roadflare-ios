@@ -9,6 +9,7 @@ struct RoadFlareApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
+                .preferredColorScheme(.dark)
                 .task {
                     await appState.initialize()
                 }

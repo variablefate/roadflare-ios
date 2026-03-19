@@ -1,96 +1,98 @@
 import SwiftUI
 import RidestrSDK
 
-/// History tab: past rides.
 struct HistoryTab: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
         NavigationStack {
-            Group {
+            ZStack {
+                Color.rfSurface.ignoresSafeArea()
+
                 if appState.rideHistory.rides.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Rides Yet", systemImage: "clock")
-                    } description: {
+                    VStack(spacing: 24) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 48))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                        Text("No Rides Yet")
+                            .font(RFFont.headline(20))
+                            .foregroundColor(Color.rfOnSurface)
                         Text("Your completed rides will appear here.")
+                            .font(RFFont.body(15))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
                     }
                 } else {
-                    List {
-                        ForEach(appState.rideHistory.rides) { ride in
-                            RideHistoryRow(ride: ride)
-                        }
-                        .onDelete { indexSet in
-                            for index in indexSet {
-                                let ride = appState.rideHistory.rides[index]
-                                appState.rideHistory.removeRide(id: ride.id)
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(appState.rideHistory.rides) { ride in
+                                RideHistoryCard(ride: ride)
                             }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
                     }
                 }
             }
             .navigationTitle("History")
+            .toolbarBackground(Color.rfSurface, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    ConnectivityIndicator()
-                }
+                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
             }
         }
     }
 }
 
-struct RideHistoryRow: View {
+struct RideHistoryCard: View {
     let ride: RideHistoryEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Image(systemName: ride.status == "completed" ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(ride.status == "completed" ? .green : .red)
-                    .font(.caption)
-                Text(ride.date, style: .date)
-                    .font(.subheadline.bold())
-                Spacer()
-                Text("$\(ride.fare as NSDecimalNumber)")
-                    .font(.subheadline.bold())
-            }
+        HStack(spacing: 12) {
+            FlareIndicator(color: ride.status == "completed" ? .rfOnline : .rfError)
+                .frame(height: 50)
 
-            if let name = ride.counterpartyName {
-                Text("Driver: \(name)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(ride.date, style: .date)
+                        .font(RFFont.title(15))
+                        .foregroundColor(Color.rfOnSurface)
+                    Spacer()
+                    Text("$\(ride.fare as NSDecimalNumber)")
+                        .font(RFFont.headline(18))
+                        .foregroundColor(Color.rfPrimary)
+                }
 
-            if let pickup = ride.pickup.address {
-                Text(pickup)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            if let dest = ride.destination.address {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.right")
-                        .font(.caption2)
-                    Text(dest)
-                        .font(.caption)
+                if let name = ride.counterpartyName {
+                    Text(name)
+                        .font(RFFont.caption(13))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
                 }
-                .foregroundStyle(.secondary)
-            }
 
-            HStack(spacing: 12) {
-                if let dist = ride.distance {
-                    Text(String(format: "%.1f mi", dist))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                if let pickup = ride.pickup.address, let dest = ride.destination.address {
+                    HStack(spacing: 4) {
+                        Text(pickup)
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9))
+                        Text(dest)
+                    }
+                    .font(RFFont.caption(11))
+                    .foregroundColor(Color.rfOffline)
+                    .lineLimit(1)
                 }
-                if let dur = ride.duration {
-                    Text("\(dur) min")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+
+                HStack(spacing: 12) {
+                    if let dist = ride.distance {
+                        Text(String(format: "%.1f mi", dist))
+                    }
+                    if let dur = ride.duration {
+                        Text("\(dur) min")
+                    }
+                    Text(ride.paymentMethod.capitalized)
                 }
-                Text(ride.paymentMethod.capitalized)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                .font(RFFont.caption(11))
+                .foregroundColor(Color.rfOffline)
             }
         }
-        .padding(.vertical, 2)
+        .rfCard()
     }
 }

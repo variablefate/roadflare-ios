@@ -1,7 +1,7 @@
 import SwiftUI
+import Security
 import RidestrSDK
 
-/// Settings tab.
 struct SettingsTab: View {
     @Environment(AppState.self) private var appState
     @State private var showKeyBackup = false
@@ -12,84 +12,100 @@ struct SettingsTab: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Profile") {
-                    if !appState.settings.profileName.isEmpty {
-                        LabeledContent("Name", value: appState.settings.profileName)
-                    }
+            ZStack {
+                Color.rfSurface.ignoresSafeArea()
 
-                    if let npub = appState.keypair?.npub {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Your Public Key")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(npub)
-                                .font(.system(.caption2, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(2)
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Profile
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("Profile")
+                            VStack(spacing: 0) {
+                                if !appState.settings.profileName.isEmpty {
+                                    SettingsRow(icon: "person", label: "Name", value: appState.settings.profileName)
+                                }
+                                if let npub = appState.keypair?.npub {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Your Public Key")
+                                            .font(RFFont.caption(11))
+                                            .foregroundColor(Color.rfOffline)
+                                        Text(npub)
+                                            .font(RFFont.mono(10))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                            .textSelection(.enabled)
+                                            .lineLimit(2)
+                                    }
+                                    .padding(16)
+                                }
+                            }
+                            .background(Color.rfSurfaceContainer)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
+
+                        // Payment Methods
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("Payment Methods")
+                            PaymentMethodPicker(settings: appState.settings)
+                        }
+
+                        // Key Backup
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("Key Backup")
+                            VStack(spacing: 0) {
+                                SettingsButton(icon: "key", label: "View & Copy Private Key") {
+                                    showKeyBackup = true
+                                }
+                                SettingsButton(icon: "lock.shield", label: savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords") {
+                                    saveToPasswords()
+                                }
+                                .disabled(savedToPasswords)
+                                SettingsButton(icon: "square.and.arrow.up", label: "Share Key via...") {
+                                    shareKey()
+                                }
+                            }
+                            .background(Color.rfSurfaceContainer)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
+
+                        // About
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("About")
+                            VStack(spacing: 0) {
+                                SettingsRow(icon: "info.circle", label: "Version", value: RidestrSDKVersion.version)
+                                SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
+                            }
+                            .background(Color.rfSurfaceContainer)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
+
+                        // Logout
+                        Button { showLogoutConfirm = true } label: {
+                            Text("Log Out")
+                                .font(RFFont.body(15))
+                                .foregroundColor(Color.rfError)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Color.rfSurfaceContainer)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
                     }
-                }
-
-                Section("Payment Methods") {
-                    PaymentMethodPicker(settings: appState.settings)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                }
-
-                Section("Key Backup") {
-                    Button {
-                        showKeyBackup = true
-                    } label: {
-                        Label("View & Copy Private Key", systemImage: "key")
-                    }
-
-                    Button {
-                        saveToPasswords()
-                    } label: {
-                        Label(
-                            savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords",
-                            systemImage: savedToPasswords ? "checkmark.shield" : "lock.shield"
-                        )
-                    }
-                    .disabled(savedToPasswords)
-
-                    Button {
-                        shareKey()
-                    } label: {
-                        Label("Share Key via...", systemImage: "square.and.arrow.up")
-                    }
-                }
-
-                Section("About") {
-                    LabeledContent("Version", value: RidestrSDKVersion.version)
-                    LabeledContent("Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
-                }
-
-                Section {
-                    Button("Log Out", role: .destructive) {
-                        showLogoutConfirm = true
-                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 32)
                 }
             }
             .navigationTitle("Settings")
+            .toolbarBackground(Color.rfSurface, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    ConnectivityIndicator()
-                }
+                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
             }
-            .sheet(isPresented: $showKeyBackup) {
-                NsecBackupSheet()
-            }
+            .sheet(isPresented: $showKeyBackup) { NsecBackupSheet() }
             .sheet(isPresented: $showShareSheet) {
-                if !shareText.isEmpty {
-                    ShareSheet(items: [shareText])
-                }
+                if !shareText.isEmpty { ShareSheet(items: [shareText]) }
             }
             .alert("Log Out?", isPresented: $showLogoutConfirm) {
-                Button("Log Out", role: .destructive) {
-                    Task { await appState.logout() }
-                }
+                Button("Log Out", role: .destructive) { Task { await appState.logout() } }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This will remove all local data including your keys. Make sure you have backed up your private key.")
@@ -101,21 +117,9 @@ struct SettingsTab: View {
         Task {
             guard let nsec = try? await appState.keyManager?.exportNsec(),
                   let npub = appState.keypair?.npub else { return }
-
-            // SecAddSharedWebCredential shows a system dialog asking the user
-            // to save the credential to Apple Passwords.
-            // Requires Associated Domains (webcredentials:roadflare.app) entitlement.
-            SecAddSharedWebCredential(
-                "roadflare.app" as CFString,
-                npub as CFString,
-                nsec as CFString
-            ) { error in
+            SecAddSharedWebCredential("roadflare.app" as CFString, npub as CFString, nsec as CFString) { error in
                 DispatchQueue.main.async {
-                    if let error {
-                        print("Failed to save to Passwords: \(error)")
-                    } else {
-                        savedToPasswords = true
-                    }
+                    if error == nil { savedToPasswords = true }
                 }
             }
         }
@@ -127,5 +131,68 @@ struct SettingsTab: View {
             shareText = nsec
             showShareSheet = true
         }
+    }
+}
+
+// MARK: - Settings Components
+
+struct SectionLabel: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View {
+        Text(text)
+            .font(RFFont.caption(12))
+            .foregroundColor(Color.rfOnSurfaceVariant)
+            .textCase(.uppercase)
+            .tracking(1)
+            .padding(.leading, 4)
+    }
+}
+
+struct SettingsRow: View {
+    let icon: String
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .frame(width: 20)
+                .foregroundColor(Color.rfPrimary)
+            Text(label)
+                .font(RFFont.body(15))
+                .foregroundColor(Color.rfOnSurface)
+            Spacer()
+            Text(value)
+                .font(RFFont.body(14))
+                .foregroundColor(Color.rfOnSurfaceVariant)
+        }
+        .padding(16)
+    }
+}
+
+struct SettingsButton: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .frame(width: 20)
+                    .foregroundColor(Color.rfPrimary)
+                Text(label)
+                    .font(RFFont.body(15))
+                    .foregroundColor(Color.rfOnSurface)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundColor(Color.rfOffline)
+            }
+            .padding(16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

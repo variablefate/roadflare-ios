@@ -1,7 +1,6 @@
 import SwiftUI
 import RidestrSDK
 
-/// Drivers tab: view and manage your trusted driver network.
 struct DriversTab: View {
     @Environment(AppState.self) private var appState
     @State private var showAddDriver = false
@@ -9,105 +8,90 @@ struct DriversTab: View {
 
     var body: some View {
         NavigationStack {
-            Group {
+            ZStack {
+                Color.rfSurface.ignoresSafeArea()
+
                 if let repo = appState.driversRepository, repo.hasDrivers {
-                    driverList(repo: repo)
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(repo.drivers) { driver in
+                                Button { selectedDriver = driver } label: {
+                                    DriverCard(
+                                        driver: driver,
+                                        displayName: repo.driverNames[driver.pubkey] ?? driver.name,
+                                        location: repo.driverLocations[driver.pubkey]
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                    }
                 } else {
-                    emptyState
-                }
-            }
-            .navigationTitle("My Drivers")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    ConnectivityIndicator()
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showAddDriver = true
-                    } label: {
-                        Image(systemName: "plus")
+                    VStack(spacing: 24) {
+                        Image(systemName: "person.2.slash")
+                            .font(.system(size: 48))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                        Text("No Drivers Yet")
+                            .font(RFFont.headline(20))
+                            .foregroundColor(Color.rfOnSurface)
+                        Text("Add drivers you know and trust\nto your personal network.")
+                            .font(RFFont.body(15))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                            .multilineTextAlignment(.center)
+                        Button("Add Your First Driver") { showAddDriver = true }
+                            .buttonStyle(RFPrimaryButtonStyle())
+                            .padding(.horizontal, 48)
                     }
                 }
             }
-            .sheet(isPresented: $showAddDriver) {
-                AddDriverSheet()
-            }
-            .sheet(item: $selectedDriver) { driver in
-                DriverDetailSheet(driver: driver)
-            }
-        }
-    }
-
-    private func driverList(repo: FollowedDriversRepository) -> some View {
-        List {
-            ForEach(repo.drivers) { driver in
-                Button {
-                    selectedDriver = driver
-                } label: {
-                    DriverRow(
-                        driver: driver,
-                        displayName: repo.driverNames[driver.pubkey] ?? driver.name,
-                        location: repo.driverLocations[driver.pubkey]
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-            .onDelete { indexSet in
-                for index in indexSet {
-                    let driver = repo.drivers[index]
-                    repo.removeDriver(pubkey: driver.pubkey)
+            .navigationTitle("My Drivers")
+            .toolbarBackground(Color.rfSurface, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showAddDriver = true } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(Color.rfPrimary)
+                    }
                 }
             }
-        }
-    }
-
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Drivers Yet", systemImage: "person.2.slash")
-        } description: {
-            Text("Add drivers you know and trust to your personal network.")
-        } actions: {
-            Button("Add Your First Driver") {
-                showAddDriver = true
-            }
-            .buttonStyle(.borderedProminent)
+            .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
+            .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
         }
     }
 }
 
-/// A single driver row in the list.
-struct DriverRow: View {
+/// Driver card with flare indicator for online status.
+struct DriverCard: View {
     let driver: FollowedDriver
     let displayName: String?
     let location: CachedDriverLocation?
 
     var body: some View {
         HStack(spacing: 12) {
-            // Status indicator
-            Circle()
-                .fill(statusColor)
-                .frame(width: 12, height: 12)
+            // Flare indicator
+            FlareIndicator(color: statusColor)
+                .frame(height: 44)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(displayName ?? shortPubkey)
-                    .font(.body.bold())
+                    .font(RFFont.title(16))
+                    .foregroundColor(Color.rfOnSurface)
 
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
+                    StatusDot(status: statusString)
                     Text(statusText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if !driver.hasKey {
-                        Text("Pending approval")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
+                        .font(RFFont.caption(12))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
                 }
 
                 if let note = driver.note, !note.isEmpty {
                     Text(note)
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .font(RFFont.caption(12))
+                        .foregroundColor(Color.rfOffline)
                         .lineLimit(1)
                 }
             }
@@ -116,18 +100,23 @@ struct DriverRow: View {
 
             Image(systemName: "chevron.right")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundColor(Color.rfOffline)
         }
-        .padding(.vertical, 4)
+        .rfCard()
+    }
+
+    private var statusString: String {
+        guard driver.hasKey else { return "offline" }
+        return location?.status ?? "offline"
     }
 
     private var statusColor: Color {
-        guard driver.hasKey else { return .gray }
-        guard let loc = location else { return .gray }
+        guard driver.hasKey else { return .rfOffline }
+        guard let loc = location else { return .rfOffline }
         switch loc.status {
-        case "online": return .green
-        case "on_ride": return .orange
-        default: return .gray
+        case "online": return .rfOnline
+        case "on_ride": return .rfOnRide
+        default: return .rfOffline
         }
     }
 
@@ -142,7 +131,6 @@ struct DriverRow: View {
     }
 
     private var shortPubkey: String {
-        let hex = driver.pubkey
-        return String(hex.prefix(8)) + "..." + String(hex.suffix(4))
+        String(driver.pubkey.prefix(8)) + "..." + String(driver.pubkey.suffix(4))
     }
 }

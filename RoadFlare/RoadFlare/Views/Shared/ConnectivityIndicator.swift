@@ -1,90 +1,85 @@
 import SwiftUI
 import RidestrSDK
 
-/// Small connectivity indicator for the top-left navigation area.
 struct ConnectivityIndicator: View {
     @Environment(AppState.self) private var appState
     @State private var showRelaySheet = false
     @State private var connected = false
 
     var body: some View {
-        Button {
-            showRelaySheet = true
-        } label: {
+        Button { showRelaySheet = true } label: {
             HStack(spacing: 4) {
                 Circle()
-                    .fill(connected ? .green : .red)
-                    .frame(width: 8, height: 8)
-                Text(connected ? "Connected" : "Offline")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .fill(connected ? Color.rfOnline : Color.rfError)
+                    .frame(width: 6, height: 6)
+                Text(connected ? "Live" : "Offline")
+                    .font(RFFont.caption(10))
+                    .foregroundColor(Color.rfOnSurfaceVariant)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.rfSurfaceContainerHigh)
+            .clipShape(Capsule())
         }
-        .sheet(isPresented: $showRelaySheet) {
-            RelayManagementSheet()
-        }
-        .task {
-            await checkConnection()
-        }
+        .sheet(isPresented: $showRelaySheet) { RelayManagementSheet() }
+        .task { await checkConnection() }
     }
 
     private func checkConnection() async {
-        if let rm = appState.relayManager {
-            connected = await rm.isConnected
-        }
+        if let rm = appState.relayManager { connected = await rm.isConnected }
     }
 }
 
-/// Relay management sheet — accessible via connectivity indicator.
 struct RelayManagementSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var isConnected = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
+        ZStack {
+            Color.rfSurface.ignoresSafeArea()
+            NavigationStack {
+                VStack(spacing: 24) {
                     HStack {
-                        Circle()
-                            .fill(isConnected ? .green : .red)
-                            .frame(width: 10, height: 10)
+                        StatusDot(status: isConnected ? "online" : "offline")
                         Text(isConnected ? "Connected" : "Offline")
-                            .font(.headline)
+                            .font(RFFont.headline(20))
+                            .foregroundColor(Color.rfOnSurface)
                     }
-                }
 
-                Section("Relays") {
-                    ForEach(DefaultRelays.all, id: \.absoluteString) { url in
-                        HStack {
-                            Text(url.absoluteString)
-                                .font(.system(.caption, design: .monospaced))
-                            Spacer()
-                            Image(systemName: "circle.fill")
-                                .font(.system(size: 8))
-                                .foregroundStyle(isConnected ? .green : .gray)
+                    VStack(spacing: 8) {
+                        ForEach(DefaultRelays.all, id: \.absoluteString) { url in
+                            HStack {
+                                StatusDot(status: isConnected ? "online" : "offline")
+                                Text(url.absoluteString)
+                                    .font(RFFont.mono(12))
+                                    .foregroundColor(Color.rfOnSurfaceVariant)
+                                Spacer()
+                            }
+                            .rfCard(.low)
                         }
                     }
-                }
 
-                Section {
-                    Text("Relay connections are managed automatically. These are the Nostr relays your app communicates through.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("Relay connections are managed automatically.")
+                        .font(RFFont.caption(12))
+                        .foregroundColor(Color.rfOffline)
+                        .multilineTextAlignment(.center)
+
+                    Spacer()
+                }
+                .padding(24)
+                .navigationTitle("Connectivity")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(Color.rfSurface, for: .navigationBar)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }.foregroundColor(Color.rfPrimary)
+                    }
                 }
             }
-            .navigationTitle("Connectivity")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .task {
-                if let rm = appState.relayManager {
-                    isConnected = await rm.isConnected
-                }
-            }
+        }
+        .task {
+            if let rm = appState.relayManager { isConnected = await rm.isConnected }
         }
     }
 }

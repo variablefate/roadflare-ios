@@ -1,62 +1,61 @@
 import SwiftUI
 import RidestrSDK
 
-/// Onboarding step: choose which payment methods you have.
 struct PaymentSetupView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        NavigationStack {
+        ZStack {
+            Color.rfSurface.ignoresSafeArea()
+
             VStack(spacing: 24) {
+                Spacer().frame(height: 40)
+
+                Image(systemName: "creditcard")
+                    .font(.system(size: 50))
+                    .foregroundColor(Color.rfPrimary)
+
                 VStack(spacing: 8) {
-                    Image(systemName: "creditcard")
-                        .font(.system(size: 50))
-                        .foregroundStyle(.tint)
-
                     Text("Payment Methods")
-                        .font(.title2.bold())
-
-                    Text("Select all the payment methods you can use. Your driver will see these when you request a ride.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .font(RFFont.headline(24))
+                        .foregroundColor(Color.rfOnSurface)
+                    Text("Select all the payment methods you can use.\nYour driver will see these when you request a ride.")
+                        .font(RFFont.body(14))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                        .padding(.horizontal, 16)
                 }
 
                 PaymentMethodPicker(settings: appState.settings)
-                    .padding(.horizontal)
+                    .padding(.horizontal, 24)
 
                 Spacer()
 
                 VStack(spacing: 8) {
                     if appState.settings.paymentMethods.isEmpty {
                         Text("Select at least one payment method to continue")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
+                            .font(RFFont.caption())
+                            .foregroundColor(Color.rfTertiary)
                     }
 
                     Button {
                         if appState.settings.paymentMethods.isEmpty {
-                            // Force cash if they try to continue with nothing
                             appState.settings.paymentMethods = [.cash]
                         }
                         appState.completePaymentSetup()
                     } label: {
                         Text("Continue")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RFPrimaryButtonStyle())
+                    .padding(.horizontal, 24)
                 }
-                .padding(.horizontal)
+
+                Spacer().frame(height: 20)
             }
-            .padding(.vertical)
         }
     }
 }
 
-/// Reusable payment method picker used in both onboarding and settings.
 struct PaymentMethodPicker: View {
     @Bindable var settings: UserSettings
 
@@ -67,43 +66,46 @@ struct PaymentMethodPicker: View {
                 let isCashLocked = method == .cash && settings.isCashForced
 
                 Button {
-                    if !isCashLocked {
-                        settings.togglePaymentMethod(method)
-                    }
+                    if !isCashLocked { settings.togglePaymentMethod(method) }
                 } label: {
-                    HStack {
+                    HStack(spacing: 12) {
+                        // Flare indicator for active methods
+                        if isEnabled {
+                            FlareIndicator()
+                                .frame(height: 24)
+                        } else {
+                            Color.clear.frame(width: 4, height: 24)
+                        }
+
                         Image(systemName: iconName(for: method))
                             .frame(width: 24)
-                            .foregroundColor(isEnabled ? .accentColor : .secondary)
+                            .foregroundColor(isEnabled ? Color.rfPrimary : Color.rfOffline)
 
                         Text(method.displayName)
-                            .foregroundStyle(isCashLocked ? .secondary : .primary)
+                            .font(RFFont.body())
+                            .foregroundColor(isCashLocked ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
 
                         Spacer()
 
                         Image(systemName: isEnabled ? "checkmark.circle.fill" : "circle")
-                            .foregroundColor(isEnabled ? .accentColor : .gray.opacity(0.3))
+                            .foregroundColor(isEnabled ? Color.rfPrimary : Color.rfOffline)
                             .font(.title3)
                     }
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 14)
                     .padding(.horizontal, 16)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .opacity(isCashLocked ? 0.5 : 1.0)
-
-                if method != PaymentMethod.allCases.last {
-                    Divider().padding(.leading, 56)
-                }
             }
         }
-        .background(.fill.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(Color.rfSurfaceContainer)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
 
         if settings.isCashForced {
             Text("Cash is required when no other methods are selected")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(RFFont.caption(12))
+                .foregroundColor(Color.rfOnSurfaceVariant)
                 .padding(.top, 4)
         }
     }
