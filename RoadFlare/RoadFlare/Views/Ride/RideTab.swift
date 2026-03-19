@@ -37,10 +37,29 @@ struct RideTab: View {
             }
             .sheet(isPresented: $showChat) { WiredChatView() }
             .onAppear {
-                // Pick up driver selection from DriverDetailSheet navigation
                 if let pubkey = appState.requestRideDriverPubkey {
                     selectedDriverPubkey = pubkey
                     appState.requestRideDriverPubkey = nil
+                }
+            }
+            .onChange(of: stage) { oldStage, newStage in
+                switch newStage {
+                case .driverAccepted, .rideConfirmed, .enRoute:
+                    if oldStage == .waitingForAcceptance { HapticManager.rideAccepted() }
+                case .driverArrived:
+                    HapticManager.driverArrived()
+                case .completed:
+                    HapticManager.rideCompleted()
+                case .idle:
+                    if oldStage != .idle { HapticManager.rideCancelled() }
+                default: break
+                }
+            }
+            .toast($fareError)
+            .onChange(of: coordinator?.lastError) { _, newError in
+                if let error = newError {
+                    fareError = error
+                    coordinator?.lastError = nil
                 }
             }
             .alert("Cancel Ride?", isPresented: $showCancelWarning) {

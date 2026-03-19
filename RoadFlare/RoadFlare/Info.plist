@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>RoadFlare uses your camera to scan QR codes when adding drivers to your network.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>RoadFlare uses your location to set your pickup address and find nearby drivers.</string>
+	<key>CFBundleDisplayName</key>
+	<string>RoadFlare</string>
+</dict>
+</plist>
