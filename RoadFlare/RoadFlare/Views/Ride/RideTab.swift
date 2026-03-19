@@ -37,9 +37,20 @@ struct RideTab: View {
             }
             .sheet(isPresented: $showChat) { WiredChatView() }
             .onAppear {
+                // Pick up driver selection from DriverDetailSheet navigation
                 if let pubkey = appState.requestRideDriverPubkey {
                     selectedDriverPubkey = pubkey
                     appState.requestRideDriverPubkey = nil
+                }
+                // Restore ride state from persistence after app kill
+                if selectedDriverPubkey == nil, let driverPub = coordinator?.stateMachine.driverPubkey {
+                    selectedDriverPubkey = driverPub
+                }
+                if pickupAddress.isEmpty, let addr = coordinator?.pickupLocation?.address {
+                    pickupAddress = addr
+                }
+                if destinationAddress.isEmpty, let addr = coordinator?.destinationLocation?.address {
+                    destinationAddress = addr
                 }
             }
             .onChange(of: stage) { oldStage, newStage in
