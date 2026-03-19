@@ -8,6 +8,7 @@ struct SettingsTab: View {
     @State private var showLogoutConfirm = false
     @State private var showShareSheet = false
     @State private var shareText = ""
+    @State private var savedToPasswords = false
 
     var body: some View {
         NavigationStack {
@@ -42,6 +43,16 @@ struct SettingsTab: View {
                     } label: {
                         Label("View & Copy Private Key", systemImage: "key")
                     }
+
+                    Button {
+                        saveToPasswords()
+                    } label: {
+                        Label(
+                            savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords",
+                            systemImage: savedToPasswords ? "checkmark.shield" : "lock.shield"
+                        )
+                    }
+                    .disabled(savedToPasswords)
 
                     Button {
                         shareKey()
@@ -82,6 +93,30 @@ struct SettingsTab: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("This will remove all local data including your keys. Make sure you have backed up your private key.")
+            }
+        }
+    }
+
+    private func saveToPasswords() {
+        Task {
+            guard let nsec = try? await appState.keyManager?.exportNsec(),
+                  let npub = appState.keypair?.npub else { return }
+
+            // SecAddSharedWebCredential shows a system dialog asking the user
+            // to save the credential to Apple Passwords.
+            // Requires Associated Domains (webcredentials:roadflare.app) entitlement.
+            SecAddSharedWebCredential(
+                "roadflare.app" as CFString,
+                npub as CFString,
+                nsec as CFString
+            ) { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        print("Failed to save to Passwords: \(error)")
+                    } else {
+                        savedToPasswords = true
+                    }
+                }
             }
         }
     }
