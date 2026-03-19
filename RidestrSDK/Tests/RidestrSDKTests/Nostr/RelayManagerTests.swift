@@ -131,6 +131,26 @@ struct FakeRelayManagerTests {
         #expect(received.first?.id == "event1")
     }
 
+    @Test func injectEventToNonexistentSubscriptionReturnsFalse() async throws {
+        let fake = FakeRelayManager()
+        let event = NostrEvent(id: "e1", pubkey: "p1", createdAt: 100, kind: 3174, tags: [], content: "a", sig: "s")
+        let delivered = fake.injectEvent(event, subscriptionId: "nonexistent")
+        #expect(!delivered)
+    }
+
+    @Test func resetRecordingClearsHistory() async throws {
+        let fake = FakeRelayManager()
+        try await fake.connect(to: DefaultRelays.all)
+        let event = NostrEvent(id: "e1", pubkey: "p1", createdAt: 100, kind: 1, tags: [], content: "", sig: "s")
+        _ = try await fake.publish(event)
+        #expect(fake.publishedEvents.count == 1)
+        #expect(fake.connectCalls.count == 1)
+
+        fake.resetRecording()
+        #expect(fake.publishedEvents.isEmpty)
+        #expect(fake.connectCalls.isEmpty)
+    }
+
     @Test func fetchReturnsCannedEvents() async throws {
         let fake = FakeRelayManager()
         try await fake.connect(to: DefaultRelays.all)
