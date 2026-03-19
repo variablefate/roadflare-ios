@@ -26,7 +26,14 @@ struct ConnectivityIndicator: View {
         .accessibilityLabel("Relay connection: \(connected ? "Connected" : "Offline")")
         .accessibilityHint("Tap to view relay details")
         .sheet(isPresented: $showRelaySheet) { RelayManagementSheet() }
-        .task { await checkConnection() }
+        .task {
+            await checkConnection()
+            // Poll every 10 seconds for status changes
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                await checkConnection()
+            }
+        }
     }
 
     private func checkConnection() async {

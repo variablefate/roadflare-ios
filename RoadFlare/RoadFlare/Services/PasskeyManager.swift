@@ -196,11 +196,12 @@ enum PasskeyError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .prfNotAvailable: "Passkey PRF requires iOS 18 or later"
-        case .prfNotSupported: "This device doesn't support passkey key derivation"
-        case .prfOutputMissing: "Passkey authenticated but no key material was returned"
-        case .unexpectedCredentialType: "Unexpected credential type"
-        case .authenticationFailed(let d): "Passkey failed: \(d)"
+        case .prfNotAvailable: "Passkey login requires iOS 18 or later. Use \"Create Without Passkey\" instead."
+        case .prfNotSupported: "Your device doesn't support passkey login. Use the backup key option instead."
+        case .prfOutputMissing: "Passkey authentication succeeded but account recovery failed. Please try again."
+        case .unexpectedCredentialType: "Something went wrong with passkey authentication. Please try again."
+        case .authenticationFailed(let d):
+            d.contains("cancelled") ? nil : "Authentication failed. Please try again."
         }
     }
 }

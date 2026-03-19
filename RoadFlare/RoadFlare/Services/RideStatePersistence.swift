@@ -23,6 +23,8 @@ struct RideStatePersistence {
         let destAddress: String?
         let fareUSD: String?  // Decimal as string
         let savedAt: Int
+        let processedPinTimestamps: [Int]?  // Persisted dedup set
+        let pinAttempts: Int?
     }
 
     static func save(
@@ -30,7 +32,8 @@ struct RideStatePersistence {
         pickupLocation: Location?,
         destinationLocation: Location?,
         fareEstimate: FareEstimate?,
-        paymentMethod: PaymentMethod?
+        paymentMethod: PaymentMethod?,
+        processedPinTimestamps: Set<Int> = []
     ) {
         let state = PersistedRideState(
             stage: stateMachine.stage.rawValue,
@@ -49,7 +52,9 @@ struct RideStatePersistence {
             destLon: destinationLocation?.longitude,
             destAddress: destinationLocation?.address,
             fareUSD: fareEstimate.map { "\($0.fareUSD)" },
-            savedAt: Int(Date.now.timeIntervalSince1970)
+            savedAt: Int(Date.now.timeIntervalSince1970),
+            processedPinTimestamps: processedPinTimestamps.isEmpty ? nil : Array(processedPinTimestamps),
+            pinAttempts: stateMachine.pinAttempts > 0 ? stateMachine.pinAttempts : nil
         )
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: key)

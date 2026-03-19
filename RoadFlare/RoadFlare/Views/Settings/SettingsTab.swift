@@ -136,7 +136,7 @@ struct SettingsTab: View {
             guard let nsec = try? await appState.keyManager?.exportNsec(),
                   let npub = appState.keypair?.npub else { return }
             SecAddSharedWebCredential("roadflare.app" as CFString, npub as CFString, nsec as CFString) { error in
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     if error == nil { savedToPasswords = true }
                 }
             }

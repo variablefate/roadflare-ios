@@ -79,7 +79,8 @@ final class RideCoordinator {
             pickupLocation: pickupLocation,
             destinationLocation: destinationLocation,
             fareEstimate: currentFareEstimate,
-            paymentMethod: selectedPaymentMethod
+            paymentMethod: selectedPaymentMethod,
+            processedPinTimestamps: processedPinActionTimestamps
         )
     }
 
@@ -112,6 +113,10 @@ final class RideCoordinator {
         if let raw = saved.paymentMethodRaw { selectedPaymentMethod = PaymentMethod(rawValue: raw) }
         if let fareStr = saved.fareUSD, let fareDecimal = Decimal(string: fareStr) {
             currentFareEstimate = FareEstimate(distanceMiles: 0, durationMinutes: 0, fareUSD: fareDecimal)
+        }
+        // Restore PIN dedup timestamps to prevent double-processing after app kill
+        if let timestamps = saved.processedPinTimestamps {
+            processedPinActionTimestamps = Set(timestamps)
         }
 
         subscribeToDriverState(driverPubkey: driverPubkey, confirmationEventId: confirmationId)

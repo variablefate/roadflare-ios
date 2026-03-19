@@ -131,7 +131,7 @@ struct BackupKeySheet: View {
                                 npub as CFString,
                                 key as CFString
                             ) { error in
-                                DispatchQueue.main.async {
+                                Task { @MainActor in
                                     if error == nil { savedToPasswords = true }
                                 }
                             }

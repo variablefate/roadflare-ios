@@ -4,7 +4,6 @@ import AVFoundation
 /// Camera-based QR code scanner that returns the scanned string.
 struct QRScannerView: UIViewControllerRepresentable {
     let onScan: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     func makeUIViewController(context: Context) -> QRScannerViewController {
         let vc = QRScannerViewController()
@@ -25,8 +24,24 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .black
-        setupCamera()
+        view.backgroundColor = UIColor(red: 0.055, green: 0.055, blue: 0.055, alpha: 1)  // rfSurface
+
+        // Check permission before setting up camera
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            setupCamera()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted { self?.setupCamera() }
+                    else { self?.showPermissionDenied() }
+                }
+            }
+        case .denied, .restricted:
+            showPermissionDenied()
+        @unknown default:
+            showPermissionDenied()
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -55,13 +70,11 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
 
         guard let device = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: device) else {
-            showError("Camera not available")
+            showError("Camera not available on this device")
             return
         }
 
-        if session.canAddInput(input) {
-            session.addInput(input)
-        }
+        if session.canAddInput(input) { session.addInput(input) }
 
         let output = AVCaptureMetadataOutput()
         if session.canAddOutput(output) {
@@ -92,16 +105,73 @@ class QRScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsD
               let value = object.stringValue else { return }
 
         hasScanned = true
-        AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+        HapticManager.qrScanned()
         onScan?(value)
+    }
+
+    private func showPermissionDenied() {
+        let container = UIView()
+        container.frame = view.bounds
+        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        let icon = UIImageView(image: UIImage(systemName: "camera.fill"))
+        icon.tintColor = .gray
+        icon.contentMode = .scaleAspectFit
+        icon.widthAnchor.constraint(equalToConstant: 48).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 48).isActive = true
+
+        let title = UILabel()
+        title.text = "Camera Access Required"
+        title.textColor = .white
+        title.font = .systemFont(ofSize: 18, weight: .bold)
+
+        let body = UILabel()
+        body.text = "Open Settings to allow camera access for scanning QR codes."
+        body.textColor = .gray
+        body.font = .systemFont(ofSize: 14)
+        body.textAlignment = .center
+        body.numberOfLines = 0
+
+        let button = UIButton(type: .system)
+        button.setTitle("Open Settings", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        button.tintColor = UIColor(red: 1.0, green: 0.565, blue: 0.424, alpha: 1)  // rfPrimary
+        button.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
+
+        stack.addArrangedSubview(icon)
+        stack.addArrangedSubview(title)
+        stack.addArrangedSubview(body)
+        stack.addArrangedSubview(button)
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 40),
+        ])
+
+        view.addSubview(container)
     }
 
     private func showError(_ message: String) {
         let label = UILabel()
         label.text = message
-        label.textColor = .white
+        label.textColor = .gray
         label.textAlignment = .center
+        label.font = .systemFont(ofSize: 15)
         label.frame = view.bounds
         view.addSubview(label)
+    }
+
+    @objc private func openSettings() {
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            UIApplication.shared.open(url)
+        }
     }
 }
