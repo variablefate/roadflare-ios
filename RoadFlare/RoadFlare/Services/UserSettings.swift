@@ -14,9 +14,16 @@ final class UserSettings {
         didSet { savePaymentMethods() }
     }
 
-    /// User's display name.
+    /// User's display name. Never persisted as empty — reverts to previous value.
     var profileName: String {
-        didSet { defaults.set(profileName, forKey: Self.profileNameKey) }
+        didSet {
+            let trimmed = profileName.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty && !oldValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                profileName = oldValue  // Revert — don't persist empty
+            } else {
+                defaults.set(profileName, forKey: Self.profileNameKey)
+            }
+        }
     }
 
     /// Whether onboarding is complete.
