@@ -147,6 +147,62 @@ struct RideshareEventParserTests {
         }
     }
 
+    @Test func parseReplaceableKeyShare() async throws {
+        let driver = try NostrKeypair.generate()
+        let rider = try NostrKeypair.generate()
+
+        let keyShareContent = KeyShareContent(
+            roadflareKey: RoadflareKey(
+                privateKeyHex: "abcd1234",
+                publicKeyHex: "efgh5678",
+                version: 3,
+                keyUpdatedAt: 1700000000
+            ),
+            keyUpdatedAt: 1700000000,
+            driverPubKey: driver.publicKeyHex
+        )
+        let json = try JSONEncoder().encode(keyShareContent)
+        let plaintext = String(data: json, encoding: .utf8)!
+
+        let encrypted = try NIP44.encrypt(
+            plaintext: plaintext,
+            senderPrivateKeyHex: driver.privateKeyHex,
+            recipientPublicKeyHex: rider.publicKeyHex
+        )
+
+        // Kind 30186 — replaceable, no expiration, d-tag = rider pubkey
+        let event = NostrEvent(
+            id: "rks1", pubkey: driver.publicKeyHex, createdAt: Int(Date.now.timeIntervalSince1970),
+            kind: EventKind.replaceableKeyShare.rawValue,
+            tags: [
+                ["d", rider.publicKeyHex],
+                ["p", rider.publicKeyHex],
+            ],
+            content: encrypted, sig: "sig"
+        )
+
+        let parsed = try RideshareEventParser.parseKeyShare(event: event, keypair: rider)
+        #expect(parsed.driverPubkey == driver.publicKeyHex)
+        #expect(parsed.roadflareKey.version == 3)
+        #expect(parsed.keyUpdatedAt == 1700000000)
+    }
+
+    @Test func parseKeyShareRejectsWrongKind() throws {
+        let driver = try NostrKeypair.generate()
+        let rider = try NostrKeypair.generate()
+
+        let event = NostrEvent(
+            id: "ks1", pubkey: driver.publicKeyHex, createdAt: 1700000000,
+            kind: EventKind.rideOffer.rawValue,  // Wrong kind
+            tags: [["p", rider.publicKeyHex]],
+            content: "encrypted", sig: "sig"
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseKeyShare(event: event, keypair: rider)
+        }
+    }
+
     @Test func parseChatMessageRoundtrip() async throws {
         let sender = try NostrKeypair.generate()
         let receiver = try NostrKeypair.generate()
