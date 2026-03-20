@@ -4,7 +4,7 @@ import Foundation
 
 /// A RoadFlare encryption keypair. Separate from identity key.
 /// The private key is shared with approved followers so they can decrypt location broadcasts.
-public struct RoadflareKey: Codable, Sendable {
+public struct RoadflareKey: Codable, Sendable, Equatable, Hashable {
     public let privateKeyHex: String
     public let publicKeyHex: String
     public let version: Int
@@ -22,6 +22,16 @@ public struct RoadflareKey: Codable, Sendable {
         self.publicKeyHex = publicKeyHex
         self.version = version
         self.keyUpdatedAt = keyUpdatedAt
+    }
+
+    // Custom Equatable/Hashable: compare by public identity only (never compare private keys).
+    public static func == (lhs: RoadflareKey, rhs: RoadflareKey) -> Bool {
+        lhs.publicKeyHex == rhs.publicKeyHex && lhs.version == rhs.version
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(publicKeyHex)
+        hasher.combine(version)
     }
 }
 
@@ -62,7 +72,7 @@ public struct RoadflareLocationEvent: Sendable {
 // MARK: - Followed Driver
 
 /// A driver in the rider's trusted network.
-public struct FollowedDriver: Codable, Identifiable, Sendable {
+public struct FollowedDriver: Codable, Identifiable, Sendable, Hashable {
     public let id: String  // pubkey
     public let pubkey: String
     public var addedAt: Int  // unix timestamp
@@ -82,6 +92,15 @@ public struct FollowedDriver: Codable, Identifiable, Sendable {
 
     /// Whether this driver has shared their RoadFlare key (follower approved).
     public var hasKey: Bool { roadflareKey != nil }
+
+    /// Equality by pubkey identity — two entries for the same driver are equal.
+    public static func == (lhs: FollowedDriver, rhs: FollowedDriver) -> Bool {
+        lhs.pubkey == rhs.pubkey
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(pubkey)
+    }
 }
 
 // MARK: - Key Share Data
@@ -113,10 +132,19 @@ public struct RoadflareKeyAckData: Sendable {
 public struct FollowedDriversContent: Codable, Sendable {
     public let drivers: [FollowedDriverEntry]
     public let updatedAt: Int
+    /// Schema version for migration support. Nil if decoded from pre-versioned data (treated as v1).
+    public let schemaVersion: Int?
 
     enum CodingKeys: String, CodingKey {
         case drivers
         case updatedAt = "updated_at"
+        case schemaVersion
+    }
+
+    public init(drivers: [FollowedDriverEntry], updatedAt: Int, schemaVersion: Int = 1) {
+        self.drivers = drivers
+        self.updatedAt = updatedAt
+        self.schemaVersion = schemaVersion
     }
 }
 
@@ -150,7 +178,7 @@ public struct KeyAckContent: Codable, Sendable {
 // MARK: - Ride History
 
 /// A completed or cancelled ride stored in history.
-public struct RideHistoryEntry: Codable, Identifiable, Sendable {
+public struct RideHistoryEntry: Codable, Identifiable, Sendable, Hashable {
     public let id: String
     public let date: Date
     public let role: String
@@ -168,6 +196,8 @@ public struct RideHistoryEntry: Codable, Identifiable, Sendable {
     public var vehicleMake: String?
     public var vehicleModel: String?
     public let appOrigin: String
+    /// Schema version for migration support. Nil if decoded from pre-versioned data (treated as v1).
+    public let schemaVersion: Int?
 
     public init(
         id: String, date: Date, role: String = "rider", status: String = "completed",
@@ -177,7 +207,7 @@ public struct RideHistoryEntry: Codable, Identifiable, Sendable {
         fare: Decimal, paymentMethod: String,
         distance: Double? = nil, duration: Int? = nil,
         vehicleMake: String? = nil, vehicleModel: String? = nil,
-        appOrigin: String = "roadflare"
+        appOrigin: String = "roadflare", schemaVersion: Int = 1
     ) {
         self.id = id; self.date = date; self.role = role; self.status = status
         self.counterpartyPubkey = counterpartyPubkey; self.counterpartyName = counterpartyName
@@ -186,14 +216,23 @@ public struct RideHistoryEntry: Codable, Identifiable, Sendable {
         self.fare = fare; self.paymentMethod = paymentMethod
         self.distance = distance; self.duration = duration
         self.vehicleMake = vehicleMake; self.vehicleModel = vehicleModel
-        self.appOrigin = appOrigin
+        self.appOrigin = appOrigin; self.schemaVersion = schemaVersion
+    }
+
+    /// Equality by ride ID — same ride is always equal regardless of mutable fields.
+    public static func == (lhs: RideHistoryEntry, rhs: RideHistoryEntry) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 
 // MARK: - Saved Location
 
 /// A saved pickup/destination address.
-public struct SavedLocation: Codable, Identifiable, Sendable {
+public struct SavedLocation: Codable, Identifiable, Sendable, Hashable {
     public let id: String
     public let latitude: Double
     public let longitude: Double
@@ -203,18 +242,31 @@ public struct SavedLocation: Codable, Identifiable, Sendable {
     public var isPinned: Bool
     public var nickname: String?
     public var timestampMs: Int
+    /// Schema version for migration support. Nil if decoded from pre-versioned data (treated as v1).
+    public let schemaVersion: Int?
 
     public init(
         id: String = UUID().uuidString,
         latitude: Double, longitude: Double,
         displayName: String, addressLine: String,
         locality: String? = nil, isPinned: Bool = false,
-        nickname: String? = nil, timestampMs: Int = Int(Date.now.timeIntervalSince1970 * 1000)
+        nickname: String? = nil, timestampMs: Int = Int(Date.now.timeIntervalSince1970 * 1000),
+        schemaVersion: Int = 1
     ) {
         self.id = id; self.latitude = latitude; self.longitude = longitude
         self.displayName = displayName; self.addressLine = addressLine
         self.locality = locality; self.isPinned = isPinned
         self.nickname = nickname; self.timestampMs = timestampMs
+        self.schemaVersion = schemaVersion
+    }
+
+    /// Equality by location ID.
+    public static func == (lhs: SavedLocation, rhs: SavedLocation) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 
     public func toLocation() -> Location {

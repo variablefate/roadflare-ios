@@ -25,7 +25,7 @@ public enum NIP44 {
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.encryptionFailed(underlying: error)
+            throw RidestrError.crypto(.encryptionFailed(underlying: error))
         }
     }
 
@@ -48,7 +48,7 @@ public enum NIP44 {
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.decryptionFailed(underlying: error)
+            throw RidestrError.crypto(.decryptionFailed(underlying: error))
         }
     }
 

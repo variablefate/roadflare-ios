@@ -11,7 +11,10 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> RideAcceptanceContent {
         guard event.kind == EventKind.rideAcceptance.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 3174, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 3174, got \(event.kind)"))
+        }
+        guard !event.isExpired else {
+            throw RidestrError.ride(.invalidEvent("Acceptance event has expired"))
         }
         let decrypted = try NIP44.decrypt(
             ciphertext: event.content,
@@ -29,7 +32,10 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> DriverRideStateContent {
         guard event.kind == EventKind.driverRideState.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 30180, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 30180, got \(event.kind)"))
+        }
+        guard !event.isExpired else {
+            throw RidestrError.ride(.invalidEvent("Driver ride state event has expired"))
         }
         let decrypted = try NIP44.decrypt(
             ciphertext: event.content,
@@ -47,7 +53,10 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> ChatMessageContent {
         guard event.kind == EventKind.chatMessage.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 3178, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 3178, got \(event.kind)"))
+        }
+        guard !event.isExpired else {
+            throw RidestrError.ride(.invalidEvent("Chat message has expired"))
         }
         let decrypted = try NIP44.decrypt(
             ciphertext: event.content,
@@ -65,7 +74,10 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> CancellationContent {
         guard event.kind == EventKind.cancellation.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 3179, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 3179, got \(event.kind)"))
+        }
+        guard !event.isExpired else {
+            throw RidestrError.ride(.invalidEvent("Cancellation event has expired"))
         }
         let decrypted = try NIP44.decrypt(
             ciphertext: event.content,
@@ -83,15 +95,15 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> RoadflareKeyShareData {
         guard event.kind == EventKind.keyShare.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 3186, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 3186, got \(event.kind)"))
         }
         // Verify this key share is addressed to us
         guard event.referencedPubkeys.contains(keypair.publicKeyHex) else {
-            throw RidestrError.invalidEvent("Key share not addressed to this user")
+            throw RidestrError.ride(.invalidEvent("Key share not addressed to this user"))
         }
         // Check expiration
         if event.isExpired {
-            throw RidestrError.invalidEvent("Key share has expired")
+            throw RidestrError.ride(.invalidEvent("Key share has expired"))
         }
 
         let decrypted = try NIP44.decrypt(
@@ -119,7 +131,7 @@ public enum RideshareEventParser {
         roadflarePrivateKeyHex: String
     ) throws -> RoadflareLocationEvent {
         guard event.kind == EventKind.roadflareLocation.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 30014, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 30014, got \(event.kind)"))
         }
 
         // Decrypt using RoadFlare privkey + driver's identity pubkey (ECDH commutativity)
@@ -148,10 +160,10 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> FollowedDriversContent {
         guard event.kind == EventKind.followedDriversList.rawValue else {
-            throw RidestrError.invalidEvent("Expected Kind 30011, got \(event.kind)")
+            throw RidestrError.ride(.invalidEvent("Expected Kind 30011, got \(event.kind)"))
         }
         guard event.pubkey == keypair.publicKeyHex else {
-            throw RidestrError.invalidEvent("Followed drivers list not authored by this user")
+            throw RidestrError.ride(.invalidEvent("Followed drivers list not authored by this user"))
         }
         let decrypted = try NIP44.decryptFromSelf(
             ciphertext: event.content,
@@ -183,7 +195,11 @@ public enum RideshareEventParser {
         keypair: NostrKeypair
     ) throws -> String {
         let json = try JSONEncoder().encode(location)
-        let plaintext = String(data: json, encoding: .utf8) ?? "{}"
+        guard let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(
+                location, .init(codingPath: [], debugDescription: "Failed to encode location as UTF-8")
+            )))
+        }
         return try NIP44.encrypt(
             plaintext: plaintext,
             senderKeypair: keypair,

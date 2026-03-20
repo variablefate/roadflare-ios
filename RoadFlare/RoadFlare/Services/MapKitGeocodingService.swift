@@ -63,7 +63,7 @@ final class MapKitServices {
         let response = try await directions.calculate()
 
         guard let route = response.routes.first else {
-            throw RidestrError.routeCalculationFailed(underlying: NSError(domain: "MapKit", code: 0, userInfo: [NSLocalizedDescriptionKey: "No routes found"]))
+            throw RidestrError.location(.routeCalculationFailed(underlying: NSError(domain: "MapKit", code: 0, userInfo: [NSLocalizedDescriptionKey: "No routes found"])))
         }
 
         return RouteResult(

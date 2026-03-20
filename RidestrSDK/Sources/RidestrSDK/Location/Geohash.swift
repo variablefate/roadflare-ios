@@ -10,36 +10,44 @@ public struct Geohash: Sendable, Hashable, Codable, CustomStringConvertible {
 
     private static let base32 = Array("0123456789bcdefghjkmnpqrstuvwxyz")
 
+    /// Maximum supported geohash precision (12 chars ≈ 3.7cm × 1.9cm).
+    public static let maxPrecision = 12
+
     /// Create a geohash from latitude/longitude at the given precision.
     public init(latitude: Double, longitude: Double, precision: Int = GeohashPrecision.ride) {
-        self.hash = Self.encode(latitude: latitude, longitude: longitude, precision: precision)
+        assert(latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180,
+               "Coordinates out of range: (\(latitude), \(longitude))")
+        let clampedPrecision = max(1, min(precision, Self.maxPrecision))
+        self.hash = Self.encode(latitude: latitude, longitude: longitude, precision: clampedPrecision)
     }
 
     /// Create a geohash from an existing hash string.
     public init(hash: String) throws {
         let lower = hash.lowercased()
         guard !lower.isEmpty else {
-            throw RidestrError.invalidGeohash("Empty geohash")
+            throw RidestrError.location(.invalidGeohash("Empty geohash"))
+        }
+        guard lower.count <= Self.maxPrecision else {
+            throw RidestrError.location(.invalidGeohash("Geohash too long (\(lower.count) chars, max \(Self.maxPrecision))"))
         }
         for char in lower {
             guard Self.base32.contains(char) else {
-                throw RidestrError.invalidGeohash("Invalid character '\(char)' in geohash")
+                throw RidestrError.location(.invalidGeohash("Invalid character '\(char)' in geohash"))
             }
         }
         self.hash = lower
     }
 
-    /// Center latitude of the geohash cell.
-    public var latitude: Double {
-        let (lat, _) = Self.decode(hash)
-        return lat
+    /// Center latitude and longitude of the geohash cell (decoded once).
+    public var center: (latitude: Double, longitude: Double) {
+        Self.decode(hash)
     }
 
+    /// Center latitude of the geohash cell.
+    public var latitude: Double { center.latitude }
+
     /// Center longitude of the geohash cell.
-    public var longitude: Double {
-        let (_, lon) = Self.decode(hash)
-        return lon
-    }
+    public var longitude: Double { center.longitude }
 
     /// Bounding box of the geohash cell.
     public var boundingBox: (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double) {

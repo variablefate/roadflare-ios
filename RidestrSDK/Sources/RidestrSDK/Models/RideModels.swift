@@ -1,5 +1,16 @@
 import Foundation
 
+// MARK: - Type Aliases
+
+/// 64-character hex-encoded Nostr public key.
+public typealias PublicKeyHex = String
+
+/// 64-character hex-encoded Nostr event ID (SHA-256 hash).
+public typealias EventID = String
+
+/// Event ID of a Kind 3175 confirmation — canonical ride identifier.
+public typealias ConfirmationEventID = String
+
 // MARK: - Rider Stages
 
 /// Rider ride lifecycle stages.
@@ -8,9 +19,23 @@ public enum RiderStage: String, Codable, Sendable {
     case waitingForAcceptance
     case driverAccepted
     case rideConfirmed
+    case enRoute
     case driverArrived
     case inProgress
     case completed
+
+    /// Whether cancellation is allowed from this stage.
+    public var canCancel: Bool {
+        self != .completed && self != .idle
+    }
+
+    /// Whether this is an active ride (post-confirmation, pre-completion).
+    public var isActiveRide: Bool {
+        switch self {
+        case .rideConfirmed, .enRoute, .driverArrived, .inProgress: true
+        default: false
+        }
+    }
 }
 
 // MARK: - Event Content Models
@@ -212,7 +237,7 @@ public struct UserProfile: Codable, Sendable {
 // MARK: - Vehicle
 
 /// Vehicle information shared via driver profile.
-public struct Vehicle: Codable, Identifiable, Sendable {
+public struct Vehicle: Codable, Identifiable, Sendable, Equatable, Hashable {
     public let id: String
     public var make: String
     public var model: String

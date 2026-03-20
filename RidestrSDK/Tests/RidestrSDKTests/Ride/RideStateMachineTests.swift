@@ -60,7 +60,7 @@ struct RideStateMachineTests {
             history: [DriverRideAction(type: "status", at: 100, status: "en_route_pickup", approxLocation: nil, finalFare: nil, invoice: nil, pinEncrypted: nil)]
         )
         _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: driverEnRoute)
-        #expect(sm.stage == .rideConfirmed)
+        #expect(sm.stage == .enRoute)
 
         let driverArrived = DriverRideStateContent(
             currentStatus: "arrived",
@@ -146,6 +146,9 @@ struct RideStateMachineTests {
         let sm = RideStateMachine()
         try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: [])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
+        try sm.recordConfirmation(confirmationEventId: "conf1")
+        let arrived = DriverRideStateContent(currentStatus: "arrived", history: [])
+        _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: arrived)
         #expect(!sm.pinVerified)
         #expect(sm.pinAttempts == 0)
 
@@ -162,6 +165,9 @@ struct RideStateMachineTests {
         let sm = RideStateMachine()
         try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: [])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
+        try sm.recordConfirmation(confirmationEventId: "conf1")
+        let arrived = DriverRideStateContent(currentStatus: "arrived", history: [])
+        _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: arrived)
 
         for _ in 0..<RideConstants.maxPinAttempts {
             sm.recordPinVerification(verified: false)

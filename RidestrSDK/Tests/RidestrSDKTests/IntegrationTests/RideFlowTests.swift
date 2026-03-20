@@ -74,7 +74,7 @@ struct RideFlowTests {
             eventId: "ds_1", confirmationId: confirmEvent.id, driverState: enRouteState
         )
         #expect(r1 == "en_route_pickup")
-        #expect(sm.stage == .rideConfirmed)
+        #expect(sm.stage == .enRoute)
 
         // 6. Driver state: arrived
         let arrivedState = DriverRideStateContent(currentStatus: "arrived", history: [])
@@ -170,6 +170,8 @@ struct RideFlowTests {
                          paymentMethod: nil, fiatPaymentMethods: [])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
+        let arrived = DriverRideStateContent(currentStatus: "arrived", history: [])
+        _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: arrived)
 
         // 3 failed PIN attempts
         for i in 1...RideConstants.maxPinAttempts {

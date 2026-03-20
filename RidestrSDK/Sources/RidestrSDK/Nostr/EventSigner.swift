@@ -43,7 +43,7 @@ public enum EventSigner {
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.eventSigningFailed(underlying: error)
+            throw RidestrError.crypto(.signingFailed(underlying: error))
         }
     }
 
@@ -74,13 +74,13 @@ public enum EventSigner {
             let encoder = JSONEncoder()
             let data = try encoder.encode(event)
             guard let json = String(data: data, encoding: .utf8) else {
-                throw RidestrError.invalidEvent("Failed to encode event to JSON")
+                throw RidestrError.ride(.invalidEvent("Failed to encode event to JSON"))
             }
             return try Event.fromJson(json: json)
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.invalidEvent("Failed to parse event: \(error)")
+            throw RidestrError.ride(.invalidEvent("Failed to parse event: \(error)"))
         }
     }
 
@@ -89,14 +89,14 @@ public enum EventSigner {
         do {
             let json = try event.asJson()
             guard let data = json.data(using: .utf8) else {
-                throw RidestrError.invalidEvent("Failed to decode event JSON")
+                throw RidestrError.ride(.invalidEvent("Failed to decode event JSON"))
             }
             let decoder = JSONDecoder()
             return try decoder.decode(NostrEvent.self, from: data)
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.invalidEvent("Failed to decode event: \(error)")
+            throw RidestrError.ride(.invalidEvent("Failed to decode event: \(error)"))
         }
     }
 }

@@ -64,7 +64,7 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     public func connect(to relays: [URL]) async throws {
         if shouldFailConnect {
-            throw RidestrError.relayConnectionFailed(relays.first ?? URL(string: "wss://fake")!, underlying: FakeError.simulated)
+            throw RidestrError.relay(.connectionFailed(relays.first ?? URL(string: "wss://fake")!, underlying: FakeError.simulated))
         }
         lock.withLock {
             _connectCalls.append(relays)
@@ -90,7 +90,7 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     public func publish(_ event: NostrEvent) async throws -> String {
         if shouldFailPublish {
-            throw RidestrError.relayNotConnected
+            throw RidestrError.relay(.notConnected)
         }
         lock.withLock { _publishedEvents.append(event) }
         return event.id
@@ -98,7 +98,7 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     public func subscribe(filter: NostrFilter, id: SubscriptionID) async throws -> AsyncStream<NostrEvent> {
         if shouldFailSubscribe {
-            throw RidestrError.relayNotConnected
+            throw RidestrError.relay(.notConnected)
         }
         lock.withLock { _subscribeCalls.append((filter, id)) }
 

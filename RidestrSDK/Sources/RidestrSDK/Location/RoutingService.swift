@@ -1,7 +1,7 @@
 import Foundation
 
 /// Result from a route calculation.
-public struct RouteResult: Sendable {
+public struct RouteResult: Sendable, Equatable, Codable {
     /// Distance in kilometers.
     public let distanceKm: Double
     /// Estimated travel time in minutes.
@@ -17,7 +17,7 @@ public struct RouteResult: Sendable {
 
     /// Distance in miles.
     public var distanceMiles: Double {
-        distanceKm * 0.621371
+        distanceKm * LocationConstants.kmToMiles
     }
 }
 
@@ -26,4 +26,27 @@ public struct RouteResult: Sendable {
 public protocol RoutingServiceProtocol: Sendable {
     /// Calculate a driving route between two locations.
     func calculateRoute(from: Location, to: Location) async throws -> RouteResult
+}
+
+/// Haversine-based routing service for testing. Estimates routes using straight-line
+/// distance with a 1.3x road-factor adjustment. No network calls.
+public struct HaversineRoutingService: RoutingServiceProtocol {
+    /// Road-factor multiplier applied to straight-line distance (default 1.3).
+    public let roadFactor: Double
+
+    public init(roadFactor: Double = 1.3) {
+        self.roadFactor = roadFactor
+    }
+
+    public func calculateRoute(from: Location, to: Location) async throws -> RouteResult {
+        let straightLineKm = from.distance(to: to)
+        let estimatedKm = straightLineKm * roadFactor
+        // Assume 30 km/h average speed in urban areas
+        let estimatedMinutes = (estimatedKm / 30.0) * 60.0
+        return RouteResult(
+            distanceKm: estimatedKm,
+            durationMinutes: estimatedMinutes,
+            summary: "via straight line (estimate)"
+        )
+    }
 }

@@ -85,6 +85,18 @@ public enum AdminConstants {
     public static let roadflareUIMinimumFareUsd: Decimal = 5.00
 }
 
+// MARK: - Location Constants
+
+/// Geographic and unit conversion constants.
+public enum LocationConstants {
+    /// Mean radius of the Earth in kilometers (WGS-84 approximation).
+    public static let earthRadiusKm = 6371.0
+    /// Conversion factor: kilometers to miles.
+    public static let kmToMiles = 0.621371
+    /// Conversion factor: miles to kilometers.
+    public static let milesToKm = 1.60934
+}
+
 // MARK: - Nostr Tags
 
 /// Standard tag names used in Ridestr events.

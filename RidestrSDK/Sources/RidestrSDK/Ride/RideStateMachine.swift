@@ -1,53 +1,92 @@
 import Foundation
 
+/// Result of a state machine transition attempt.
+public enum TransitionResult: Sendable {
+    /// Transition succeeded.
+    case success(from: RiderStage, to: RiderStage, context: RideContext)
+    /// No valid transition exists for this state + event.
+    case invalidTransition(currentState: RiderStage, eventType: String)
+    /// Transition exists but guard failed.
+    case guardFailed(currentState: RiderStage, eventType: String, guardName: String, reason: String)
+}
+
+/// Delegate for observing state machine transitions.
+public protocol StateMachineDelegate: AnyObject, Sendable {
+    func stateMachineDidTransition(from: RiderStage, to: RiderStage, event: RideEvent)
+    func stateMachineTransitionFailed(result: TransitionResult, event: RideEvent)
+}
+
 /// Manages the rider-side ride lifecycle state machine.
 ///
-/// Tracks the current stage, PIN, driver info, and active subscriptions.
-/// Enforces valid state transitions and provides the canonical ride identifier.
+/// ## Two Entry Points
+///
+/// **`processEvent(_:)`** — For rider-initiated actions (sending offers, confirming rides,
+/// verifying PINs, cancelling). These go through the transition table with guard evaluation.
+///
+/// **`receiveDriverStateEvent(...)`** — For driver status updates received via Kind 30180.
+/// The driver is the source of truth after confirmation (AtoB pattern). The rider's stage
+/// is derived from the driver's authoritative status. No guards — just deduplication and
+/// timestamp ordering.
+///
+/// ```
+/// Rider actions → processEvent()     → transition table → guards → stage update
+/// Driver status → receiveDriverState() → dedup + timestamp → direct stage update
+/// ```
+///
+/// ## Observable
+///
+/// This class is `@Observable` for SwiftUI integration. Bind to `stage`, `pin`,
+/// `driverPubkey`, etc. directly in your views. All properties project from the
+/// internal `RideContext` struct (single source of truth).
 @Observable
 public final class RideStateMachine: @unchecked Sendable {
     /// Current ride stage.
     public private(set) var stage: RiderStage = .idle
 
-    /// 4-digit PIN generated at confirmation, shown to driver for verification.
-    public private(set) var pin: String?
+    /// Current ride context (immutable struct, replaced on each transition).
+    public private(set) var context: RideContext
+
+    /// 4-digit PIN generated at acceptance, shown to driver for verification.
+    public var pin: String? { context.pin }
 
     /// The confirmation event ID — canonical identifier for this ride.
-    /// Used as the d-tag for Kind 30180/30181 replaceable events.
-    public private(set) var confirmationEventId: String?
+    public var confirmationEventId: String? { context.confirmationEventId }
 
     /// The acceptance event ID (Kind 3174).
-    public private(set) var acceptanceEventId: String?
+    public var acceptanceEventId: String? { context.acceptanceEventId }
 
     /// The offer event ID (Kind 3173) that started this ride.
-    public private(set) var offerEventId: String?
+    public var offerEventId: String? { context.offerEventId }
 
     /// Driver's public key.
-    public private(set) var driverPubkey: String?
+    public var driverPubkey: String? { context.driverPubkey }
 
     /// Whether the PIN has been verified by the driver.
-    public private(set) var pinVerified: Bool = false
+    public var pinVerified: Bool { context.pinVerified }
 
     /// Number of PIN verification attempts.
-    public private(set) var pinAttempts: Int = 0
+    public var pinAttempts: Int { context.pinAttempts }
 
     /// Whether the precise pickup has been shared with the driver.
-    public private(set) var precisePickupShared: Bool = false
+    public var precisePickupShared: Bool { context.precisePickupShared }
 
     /// Whether the precise destination has been shared with the driver.
-    public private(set) var preciseDestinationShared: Bool = false
+    public var preciseDestinationShared: Bool { context.preciseDestinationShared }
 
     /// Payment method for this ride.
-    public private(set) var paymentMethod: PaymentMethod?
+    public var paymentMethod: PaymentMethod? { context.paymentMethod }
 
     /// Rider's fiat payment methods included in the offer.
-    public private(set) var fiatPaymentMethods: [PaymentMethod] = []
+    public var fiatPaymentMethods: [PaymentMethod] { context.fiatPaymentMethods }
 
     /// Rider ride state history (actions published in Kind 30181).
-    public private(set) var riderStateHistory: [RiderRideAction] = []
+    public var riderStateHistory: [RiderRideAction] { context.riderStateHistory }
 
     /// Driver's last known status from Kind 30180.
-    public private(set) var lastDriverStatus: String?
+    public var lastDriverStatus: String? { context.lastDriverStatus }
+
+    /// Delegate for observing transitions.
+    public weak var delegate: (any StateMachineDelegate)?
 
     /// Set of processed driver state event IDs (deduplication).
     private var processedDriverStateEventIds: Set<String> = []
@@ -55,90 +94,135 @@ public final class RideStateMachine: @unchecked Sendable {
     /// Set of processed cancellation event IDs (deduplication).
     private var processedCancellationEventIds: Set<String> = []
 
-    public init() {}
-
-    /// Restore state machine from persisted data after app relaunch.
-    public func restore(
-        stage: RiderStage,
-        offerEventId: String?,
-        acceptanceEventId: String?,
-        confirmationEventId: String?,
-        driverPubkey: String?,
-        pin: String?,
-        pinVerified: Bool,
-        paymentMethod: PaymentMethod?,
-        fiatPaymentMethods: [PaymentMethod]
-    ) {
-        self.stage = stage
-        self.offerEventId = offerEventId
-        self.acceptanceEventId = acceptanceEventId
-        self.confirmationEventId = confirmationEventId
-        self.driverPubkey = driverPubkey
-        self.pin = pin
-        self.pinVerified = pinVerified
-        self.paymentMethod = paymentMethod
-        self.fiatPaymentMethods = fiatPaymentMethods
+    public init(riderPubkey: PublicKeyHex = "") {
+        self.context = RideContext(riderPubkey: riderPubkey)
     }
 
-    // MARK: - State Transitions
+    // MARK: - Core: processEvent()
 
-    /// Transition to a new stage. Throws if the transition is invalid.
-    public func transition(to newStage: RiderStage) throws {
-        guard isValidTransition(from: stage, to: newStage) else {
-            throw RidestrError.rideStateMachineViolation(from: stage.rawValue, to: newStage.rawValue)
+    /// Process a rider event through the transition table.
+    ///
+    /// This is the canonical entry point for rider-initiated state changes.
+    /// Driver state observations go through `receiveDriverStateEvent()` instead.
+    @discardableResult
+    public func processEvent(_ event: RideEvent) -> TransitionResult {
+        let candidates = RideTransitions.findTransition(from: stage, eventType: event.eventType)
+
+        if candidates.isEmpty {
+            RidestrLogger.warning("[StateMachine] Invalid transition: \(event.eventType) not valid from \(stage)")
+            let result = TransitionResult.invalidTransition(
+                currentState: stage, eventType: event.eventType
+            )
+            delegate?.stateMachineTransitionFailed(result: result, event: event)
+            return result
         }
-        stage = newStage
+
+        // Find the first transition whose guard passes
+        for transition in candidates {
+            if RideGuards.evaluate(transition.guard_, context: context, event: event) {
+                let oldStage = stage
+
+                // Apply context updates based on event
+                let newContext = applyContextUpdate(for: event, current: context)
+                context = newContext
+                stage = transition.to
+
+                RidestrLogger.debug("[StateMachine] \(oldStage) → \(transition.to) via \(event.eventType)")
+                let result = TransitionResult.success(from: oldStage, to: transition.to, context: context)
+                delegate?.stateMachineDidTransition(from: oldStage, to: transition.to, event: event)
+                return result
+            }
+        }
+
+        // All guards failed — report the first one
+        let firstGuard = candidates.first?.guard_ ?? "unknown"
+        let reason = RideGuards.explainFailure(firstGuard, context: context, event: event)
+        let result = TransitionResult.guardFailed(
+            currentState: stage, eventType: event.eventType,
+            guardName: firstGuard, reason: reason
+        )
+        delegate?.stateMachineTransitionFailed(result: result, event: event)
+        return result
     }
 
-    /// Start a ride by sending an offer.
-    public func startRide(
-        offerEventId: String,
-        driverPubkey: String,
-        paymentMethod: PaymentMethod?,
-        fiatPaymentMethods: [PaymentMethod]
-    ) throws {
-        try transition(to: .waitingForAcceptance)
-        self.offerEventId = offerEventId
-        self.driverPubkey = driverPubkey
-        self.paymentMethod = paymentMethod
-        self.fiatPaymentMethods = fiatPaymentMethods
+    /// Apply context updates for an event (pure function on context).
+    private func applyContextUpdate(for event: RideEvent, current: RideContext) -> RideContext {
+        switch event {
+        case .sendOffer(let offerEventId, let driverPubkey, let paymentMethod, let fiatPaymentMethods):
+            return RideContext(
+                riderPubkey: current.riderPubkey, driverPubkey: driverPubkey,
+                offerEventId: offerEventId,
+                paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods
+            )
+
+        case .acceptanceReceived(let acceptanceEventId):
+            let pin = Self.generatePin()
+            return current.withDriver(
+                driverPubkey: current.driverPubkey ?? "",
+                acceptanceEventId: acceptanceEventId
+            ).withPin(pin)
+
+        case .confirm(let confirmationEventId):
+            return current.withConfirmation(confirmationEventId: confirmationEventId)
+
+        case .verifyPin(let verified, _):
+            return current.withPinAttempt(verified: verified)
+
+        case .cancel:
+            // Reset context but keep riderPubkey
+            return RideContext(riderPubkey: current.riderPubkey)
+
+        case .confirmationTimeout:
+            return RideContext(riderPubkey: current.riderPubkey)
+        }
     }
 
-    /// Handle driver acceptance. Generates PIN and transitions.
-    public func handleAcceptance(acceptanceEventId: String) throws -> String {
-        try transition(to: .driverAccepted)
-        self.acceptanceEventId = acceptanceEventId
-        let generatedPin = Self.generatePin()
-        self.pin = generatedPin
-        return generatedPin
-    }
-
-    /// Record the confirmation event ID after auto-confirm publishes Kind 3175.
-    public func recordConfirmation(confirmationEventId: String) throws {
-        try transition(to: .rideConfirmed)
-        self.confirmationEventId = confirmationEventId
-    }
+    // MARK: - AtoB: Driver State Observations
 
     /// Handle a driver ride state update (Kind 30180).
-    /// Returns the new driver status if the event was processed, nil if deduplicated.
-    public func handleDriverStateUpdate(
+    ///
+    /// This is NOT routed through the transition table. The driver's state is
+    /// authoritative (AtoB pattern) — the rider's stage reflects the driver's
+    /// ground truth. Deduplication uses both event ID and timestamp ordering
+    /// to prevent state regression from out-of-order events.
+    ///
+    /// - Returns: The driver status string if processed, nil if deduplicated/invalid.
+    public func receiveDriverStateEvent(
         eventId: String,
         confirmationId: String,
-        driverState: DriverRideStateContent
-    ) throws -> String? {
-        // Deduplication
+        driverState: DriverRideStateContent,
+        createdAt: Int = 0
+    ) -> String? {
+        // Event ID deduplication
         guard !processedDriverStateEventIds.contains(eventId) else { return nil }
-        // Validate confirmation ID matches current ride
+        // Confirmation must match current ride
         guard confirmationId == confirmationEventId else { return nil }
+        // Timestamp ordering — prevent state regression from late events
+        if createdAt > 0 && createdAt <= context.lastDriverStateTimestamp { return nil }
 
         processedDriverStateEventIds.insert(eventId)
-        lastDriverStatus = driverState.currentStatus
 
-        // AtoB pattern: rider stage derived from driver status
+        // Update context with driver status
+        let newTimestamp = createdAt > 0 ? createdAt : context.lastDriverStateTimestamp
+        context = RideContext(
+            riderPubkey: context.riderPubkey, driverPubkey: context.driverPubkey,
+            offerEventId: context.offerEventId, acceptanceEventId: context.acceptanceEventId,
+            confirmationEventId: context.confirmationEventId, pin: context.pin,
+            pinAttempts: context.pinAttempts, pinVerified: context.pinVerified,
+            maxPinAttempts: context.maxPinAttempts,
+            paymentMethod: context.paymentMethod, fiatPaymentMethods: context.fiatPaymentMethods,
+            precisePickupShared: context.precisePickupShared,
+            preciseDestinationShared: context.preciseDestinationShared,
+            lastDriverStatus: driverState.currentStatus,
+            lastDriverStateTimestamp: newTimestamp,
+            riderStateHistory: context.riderStateHistory
+        )
+
+        // AtoB: derive rider stage from driver status
         switch driverState.currentStatus {
         case "en_route_pickup":
             if stage == .rideConfirmed || stage == .driverAccepted {
-                stage = .rideConfirmed
+                stage = .enRoute
             }
         case "arrived":
             stage = .driverArrived
@@ -153,58 +237,61 @@ public final class RideStateMachine: @unchecked Sendable {
         return driverState.currentStatus
     }
 
-    /// Record a PIN verification attempt result.
-    public func recordPinVerification(verified: Bool) {
-        pinAttempts += 1
-        if verified {
-            pinVerified = true
-        }
-    }
+    // MARK: - Convenience Methods
 
     /// Record that precise pickup was shared.
     public func markPrecisePickupShared() {
-        precisePickupShared = true
+        context = context.withPrecisePickupShared(true)
     }
 
     /// Record that precise destination was shared.
     public func markPreciseDestinationShared() {
-        preciseDestinationShared = true
+        context = context.withPreciseDestinationShared(true)
     }
 
     /// Add an action to the rider state history.
     public func addRiderAction(_ action: RiderRideAction) {
-        riderStateHistory.append(action)
+        context = context.withRiderAction(action)
     }
 
-    /// Handle a cancellation event. Returns true if processed, false if deduplicated.
-    public func handleCancellation(eventId: String, confirmationId: String) -> Bool {
-        guard !processedCancellationEventIds.contains(eventId) else { return false }
-        // Only process if confirmation IDs match, OR if we're pre-confirmation (waiting/accepted)
-        let preConfirmation = (stage == .waitingForAcceptance || stage == .driverAccepted)
-        guard confirmationId == confirmationEventId || preConfirmation else { return false }
-        processedCancellationEventIds.insert(eventId)
-        stage = .idle
-        confirmationEventId = nil  // Prevent late events from matching
-        driverPubkey = nil
-        return true
+    /// Check if a transition would be valid without executing it.
+    public func canTransition(event: RideEvent) -> Bool {
+        let candidates = RideTransitions.findTransition(from: stage, eventType: event.eventType)
+        return candidates.contains { RideGuards.evaluate($0.guard_, context: context, event: event) }
+    }
+
+    // MARK: - Restore
+
+    /// Restore state machine from persisted data after app relaunch.
+    public func restore(
+        stage: RiderStage,
+        offerEventId: String?,
+        acceptanceEventId: String?,
+        confirmationEventId: String?,
+        driverPubkey: String?,
+        pin: String?,
+        pinVerified: Bool,
+        paymentMethod: PaymentMethod?,
+        fiatPaymentMethods: [PaymentMethod]
+    ) {
+        self.stage = stage
+        self.context = RideContext(
+            riderPubkey: context.riderPubkey,
+            driverPubkey: driverPubkey,
+            offerEventId: offerEventId,
+            acceptanceEventId: acceptanceEventId,
+            confirmationEventId: confirmationEventId,
+            pin: pin,
+            pinVerified: pinVerified,
+            paymentMethod: paymentMethod,
+            fiatPaymentMethods: fiatPaymentMethods
+        )
     }
 
     /// Reset the state machine to idle for a new ride.
     public func reset() {
         stage = .idle
-        pin = nil
-        confirmationEventId = nil
-        acceptanceEventId = nil
-        offerEventId = nil
-        driverPubkey = nil
-        pinVerified = false
-        pinAttempts = 0
-        precisePickupShared = false
-        preciseDestinationShared = false
-        paymentMethod = nil
-        fiatPaymentMethods = []
-        riderStateHistory = []
-        lastDriverStatus = nil
+        context = RideContext(riderPubkey: context.riderPubkey)
         processedDriverStateEventIds.removeAll()
         processedCancellationEventIds.removeAll()
     }
@@ -216,21 +303,102 @@ public final class RideStateMachine: @unchecked Sendable {
         String(format: "%0\(RideConstants.pinDigits)d", Int.random(in: 0..<10000))
     }
 
-    // MARK: - Transition Validation
+    // MARK: - Deprecated Wrappers
 
+    /// Start a ride by sending an offer.
+    @available(*, deprecated, message: "Use processEvent(.sendOffer(...))")
+    public func startRide(
+        offerEventId: String,
+        driverPubkey: String,
+        paymentMethod: PaymentMethod?,
+        fiatPaymentMethods: [PaymentMethod]
+    ) throws {
+        let result = processEvent(.sendOffer(
+            offerEventId: offerEventId, driverPubkey: driverPubkey,
+            paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods
+        ))
+        if case .invalidTransition = result {
+            throw RidestrError.ride(.stateMachineViolation(from: stage.rawValue, to: "waitingForAcceptance"))
+        }
+    }
+
+    /// Handle driver acceptance. Generates PIN and transitions.
+    @available(*, deprecated, message: "Use processEvent(.acceptanceReceived(...))")
+    public func handleAcceptance(acceptanceEventId: String) throws -> String {
+        let result = processEvent(.acceptanceReceived(acceptanceEventId: acceptanceEventId))
+        switch result {
+        case .success(_, _, let ctx):
+            return ctx.pin ?? Self.generatePin()
+        case .invalidTransition:
+            throw RidestrError.ride(.stateMachineViolation(from: stage.rawValue, to: "driverAccepted"))
+        case .guardFailed(_, _, _, let reason):
+            throw RidestrError.ride(.stateMachineViolation(from: stage.rawValue, to: "driverAccepted (\(reason))"))
+        }
+    }
+
+    /// Record the confirmation event ID after auto-confirm publishes Kind 3175.
+    @available(*, deprecated, message: "Use processEvent(.confirm(...))")
+    public func recordConfirmation(confirmationEventId: String) throws {
+        let result = processEvent(.confirm(confirmationEventId: confirmationEventId))
+        if case .invalidTransition = result {
+            throw RidestrError.ride(.stateMachineViolation(from: stage.rawValue, to: "rideConfirmed"))
+        }
+    }
+
+    /// Handle a driver ride state update (Kind 30180).
+    /// - Returns: The new driver status if processed, nil if deduplicated.
+    @available(*, deprecated, message: "Use receiveDriverStateEvent(eventId:confirmationId:driverState:createdAt:)")
+    public func handleDriverStateUpdate(
+        eventId: String,
+        confirmationId: String,
+        driverState: DriverRideStateContent
+    ) throws -> String? {
+        receiveDriverStateEvent(
+            eventId: eventId, confirmationId: confirmationId,
+            driverState: driverState
+        )
+    }
+
+    /// Record a PIN verification attempt result.
+    @available(*, deprecated, message: "Use processEvent(.verifyPin(...))")
+    public func recordPinVerification(verified: Bool) {
+        processEvent(.verifyPin(verified: verified, attempt: context.pinAttempts + 1))
+    }
+
+    /// Handle a cancellation event. Returns true if processed, false if deduplicated.
+    @available(*, deprecated, message: "Use processEvent(.cancel(...))")
+    public func handleCancellation(eventId: String, confirmationId: String) -> Bool {
+        guard !processedCancellationEventIds.contains(eventId) else { return false }
+        let preConfirmation = (stage == .waitingForAcceptance || stage == .driverAccepted)
+        guard confirmationId == confirmationEventId || preConfirmation else { return false }
+        processedCancellationEventIds.insert(eventId)
+
+        processEvent(.cancel(eventId: eventId, confirmationId: confirmationId))
+        return true
+    }
+
+    /// Transition to a new stage (used internally by deprecated wrappers).
+    @available(*, deprecated, message: "Use processEvent()")
+    public func transition(to newStage: RiderStage) throws {
+        guard isValidTransition(from: stage, to: newStage) else {
+            throw RidestrError.ride(.stateMachineViolation(from: stage.rawValue, to: newStage.rawValue))
+        }
+        stage = newStage
+    }
+
+    /// Legacy transition validation (kept for deprecated wrappers).
     private func isValidTransition(from: RiderStage, to: RiderStage) -> Bool {
-        // Cancellation can happen from any stage
         if to == .idle { return true }
-
         switch (from, to) {
         case (.idle, .waitingForAcceptance): return true
         case (.waitingForAcceptance, .driverAccepted): return true
         case (.driverAccepted, .rideConfirmed): return true
+        case (.rideConfirmed, .enRoute): return true
         case (.rideConfirmed, .driverArrived): return true
+        case (.enRoute, .driverArrived): return true
         case (.driverArrived, .inProgress): return true
         case (.inProgress, .completed): return true
         case (.completed, .idle): return true
-        // Allow skipping rideConfirmed if driver state arrives fast
         case (.driverAccepted, .driverArrived): return true
         default: return false
         }

@@ -18,6 +18,13 @@ public struct Location: Codable, Sendable, Hashable {
         self.address = address
     }
 
+    /// Whether the coordinates are within valid geographic bounds.
+    public var isValid: Bool {
+        latitude >= -90 && latitude <= 90 &&
+        longitude >= -180 && longitude <= 180 &&
+        latitude.isFinite && longitude.isFinite
+    }
+
     /// Round to 2 decimal places (~1km precision) for approximate sharing.
     public func approximate() -> Location {
         let decimals = pow(10.0, Double(RideConstants.locationApproxDecimals))
@@ -30,7 +37,8 @@ public struct Location: Codable, Sendable, Hashable {
 
     /// Haversine distance to another location in kilometers.
     public func distance(to other: Location) -> Double {
-        let earthRadiusKm = 6371.0
+        assert(isValid && other.isValid, "Distance requires valid coordinates")
+        let earthRadiusKm = LocationConstants.earthRadiusKm
 
         let dLat = (other.latitude - latitude) * .pi / 180
         let dLon = (other.longitude - longitude) * .pi / 180

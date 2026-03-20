@@ -52,7 +52,7 @@ public actor KeyManager {
     /// Export the current private key as nsec bech32.
     public func exportNsec() throws -> String {
         guard let keypair = currentKeypair else {
-            throw RidestrError.invalidKey("No keypair loaded")
+            throw RidestrError.crypto(.invalidKey("No keypair loaded"))
         }
         return keypair.exportNsec()
     }
@@ -60,7 +60,7 @@ public actor KeyManager {
     /// Export the current public key as npub bech32.
     public func exportNpub() throws -> String {
         guard let keypair = currentKeypair else {
-            throw RidestrError.invalidKey("No keypair loaded")
+            throw RidestrError.crypto(.invalidKey("No keypair loaded"))
         }
         return keypair.exportNpub()
     }
@@ -80,16 +80,31 @@ public actor KeyManager {
 
     private func persist(_ keypair: NostrKeypair) throws {
         guard let data = keypair.privateKeyHex.data(using: .utf8) else {
-            throw RidestrError.invalidKey("Failed to encode private key")
+            throw RidestrError.crypto(.invalidKey("Failed to encode private key"))
         }
         try storage.save(data: data, for: Self.privateKeyIdentifier)
     }
 
     private static func loadFromStorage(_ storage: KeychainStorageProtocol) -> NostrKeypair? {
-        guard let data = try? storage.load(for: privateKeyIdentifier),
-              let hex = String(data: data, encoding: .utf8) else {
+        let data: Data
+        do {
+            guard let loaded = try storage.load(for: privateKeyIdentifier) else {
+                return nil  // No key stored — normal for first launch
+            }
+            data = loaded
+        } catch {
+            RidestrLogger.debug("[KeyManager] No keypair in Keychain: \(error)")
             return nil
         }
-        return try? NostrKeypair.fromHex(hex)
+        guard let hex = String(data: data, encoding: .utf8) else {
+            RidestrLogger.warning("[KeyManager] Keypair data corrupted (not valid UTF-8)")
+            return nil
+        }
+        do {
+            return try NostrKeypair.fromHex(hex)
+        } catch {
+            RidestrLogger.error("[KeyManager] Failed to parse keypair from Keychain: \(error)")
+            return nil
+        }
     }
 }

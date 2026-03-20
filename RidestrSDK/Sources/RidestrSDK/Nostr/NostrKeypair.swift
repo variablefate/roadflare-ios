@@ -34,7 +34,7 @@ public struct NostrKeypair: Sendable, Equatable {
             let keys = Keys.generate()
             return try from(keys: keys)
         } catch {
-            throw RidestrError.invalidKey("Failed to generate keypair: \(error)")
+            throw RidestrError.crypto(.invalidKey("Failed to generate keypair: \(error)"))
         }
     }
 
@@ -47,7 +47,7 @@ public struct NostrKeypair: Sendable, Equatable {
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.invalidKey("Invalid nsec: \(error)")
+            throw RidestrError.crypto(.invalidKey("Invalid nsec: \(error)"))
         }
     }
 
@@ -60,7 +60,7 @@ public struct NostrKeypair: Sendable, Equatable {
         } catch let error as RidestrError {
             throw error
         } catch {
-            throw RidestrError.invalidKey("Invalid hex key: \(error)")
+            throw RidestrError.crypto(.invalidKey("Invalid hex key: \(error)"))
         }
     }
 
@@ -82,7 +82,7 @@ public struct NostrKeypair: Sendable, Equatable {
             let secretKey = try SecretKey.parse(secretKey: privateKeyHex)
             return Keys(secretKey: secretKey)
         } catch {
-            throw RidestrError.invalidKey("Failed to reconstruct keys: \(error)")
+            throw RidestrError.crypto(.invalidKey("Failed to reconstruct keys: \(error)"))
         }
     }
 

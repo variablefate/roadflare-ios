@@ -37,6 +37,8 @@ struct MultiStepFlowTests {
                          paymentMethod: nil, fiatPaymentMethods: [])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
+        let arrived = DriverRideStateContent(currentStatus: "arrived", history: [])
+        _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: arrived)
 
         for _ in 0..<RideConstants.maxPinAttempts {
             sm.recordPinVerification(verified: false)

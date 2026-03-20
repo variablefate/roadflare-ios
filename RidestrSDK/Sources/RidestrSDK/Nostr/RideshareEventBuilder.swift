@@ -2,20 +2,53 @@ import Foundation
 
 /// Builds unsigned Nostr events for the Ridestr rideshare protocol.
 /// Each method constructs the tags, encrypts content as needed, and returns a signed event.
+///
+/// All builder methods validate inputs before encryption:
+/// - Public keys must be 64-character hex strings
+/// - Event IDs must be non-empty
+/// - Locations must have valid coordinates (if provided)
 public enum RideshareEventBuilder {
+
+    // MARK: - Input Validation
+
+    /// Validate a hex public key (64 hex characters).
+    /// - Parameter pubkey: The hex string to validate.
+    /// - Parameter label: Human-readable label for error messages (default "Public key").
+    /// - Throws: `RidestrError.crypto(.invalidKey(...))` if validation fails.
+    public static func validatePubkey(_ pubkey: String, label: String = "Public key") throws {
+        guard pubkey.count == 64, pubkey.allSatisfy(\.isHexDigit) else {
+            throw RidestrError.crypto(.invalidKey("\(label) must be 64 hex characters, got \(pubkey.count) chars"))
+        }
+    }
+
+    /// Validate a Nostr event ID (64 hex characters).
+    private static func validateEventId(_ eventId: String, label: String = "Event ID") throws {
+        guard !eventId.isEmpty else {
+            throw RidestrError.ride(.invalidEvent("\(label) must not be empty"))
+        }
+    }
 
     // MARK: - Ride Offer (Kind 3173)
 
     /// Build and sign a RoadFlare ride offer.
+    ///
+    /// - Parameters:
+    ///   - driverPubkey: The driver's 64-character hex public key.
+    ///   - driverAvailabilityEventId: Optional event ID of the driver's availability event.
+    ///   - content: The ride offer content (fare, locations, payment methods).
+    ///   - keypair: The rider's signing keypair.
+    /// - Returns: A signed, encrypted Nostr event (Kind 3173).
+    /// - Throws: `RidestrError.crypto` if encryption fails, `.ride` if inputs invalid.
     public static func rideOffer(
         driverPubkey: String,
         driverAvailabilityEventId: String?,
         content: RideOfferContent,
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
+        try validatePubkey(driverPubkey, label: "Driver pubkey")
         let json = try JSONEncoder().encode(content)
         guard let plaintext = String(data: json, encoding: .utf8) else {
-            throw RidestrError.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed")))
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed"))))
         }
 
         let encrypted = try NIP44.encrypt(
@@ -45,16 +78,26 @@ public enum RideshareEventBuilder {
     // MARK: - Ride Confirmation (Kind 3175)
 
     /// Build and sign a ride confirmation with PIN and precise pickup.
+    ///
+    /// - Parameters:
+    ///   - driverPubkey: The driver's 64-character hex public key.
+    ///   - acceptanceEventId: The acceptance event ID (Kind 3174) being confirmed.
+    ///   - precisePickup: The rider's precise pickup location (shared with driver).
+    ///   - keypair: The rider's signing keypair.
+    /// - Returns: A signed, encrypted Nostr event (Kind 3175).
+    /// - Throws: `RidestrError.crypto` if encryption fails, `.ride` if inputs invalid.
     public static func rideConfirmation(
         driverPubkey: String,
         acceptanceEventId: String,
         precisePickup: Location?,
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
+        try validatePubkey(driverPubkey, label: "Driver pubkey")
+        try validateEventId(acceptanceEventId, label: "Acceptance event ID")
         let content = RideConfirmationContent(precisePickup: precisePickup)
         let json = try JSONEncoder().encode(content)
         guard let plaintext = String(data: json, encoding: .utf8) else {
-            throw RidestrError.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed")))
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed"))))
         }
 
         let encrypted = try NIP44.encrypt(
@@ -79,6 +122,15 @@ public enum RideshareEventBuilder {
     // MARK: - Rider Ride State (Kind 30181)
 
     /// Build and sign a rider ride state update.
+    ///
+    /// - Parameters:
+    ///   - driverPubkey: The driver's 64-character hex public key.
+    ///   - confirmationEventId: The confirmation event ID (Kind 3175) for this ride.
+    ///   - phase: The rider's current phase string (e.g., "awaiting_driver", "verified").
+    ///   - history: The rider's action history array.
+    ///   - keypair: The rider's signing keypair.
+    /// - Returns: A signed, encrypted Nostr event (Kind 30181).
+    /// - Throws: `RidestrError.crypto` if encryption fails, `.ride` if inputs invalid.
     public static func riderRideState(
         driverPubkey: String,
         confirmationEventId: String,
@@ -86,10 +138,12 @@ public enum RideshareEventBuilder {
         history: [RiderRideAction],
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
+        try validatePubkey(driverPubkey, label: "Driver pubkey")
+        try validateEventId(confirmationEventId, label: "Confirmation event ID")
         let content = RiderRideStateContent(currentPhase: phase, history: history)
         let json = try JSONEncoder().encode(content)
         guard let plaintext = String(data: json, encoding: .utf8) else {
-            throw RidestrError.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed")))
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed"))))
         }
 
         let encrypted = try NIP44.encrypt(
@@ -114,16 +168,25 @@ public enum RideshareEventBuilder {
     // MARK: - Chat Message (Kind 3178)
 
     /// Build and sign an encrypted chat message.
+    ///
+    /// - Parameters:
+    ///   - recipientPubkey: The recipient's 64-character hex public key.
+    ///   - confirmationEventId: The confirmation event ID linking this message to a ride.
+    ///   - message: The plaintext message content.
+    ///   - keypair: The sender's signing keypair.
+    /// - Returns: A signed, encrypted Nostr event (Kind 3178).
     public static func chatMessage(
         recipientPubkey: String,
         confirmationEventId: String,
         message: String,
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
+        try validatePubkey(recipientPubkey, label: "Recipient pubkey")
+        try validateEventId(confirmationEventId, label: "Confirmation event ID")
         let content = ChatMessageContent(message: message)
         let json = try JSONEncoder().encode(content)
         guard let plaintext = String(data: json, encoding: .utf8) else {
-            throw RidestrError.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed")))
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed"))))
         }
 
         let encrypted = try NIP44.encrypt(
@@ -148,15 +211,28 @@ public enum RideshareEventBuilder {
     // MARK: - Cancellation (Kind 3179)
 
     /// Build and sign a ride cancellation.
+    ///
+    /// - Parameters:
+    ///   - counterpartyPubkey: The other party's 64-character hex public key.
+    ///   - confirmationEventId: The confirmation event ID for the ride being cancelled.
+    ///   - reason: Optional human-readable cancellation reason.
+    ///   - keypair: The cancelling party's signing keypair.
+    /// - Returns: A signed, encrypted Nostr event (Kind 3179).
     public static func cancellation(
         counterpartyPubkey: String,
         confirmationEventId: String,
         reason: String?,
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
+        try validatePubkey(counterpartyPubkey, label: "Counterparty pubkey")
+        try validateEventId(confirmationEventId, label: "Confirmation event ID")
         let content = CancellationContent(reason: reason)
         let json = try JSONEncoder().encode(content)
-        let plaintext = String(data: json, encoding: .utf8) ?? "{}"
+        guard let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(
+                content, .init(codingPath: [], debugDescription: "Failed to encode cancellation as UTF-8")
+            )))
+        }
 
         let encrypted = try NIP44.encrypt(
             plaintext: plaintext,
@@ -180,6 +256,15 @@ public enum RideshareEventBuilder {
     // MARK: - Followed Drivers List (Kind 30011)
 
     /// Build and sign the followed drivers list (encrypted to self, p-tags public).
+    ///
+    /// The content is NIP-44 encrypted to the rider's own keypair. Public p-tags
+    /// allow driver discovery without revealing the full relationship data.
+    ///
+    /// - Parameters:
+    ///   - drivers: The rider's list of followed drivers.
+    ///   - keypair: The rider's signing keypair (encrypts to self).
+    /// - Returns: A signed, self-encrypted Nostr event (Kind 30011).
+    /// - Throws: `RidestrError.crypto` if encryption fails.
     public static func followedDriversList(
         drivers: [FollowedDriver],
         keypair: NostrKeypair
@@ -197,7 +282,11 @@ public enum RideshareEventBuilder {
             updatedAt: Int(Date.now.timeIntervalSince1970)
         )
         let json = try JSONEncoder().encode(content)
-        let plaintext = String(data: json, encoding: .utf8) ?? "{}"
+        guard let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(
+                content, .init(codingPath: [], debugDescription: "Failed to encode followed drivers as UTF-8")
+            )))
+        }
 
         let encrypted = try NIP44.encryptToSelf(
             plaintext: plaintext,
@@ -222,6 +311,15 @@ public enum RideshareEventBuilder {
     // MARK: - Key Acknowledgement (Kind 3188)
 
     /// Build and sign a key acknowledgement to a driver.
+    ///
+    /// - Parameters:
+    ///   - driverPubkey: The driver's 64-character hex public key.
+    ///   - keyVersion: The RoadFlare key version being acknowledged.
+    ///   - keyUpdatedAt: Timestamp when the key was updated.
+    ///   - status: Acknowledgement status ("received" or "stale").
+    ///   - keypair: The rider's signing keypair.
+    /// - Returns: A signed, encrypted Nostr event (Kind 3188).
+    /// - Throws: `RidestrError.crypto` if encryption fails, `.ride` if inputs invalid.
     public static func keyAcknowledgement(
         driverPubkey: String,
         keyVersion: Int,
@@ -229,6 +327,7 @@ public enum RideshareEventBuilder {
         status: String,
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
+        try validatePubkey(driverPubkey, label: "Driver pubkey")
         let content = KeyAckContent(
             keyVersion: keyVersion,
             keyUpdatedAt: keyUpdatedAt,
@@ -236,7 +335,11 @@ public enum RideshareEventBuilder {
             riderPubKey: keypair.publicKeyHex
         )
         let json = try JSONEncoder().encode(content)
-        let plaintext = String(data: json, encoding: .utf8) ?? "{}"
+        guard let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(
+                content, .init(codingPath: [], debugDescription: "Failed to encode key ack as UTF-8")
+            )))
+        }
 
         let encrypted = try NIP44.encrypt(
             plaintext: plaintext,

@@ -157,8 +157,9 @@ struct ErrorPathTests {
     // MARK: - Geohash Edge Cases
 
     @Test func geohashPrecisionZero() {
+        // Precision 0 is clamped to 1 (minimum valid precision)
         let gh = Geohash(latitude: 40.0, longitude: -74.0, precision: 0)
-        #expect(gh.hash.isEmpty)
+        #expect(gh.hash.count == 1)
     }
 
     @Test func geohashExactlyAt180Longitude() {

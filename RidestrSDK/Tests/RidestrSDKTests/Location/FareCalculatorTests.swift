@@ -88,7 +88,7 @@ final class FakeRoutingService: RoutingServiceProtocol, @unchecked Sendable {
     var shouldFail = false
 
     func calculateRoute(from: Location, to: Location) async throws -> RouteResult {
-        if shouldFail { throw RidestrError.routeCalculationFailed(underlying: FakeError.simulated) }
+        if shouldFail { throw RidestrError.location(.routeCalculationFailed(underlying: FakeError.simulated)) }
         return result
     }
 

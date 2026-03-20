@@ -4,6 +4,9 @@ import Foundation
 ///
 /// Stores drivers locally via a persistence delegate and syncs to Nostr via Kind 30011.
 /// Driver locations are cached in-memory only (ephemeral 5-min broadcast data).
+///
+/// Thread safety: All mutations are protected by an internal lock. Safe to call from
+/// any thread, including concurrent background tasks processing relay events.
 @Observable
 public final class FollowedDriversRepository: @unchecked Sendable {
     /// All followed drivers.
@@ -18,6 +21,9 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// Persistence delegate (UserDefaults-based or injected for testing).
     private let persistence: FollowedDriversPersistence
 
+    /// Internal lock protecting all mutable state.
+    private let lock = NSLock()
+
     public init(persistence: FollowedDriversPersistence) {
         self.persistence = persistence
         self.drivers = persistence.loadDrivers()
@@ -28,67 +34,77 @@ public final class FollowedDriversRepository: @unchecked Sendable {
 
     /// Add or update a followed driver.
     public func addDriver(_ driver: FollowedDriver) {
-        if let index = drivers.firstIndex(where: { $0.pubkey == driver.pubkey }) {
-            drivers[index] = driver
-        } else {
-            drivers.append(driver)
+        lock.withLock {
+            if let index = drivers.firstIndex(where: { $0.pubkey == driver.pubkey }) {
+                drivers[index] = driver
+            } else {
+                drivers.append(driver)
+            }
         }
         persistence.saveDrivers(drivers)
     }
 
     /// Remove a followed driver.
     public func removeDriver(pubkey: String) {
-        drivers.removeAll { $0.pubkey == pubkey }
-        driverNames.removeValue(forKey: pubkey)
-        driverLocations.removeValue(forKey: pubkey)
+        lock.withLock {
+            drivers.removeAll { $0.pubkey == pubkey }
+            driverNames.removeValue(forKey: pubkey)
+            driverLocations.removeValue(forKey: pubkey)
+        }
         persistence.saveDrivers(drivers)
         persistence.saveDriverNames(driverNames)
     }
 
     /// Update a driver's RoadFlare key (when receiving Kind 3186).
     public func updateDriverKey(driverPubkey: String, roadflareKey: RoadflareKey) {
-        guard let index = drivers.firstIndex(where: { $0.pubkey == driverPubkey }) else { return }
-        drivers[index].roadflareKey = roadflareKey
+        lock.withLock {
+            guard let index = drivers.firstIndex(where: { $0.pubkey == driverPubkey }) else { return }
+            drivers[index].roadflareKey = roadflareKey
+        }
         persistence.saveDrivers(drivers)
     }
 
     /// Update a driver's personal note.
     public func updateDriverNote(driverPubkey: String, note: String) {
-        guard let index = drivers.firstIndex(where: { $0.pubkey == driverPubkey }) else { return }
-        drivers[index].note = note
+        lock.withLock {
+            guard let index = drivers.firstIndex(where: { $0.pubkey == driverPubkey }) else { return }
+            drivers[index].note = note
+        }
         persistence.saveDrivers(drivers)
     }
 
     /// Get a specific driver by pubkey.
     public func getDriver(pubkey: String) -> FollowedDriver? {
-        drivers.first { $0.pubkey == pubkey }
+        lock.withLock { drivers.first { $0.pubkey == pubkey } }
     }
 
     /// All followed driver pubkeys.
     public var allPubkeys: [String] {
-        drivers.map(\.pubkey)
+        lock.withLock { drivers.map(\.pubkey) }
     }
 
     /// Whether a driver is followed.
     public func isFollowing(pubkey: String) -> Bool {
-        drivers.contains { $0.pubkey == pubkey }
+        lock.withLock { drivers.contains { $0.pubkey == pubkey } }
     }
 
     /// Whether there are any followed drivers.
-    public var hasDrivers: Bool { !drivers.isEmpty }
+    public var hasDrivers: Bool { lock.withLock { !drivers.isEmpty } }
 
     // MARK: - Driver Names
 
     /// Cache a driver's display name from their Nostr profile.
     public func cacheDriverName(pubkey: String, name: String) {
-        guard isFollowing(pubkey: pubkey) else { return }
-        driverNames[pubkey] = name
+        lock.withLock {
+            guard drivers.contains(where: { $0.pubkey == pubkey }) else { return }
+            driverNames[pubkey] = name
+        }
         persistence.saveDriverNames(driverNames)
     }
 
     /// Get the cached display name for a driver.
     public func cachedDriverName(pubkey: String) -> String? {
-        driverNames[pubkey]
+        lock.withLock { driverNames[pubkey] }
     }
 
     // MARK: - Driver Locations (in-memory only)
@@ -104,25 +120,26 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         timestamp: Int,
         keyVersion: Int
     ) -> Bool {
-        // Reject out-of-order events
-        if let existing = driverLocations[pubkey], existing.timestamp >= timestamp {
-            return false
+        lock.withLock {
+            if let existing = driverLocations[pubkey], existing.timestamp >= timestamp {
+                return false
+            }
+            driverLocations[pubkey] = CachedDriverLocation(
+                latitude: latitude, longitude: longitude,
+                status: status, timestamp: timestamp, keyVersion: keyVersion
+            )
+            return true
         }
-        driverLocations[pubkey] = CachedDriverLocation(
-            latitude: latitude, longitude: longitude,
-            status: status, timestamp: timestamp, keyVersion: keyVersion
-        )
-        return true
     }
 
     /// Remove a driver's cached location.
     public func removeDriverLocation(pubkey: String) {
-        driverLocations.removeValue(forKey: pubkey)
+        lock.withLock { _ = driverLocations.removeValue(forKey: pubkey) }
     }
 
     /// Clear all cached locations.
     public func clearDriverLocations() {
-        driverLocations.removeAll()
+        lock.withLock { driverLocations.removeAll() }
     }
 
     /// Get a driver's RoadFlare key for decrypting their location broadcasts.
@@ -134,7 +151,7 @@ public final class FollowedDriversRepository: @unchecked Sendable {
 
     /// Replace all drivers (for sync restore from Nostr).
     public func replaceAll(drivers: [FollowedDriver]) {
-        self.drivers = drivers
+        lock.withLock { self.drivers = drivers }
         persistence.saveDrivers(drivers)
     }
 
@@ -155,9 +172,11 @@ public final class FollowedDriversRepository: @unchecked Sendable {
 
     /// Clear all data (for logout).
     public func clearAll() {
-        drivers = []
-        driverNames = [:]
-        driverLocations = [:]
+        lock.withLock {
+            drivers = []
+            driverNames = [:]
+            driverLocations = [:]
+        }
         persistence.saveDrivers([])
         persistence.saveDriverNames([:])
     }

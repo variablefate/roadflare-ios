@@ -32,7 +32,7 @@ public final class KeychainStorage: KeychainStorageProtocol, Sendable {
 
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
-            throw RidestrError.keychainError(status)
+            throw RidestrError.keychain(.osError(status))
         }
     }
 
@@ -50,7 +50,7 @@ public final class KeychainStorage: KeychainStorageProtocol, Sendable {
         case errSecItemNotFound:
             return nil
         default:
-            throw RidestrError.keychainError(status)
+            throw RidestrError.keychain(.osError(status))
         }
     }
 
@@ -59,7 +59,7 @@ public final class KeychainStorage: KeychainStorageProtocol, Sendable {
         let status = SecItemDelete(query as CFDictionary)
 
         guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw RidestrError.keychainError(status)
+            throw RidestrError.keychain(.osError(status))
         }
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Fare estimate for a ride.
-public struct FareEstimate: Sendable {
+public struct FareEstimate: Sendable, Equatable, Hashable, Codable {
     /// Distance in miles.
     public let distanceMiles: Double
     /// Duration in minutes.
@@ -20,7 +20,7 @@ public struct FareEstimate: Sendable {
 }
 
 /// Fare configuration, typically loaded from RemoteConfig (Kind 30182).
-public struct FareConfig: Sendable {
+public struct FareConfig: Sendable, Equatable {
     public let baseFareUsd: Decimal
     public let rateUsdPerMile: Decimal
     public let minimumFareUsd: Decimal
@@ -30,6 +30,8 @@ public struct FareConfig: Sendable {
         rateUsdPerMile: Decimal = AdminConstants.roadflareUIRateUsdPerMile,
         minimumFareUsd: Decimal = AdminConstants.roadflareUIMinimumFareUsd
     ) {
+        assert(baseFareUsd >= 0 && rateUsdPerMile >= 0 && minimumFareUsd >= 0,
+               "Fare config values must be non-negative")
         self.baseFareUsd = baseFareUsd
         self.rateUsdPerMile = rateUsdPerMile
         self.minimumFareUsd = minimumFareUsd
@@ -67,14 +69,16 @@ public struct FareCalculator: Sendable {
     }
 
     /// Calculate fare from distance in miles.
+    /// Negative or non-finite distances are clamped to zero (minimum fare applies).
     public func calculateFare(distanceMiles: Double) -> Decimal {
-        let miles = Decimal(distanceMiles)
+        let safeMiles = distanceMiles.isFinite && distanceMiles > 0 ? distanceMiles : 0
+        let miles = Decimal(safeMiles)
         let rawFare = config.baseFareUsd + (miles * config.rateUsdPerMile)
         return max(rawFare, config.minimumFareUsd)
     }
 
     /// Calculate fare from distance in kilometers.
     public func calculateFareFromKm(distanceKm: Double) -> Decimal {
-        calculateFare(distanceMiles: distanceKm * 0.621371)
+        calculateFare(distanceMiles: distanceKm * LocationConstants.kmToMiles)
     }
 }

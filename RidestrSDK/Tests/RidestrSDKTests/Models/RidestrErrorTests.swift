@@ -6,14 +6,14 @@ import Testing
 struct RidestrErrorTests {
     @Test func errorDescriptions() {
         let errors: [RidestrError] = [
-            .invalidKey("bad key"),
-            .invalidEvent("bad event"),
-            .invalidGeohash("bad hash"),
-            .keychainError(-25300),
-            .keychainDataCorrupted,
-            .relayNotConnected,
-            .relayTimeout,
-            .rideStateMachineViolation(from: "idle", to: "inProgress"),
+            .crypto(.invalidKey("bad key")),
+            .ride(.invalidEvent("bad event")),
+            .location(.invalidGeohash("bad hash")),
+            .keychain(.osError(-25300)),
+            .keychain(.dataCorrupted),
+            .relay(.notConnected),
+            .relay(.timeout),
+            .ride(.stateMachineViolation(from: "idle", to: "inProgress")),
         ]
 
         for error in errors {
@@ -24,13 +24,13 @@ struct RidestrErrorTests {
     }
 
     @Test func stateMachineViolationDescription() {
-        let error = RidestrError.rideStateMachineViolation(from: "idle", to: "completed")
+        let error = RidestrError.ride(.stateMachineViolation(from: "idle", to: "completed"))
         #expect(error.errorDescription!.contains("idle"))
         #expect(error.errorDescription!.contains("completed"))
     }
 
     @Test func keychainErrorIncludesStatus() {
-        let error = RidestrError.keychainError(-25300)
+        let error = RidestrError.keychain(.osError(-25300))
         #expect(error.errorDescription!.contains("-25300"))
     }
 
@@ -38,12 +38,12 @@ struct RidestrErrorTests {
         struct TestError: Error, LocalizedError {
             var errorDescription: String? { "test failure" }
         }
-        let error = RidestrError.encryptionFailed(underlying: TestError())
+        let error = RidestrError.crypto(.encryptionFailed(underlying: TestError()))
         #expect(error.errorDescription!.contains("test failure"))
     }
 
     @Test func invalidKeyDetail() {
-        let error = RidestrError.invalidKey("wrong format")
+        let error = RidestrError.crypto(.invalidKey("wrong format"))
         #expect(error.errorDescription!.contains("wrong format"))
     }
 }

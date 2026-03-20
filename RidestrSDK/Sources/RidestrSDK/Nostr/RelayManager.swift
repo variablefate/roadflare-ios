@@ -47,7 +47,7 @@ public actor RelayManager: RelayManagerProtocol {
                 try await clientRef.handleNotifications(handler: router)
             } catch {
                 // handleNotifications only returns on disconnect or error
-                print("[RelayManager] Notification handler stopped: \(error)")
+                RidestrLogger.error("[RelayManager] Notification handler stopped: \(error)")
             }
         }
     }
@@ -74,7 +74,7 @@ public actor RelayManager: RelayManagerProtocol {
 
     public func publish(_ event: NostrEvent) async throws -> String {
         guard let client else {
-            throw RidestrError.relayNotConnected
+            throw RidestrError.relay(.notConnected)
         }
 
         let rustEvent = try EventSigner.toRustEvent(event)
@@ -91,7 +91,7 @@ public actor RelayManager: RelayManagerProtocol {
         id: SubscriptionID
     ) async throws -> AsyncStream<NostrEvent> {
         guard let client, let router = notificationHandler else {
-            throw RidestrError.relayNotConnected
+            throw RidestrError.relay(.notConnected)
         }
 
         // Cancel any existing subscription with the same ID
@@ -136,7 +136,7 @@ public actor RelayManager: RelayManagerProtocol {
         timeout: TimeInterval = RelayConstants.eoseTimeoutSeconds
     ) async throws -> [NostrEvent] {
         guard let client else {
-            throw RidestrError.relayNotConnected
+            throw RidestrError.relay(.notConnected)
         }
 
         let rustFilter = try filter.toRustNostrFilter()
