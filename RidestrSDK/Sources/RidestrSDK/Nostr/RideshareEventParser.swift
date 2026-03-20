@@ -94,14 +94,16 @@ public enum RideshareEventParser {
         event: NostrEvent,
         keypair: NostrKeypair
     ) throws -> RoadflareKeyShareData {
-        guard event.kind == EventKind.keyShare.rawValue else {
-            throw RidestrError.ride(.invalidEvent("Expected Kind 3186, got \(event.kind)"))
+        // Accept both Kind 30186 (replaceable, preferred) and Kind 3186 (legacy, deprecated)
+        let validKinds: Set<UInt16> = [EventKind.replaceableKeyShare.rawValue, EventKind.keyShare.rawValue]
+        guard validKinds.contains(UInt16(event.kind)) else {
+            throw RidestrError.ride(.invalidEvent("Expected Kind 30186 or 3186, got \(event.kind)"))
         }
         // Verify this key share is addressed to us
         guard event.referencedPubkeys.contains(keypair.publicKeyHex) else {
             throw RidestrError.ride(.invalidEvent("Key share not addressed to this user"))
         }
-        // Check expiration
+        // Check expiration (only applies to legacy Kind 3186 with NIP-40 expiration tag)
         if event.isExpired {
             throw RidestrError.ride(.invalidEvent("Key share has expired"))
         }

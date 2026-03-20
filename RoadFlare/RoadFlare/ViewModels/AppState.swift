@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import RidestrSDK
 
 /// App-level authentication state.

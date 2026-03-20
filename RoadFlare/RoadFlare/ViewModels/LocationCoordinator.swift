@@ -1,7 +1,8 @@
 import Foundation
+import os
 import RidestrSDK
 
-/// Manages RoadFlare driver location broadcasts (Kind 30014) and key shares (Kind 3186).
+/// Manages RoadFlare driver location broadcasts (Kind 30014) and key shares (Kind 30186).
 /// Background subscriptions that run for the lifetime of the app session.
 @Observable
 @MainActor
@@ -75,7 +76,7 @@ final class LocationCoordinator {
         }
     }
 
-    // MARK: - Key Share Subscription (Kind 3186)
+    // MARK: - Key Share Subscription (Kind 30186)
 
     func startKeyShareSubscription() {
         keyShareTask?.cancel()
@@ -89,7 +90,7 @@ final class LocationCoordinator {
 
             do {
                 let filter = NostrFilter.keyShares(myPubkey: keypair.publicKeyHex)
-                AppLogger.location.info(" Subscribing to key shares for \(keypair.publicKeyHex.prefix(8))...")
+                AppLogger.location.info(" Subscribing to key shares for \(self.keypair.publicKeyHex.prefix(8))...")
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
                 AppLogger.location.info(" Key share subscription active")
 
@@ -121,7 +122,7 @@ final class LocationCoordinator {
             let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
                 driverPubkey: keyShare.driverPubkey,
                 keyVersion: keyShare.roadflareKey.version,
-                keyUpdatedAt: keyShare.keyUpdatedAt ?? 0,
+                keyUpdatedAt: keyShare.keyUpdatedAt,
                 status: "received",
                 keypair: keypair
             )
@@ -132,6 +133,24 @@ final class LocationCoordinator {
             startLocationSubscriptions()
         } catch {
             AppLogger.location.info(" Key share handling FAILED: \(error)")
+        }
+    }
+
+    // MARK: - Fetch Key Share On-Demand (Kind 30186)
+
+    /// Try to fetch an existing key share from the relay for a specific driver.
+    /// Used when adding a driver — the key share may already be on the relay if
+    /// the driver previously accepted this follower.
+    func fetchKeyShare(driverPubkey: String) async {
+        do {
+            let filter = NostrFilter.keyShare(driverPubkey: driverPubkey, myPubkey: keypair.publicKeyHex)
+            let events = try await relayManager.fetchEvents(filter: filter, timeout: 5)
+            if let event = events.first {
+                AppLogger.location.info("Found existing key share from \(driverPubkey.prefix(8)) on relay")
+                await handleKeyShareEvent(event)
+            }
+        } catch {
+            // No key share on relay yet — driver hasn't accepted, or still using legacy Kind 3186
         }
     }
 
@@ -146,6 +165,26 @@ final class LocationCoordinator {
             _ = try await relayManager.publish(event)
         } catch {
             lastError = "Failed to publish driver list: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Request Key Refresh (Kind 3188 "stale")
+
+    /// Send a "stale" key ack to a driver, requesting they re-publish Kind 30186.
+    /// Used when re-adding a driver whose key share isn't on the relay.
+    func requestKeyRefresh(driverPubkey: String) async {
+        do {
+            let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
+                driverPubkey: driverPubkey,
+                keyVersion: 0,
+                keyUpdatedAt: 0,
+                status: "stale",
+                keypair: keypair
+            )
+            _ = try await relayManager.publish(ackEvent)
+            AppLogger.location.info("Sent stale key ack to \(driverPubkey.prefix(8)) requesting key refresh")
+        } catch {
+            // Best effort — driver may re-send key share on next poll anyway
         }
     }
 

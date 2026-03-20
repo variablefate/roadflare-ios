@@ -90,8 +90,16 @@ struct NostrFilterTests {
 
     @Test func keySharesConvenience() {
         let filter = NostrFilter.keyShares(myPubkey: "my_pub")
-        #expect(filter.kinds == [EventKind.keyShare.rawValue])
+        #expect(filter.kinds == [EventKind.replaceableKeyShare.rawValue])
         #expect(filter.tagFilters["p"] == ["my_pub"])
+    }
+
+    @Test func keyShareOneShotConvenience() {
+        let filter = NostrFilter.keyShare(driverPubkey: "driver_pub", myPubkey: "my_pub")
+        #expect(filter.kinds == [EventKind.replaceableKeyShare.rawValue])
+        #expect(filter.authors == ["driver_pub"])
+        #expect(filter.tagFilters["d"] == ["my_pub"])
+        #expect(filter.limit == 1)
     }
 
     @Test func followedDriversListConvenience() {

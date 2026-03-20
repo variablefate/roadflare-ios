@@ -1,4 +1,5 @@
 import Foundation
+import os
 import RidestrSDK
 
 /// Orchestrates the ride lifecycle by delegating to focused sub-coordinators.
@@ -70,6 +71,8 @@ final class RideCoordinator {
     func startLocationSubscriptions() { location.startLocationSubscriptions() }
     func startKeyShareSubscription() { location.startKeyShareSubscription() }
     func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
+    func fetchKeyShare(driverPubkey: String) async { await location.fetchKeyShare(driverPubkey: driverPubkey) }
+    func requestKeyRefresh(driverPubkey: String) async { await location.requestKeyRefresh(driverPubkey: driverPubkey) }
 
     // MARK: - State Persistence
 
@@ -133,7 +136,7 @@ final class RideCoordinator {
     ) async {
         // Prevent concurrent ride starts
         guard stateMachine.stage == .idle else {
-            AppLogger.ride.warning("sendRideOffer called while stage is \(stateMachine.stage.rawValue) — ignoring")
+            AppLogger.ride.warning("sendRideOffer called while stage is \(self.stateMachine.stage.rawValue) — ignoring")
             return
         }
         do {

@@ -144,9 +144,16 @@ struct AddDriverSheet: View {
         )
         appState.driversRepository?.addDriver(driver)
 
-        // Publish updated Kind 30011 so driver can discover this follower
+        // Publish updated Kind 30011 so driver can discover this follower,
+        // then try to fetch an existing Kind 30186 key share from the relay
+        // (in case the driver already accepted us). Fall back to stale ack request.
         Task {
             await appState.rideCoordinator?.publishFollowedDriversList()
+            await appState.rideCoordinator?.fetchKeyShare(driverPubkey: hexPubkey)
+            // If no key share found on relay, request a refresh via stale ack
+            if appState.driversRepository?.getRoadflareKey(driverPubkey: hexPubkey) == nil {
+                await appState.rideCoordinator?.requestKeyRefresh(driverPubkey: hexPubkey)
+            }
         }
 
         dismiss()

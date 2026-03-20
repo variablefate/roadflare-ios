@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0B3B2C092F6AFCA400892751 /* RidestrSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 0B3B2C082F6AFCA400892751 /* RidestrSDK */; };
+		0B3B2C0C2F6AFCA500892751 /* RidestrUI in Frameworks */ = {isa = PBXBuildFile; productRef = 0B3B2C0B2F6AFCA500892751 /* RidestrUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,9 +34,22 @@
 		0B3B2BE62F6AFAAF00892751 /* RoadFlareUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RoadFlareUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		0B3B2C0D2F6AFCA500892751 /* Exceptions for "RoadFlare" folder in "RoadFlare" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 0B3B2BCC2F6AFAAE00892751 /* RoadFlare */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		0B3B2BCF2F6AFAAE00892751 /* RoadFlare */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				0B3B2C0D2F6AFCA500892751 /* Exceptions for "RoadFlare" folder in "RoadFlare" target */,
+			);
 			path = RoadFlare;
 			sourceTree = "<group>";
 		};
@@ -57,6 +71,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0B3B2C092F6AFCA400892751 /* RidestrSDK in Frameworks */,
+				0B3B2C0C2F6AFCA500892751 /* RidestrUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +133,7 @@
 			name = RoadFlare;
 			packageProductDependencies = (
 				0B3B2C082F6AFCA400892751 /* RidestrSDK */,
+				0B3B2C0B2F6AFCA500892751 /* RidestrUI */,
 			);
 			productName = RoadFlare;
 			productReference = 0B3B2BCD2F6AFAAE00892751 /* RoadFlare.app */;
@@ -203,6 +219,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0B3B2C072F6AFCA400892751 /* XCLocalSwiftPackageReference "../RidestrSDK" */,
+				0B3B2C0A2F6AFCA500892751 /* XCLocalSwiftPackageReference "../RidestrUI" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0B3B2BCE2F6AFAAE00892751 /* Products */;
@@ -597,12 +614,20 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../RidestrSDK;
 		};
+		0B3B2C0A2F6AFCA500892751 /* XCLocalSwiftPackageReference "../RidestrUI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../RidestrUI;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		0B3B2C082F6AFCA400892751 /* RidestrSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RidestrSDK;
+		};
+		0B3B2C0B2F6AFCA500892751 /* RidestrUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RidestrUI;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

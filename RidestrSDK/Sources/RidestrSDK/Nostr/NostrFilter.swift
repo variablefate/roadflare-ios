@@ -150,11 +150,21 @@ extension NostrFilter {
             .limit(UInt32(driverPubkeys.count))
     }
 
-    /// Filter for RoadFlare key shares addressed to this user.
+    /// Filter for RoadFlare key shares addressed to this user (replaceable Kind 30186).
+    /// d-tag = follower pubkey, so we filter by kind + d-tag matching our pubkey.
     public static func keyShares(myPubkey: String) -> NostrFilter {
         NostrFilter()
-            .kinds([.keyShare])
+            .kinds([.replaceableKeyShare])
             .pTags([myPubkey])
+    }
+
+    /// Fetch a specific driver's key share for this user (one-shot).
+    public static func keyShare(driverPubkey: String, myPubkey: String) -> NostrFilter {
+        NostrFilter()
+            .kinds([.replaceableKeyShare])
+            .authors([driverPubkey])
+            .dTags([myPubkey])
+            .limit(1)
     }
 
     /// Filter for followed drivers list (own backup).

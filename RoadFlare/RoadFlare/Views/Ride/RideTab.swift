@@ -1,5 +1,6 @@
 import SwiftUI
 import RidestrSDK
+import RidestrUI
 
 struct RideTab: View {
     @Environment(AppState.self) private var appState
@@ -21,12 +22,24 @@ struct RideTab: View {
                 Color.rfSurface.ignoresSafeArea()
 
                 switch stage {
-                case .idle: idleView
-                case .waitingForAcceptance: waitingView
-                case .driverAccepted, .rideConfirmed, .enRoute: enRouteView
-                case .driverArrived: arrivedView
-                case .inProgress: inProgressView
-                case .completed: completedView
+                case .idle:
+                    idleView
+                default:
+                    RideStatusCard(
+                        stage: stage,
+                        pin: coordinator?.stateMachine.pin,
+                        fareEstimate: coordinator?.currentFareEstimate,
+                        paymentMethods: appState.settings.paymentMethods,
+                        onCancel: { showCancelWarning = true },
+                        onChat: { showChat = true },
+                        onCloseRide: {
+                            Task { await coordinator?.cancelRide() }
+                            selectedDriverPubkey = nil
+                            pickupAddress = ""
+                            destinationAddress = ""
+                        }
+                    )
+                    .environment(\.ridestrTheme, roadFlareTheme)
                 }
             }
             .navigationTitle("RoadFlare")
@@ -209,194 +222,21 @@ struct RideTab: View {
         }
     }
 
-    // MARK: - Waiting
+    // MARK: - RoadFlare Theme for RidestrUI
 
-    private var waitingView: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            ProgressView()
-                .scaleEffect(1.5)
-                .tint(Color.rfPrimary)
-            Text("Waiting for driver...")
-                .font(RFFont.headline(22))
-                .foregroundColor(Color.rfOnSurface)
-            Text("This usually takes a few seconds")
-                .font(RFFont.body(14))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-            Spacer()
-            Button("Cancel Request") {
-                Task { await coordinator?.cancelRide(reason: "Cancelled before acceptance") }
-            }
-            .buttonStyle(RFSecondaryButtonStyle())
-            .padding(.horizontal, 24)
-            Spacer().frame(height: 40)
-        }
-    }
-
-    // MARK: - En Route
-
-    private var enRouteView: some View {
-        VStack(spacing: 32) {
-            Spacer()
-            ZStack {
-                Circle().fill(Color.rfPrimary.opacity(0.1)).frame(width: 120, height: 120)
-                Image(systemName: "car.fill")
-                    .font(.system(size: 48))
-                    .foregroundColor(Color.rfPrimary)
-            }
-            Text("Driver is on the way!")
-                .font(RFFont.headline(24))
-                .foregroundColor(Color.rfOnSurface)
-            Text("Heading to your pickup location")
-                .font(RFFont.body(15))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-            Spacer()
-            rideActionButtons
-            Spacer().frame(height: 40)
-        }
-        .padding(.horizontal, 24)
-    }
-
-    // MARK: - Arrived (PIN)
-
-    private var arrivedView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Image(systemName: "mappin.circle.fill")
-                .font(.system(size: 56))
-                .foregroundColor(Color.rfOnline)
-
-            Text("Driver Has Arrived!")
-                .font(RFFont.headline(24))
-                .foregroundColor(Color.rfOnSurface)
-
-            Text("Show this PIN to your driver:")
-                .font(RFFont.body(14))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-
-            if let pin = coordinator?.stateMachine.pin {
-                Text(pin)
-                    .font(RFFont.display(72))
-                    .foregroundColor(Color.rfPrimary)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 16)
-                    .background(Color.rfSurfaceContainer)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .rfAmbientShadow(color: .rfPrimary, radius: 24, opacity: 0.15)
-                    .accessibilityLabel("Your ride PIN is \(pin.map(String.init).joined(separator: " "))")
-                    .accessibilityHint("Show this number to your driver")
-            }
-
-            Text("The driver enters this to verify your identity")
-                .font(RFFont.caption(12))
-                .foregroundColor(Color.rfOffline)
-            Spacer()
-            rideActionButtons
-            Spacer().frame(height: 40)
-        }
-        .padding(.horizontal, 24)
-    }
-
-    // MARK: - In Progress
-
-    private var inProgressView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Image(systemName: "road.lanes")
-                .font(.system(size: 56))
-                .foregroundColor(Color.rfPrimary)
-            Text("Ride in Progress")
-                .font(RFFont.headline(24))
-                .foregroundColor(Color.rfOnSurface)
-
-            paymentInfoCard.padding(.horizontal, 24)
-
-            Spacer()
-            Button { showChat = true } label: {
-                Label("Chat with Driver", systemImage: "message")
-            }
-            .buttonStyle(RFSecondaryButtonStyle())
-            .padding(.horizontal, 24)
-            Spacer().frame(height: 40)
-        }
-    }
-
-    // MARK: - Completed
-
-    private var completedView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            ZStack {
-                Circle().fill(Color.rfOnline.opacity(0.1)).frame(width: 100, height: 100)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 44, weight: .bold))
-                    .foregroundColor(Color.rfOnline)
-            }
-            Text("Ride Complete!")
-                .font(RFFont.headline(28))
-                .foregroundColor(Color.rfOnSurface)
-
-            paymentInfoCard.padding(.horizontal, 24)
-
-            Spacer()
-            Button {
-                Task { await coordinator?.cancelRide() }
-                selectedDriverPubkey = nil; pickupAddress = ""; destinationAddress = ""
-            } label: {
-                Label("I've Paid — Close Ride", systemImage: "checkmark.circle")
-            }
-            .buttonStyle(RFPrimaryButtonStyle())
-            .padding(.horizontal, 24)
-            Spacer().frame(height: 40)
-        }
-    }
-
-    // MARK: - Payment Info Card
-
-    private var paymentInfoCard: some View {
-        VStack(spacing: 12) {
-            if let fare = coordinator?.currentFareEstimate {
-                HStack {
-                    Text("Fare")
-                        .font(RFFont.body(15))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
-                    Spacer()
-                    Text(formatFare(fare.fareUSD))
-                        .font(RFFont.headline(24))
-                        .foregroundColor(Color.rfPrimary)
-                }
-            }
-            if !appState.settings.paymentMethods.isEmpty {
-                Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1)
-                HStack(spacing: 8) {
-                    ForEach(appState.settings.paymentMethods, id: \.self) { method in
-                        Text(method.displayName)
-                            .font(RFFont.caption(12))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.rfSurfaceContainerHigh)
-                            .foregroundColor(Color.rfOnSurfaceVariant)
-                            .clipShape(Capsule())
-                    }
-                }
-            }
-        }
-        .rfCard(.high)
-    }
-
-    // MARK: - Shared
-
-    private var rideActionButtons: some View {
-        VStack(spacing: 12) {
-            Button { showChat = true } label: {
-                Label("Chat with Driver", systemImage: "message")
-            }
-            .buttonStyle(RFSecondaryButtonStyle())
-
-            Button("Cancel Ride") { showCancelWarning = true }
-                .buttonStyle(RFGhostButtonStyle())
-        }
-        .padding(.horizontal, 24)
+    private var roadFlareTheme: RidestrTheme {
+        RidestrTheme(
+            accentColor: .rfPrimary,
+            successColor: .rfOnline,
+            warningColor: .rfOnRide,
+            errorColor: .rfError,
+            surfaceColor: .rfSurface,
+            surfaceSecondaryColor: .rfSurfaceContainer,
+            onSurfaceColor: .rfOnSurface,
+            onSurfaceSecondaryColor: .rfOnSurfaceVariant,
+            cardCornerRadius: 16,
+            fontDesign: .rounded
+        )
     }
 
     // MARK: - Actions

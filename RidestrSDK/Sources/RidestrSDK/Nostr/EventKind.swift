@@ -13,7 +13,7 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
     case cancellation = 3179
 
     // RoadFlare (regular events)
-    case keyShare = 3186
+    case keyShare = 3186  // DEPRECATED — use replaceableKeyShare (Kind 30186) instead
     case followNotification = 3187  // DEPRECATED — use p-tag queries on Kind 30011
     case keyAcknowledgement = 3188
 
@@ -27,6 +27,9 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
     case driverRoadflareState = 30012
     case shareableDriverList = 30013
     case roadflareLocation = 30014
+
+    // RoadFlare (parameterized replaceable — key share)
+    case replaceableKeyShare = 30186
 
     // Ride state (parameterized replaceable)
     case driverAvailability = 30173
