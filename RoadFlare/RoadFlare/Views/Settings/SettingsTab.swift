@@ -7,8 +7,10 @@ struct SettingsTab: View {
     @State private var showKeyBackup = false
     @State private var showLogoutConfirm = false
     @State private var showShareSheet = false
+    @State private var showEditProfile = false
     @State private var shareText = ""
     @State private var savedToPasswords = false
+    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
@@ -17,27 +19,48 @@ struct SettingsTab: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Profile
+                        // Profile Card (tappable → edit sheet)
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Profile")
-                            HStack(spacing: 12) {
-                                Image(systemName: "person")
-                                    .frame(width: 20)
-                                    .foregroundColor(Color.rfPrimary)
-                                TextField("Your name", text: Bindable(appState.settings).profileName)
-                                    .font(RFFont.body(15))
-                                    .foregroundColor(Color.rfOnSurface)
-                                    .onSubmit { Task { await appState.publishProfile() } }
+                            Button { showEditProfile = true } label: {
+                                HStack(spacing: 14) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.rfPrimary.opacity(0.1))
+                                            .frame(width: 48, height: 48)
+                                        Image(systemName: "person.fill")
+                                            .font(.system(size: 20))
+                                            .foregroundColor(Color.rfPrimary)
+                                    }
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(appState.settings.profileName.isEmpty ? "Set your name" : appState.settings.profileName)
+                                            .font(RFFont.title(16))
+                                            .foregroundColor(appState.settings.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
+                                        if let npub = appState.keypair?.npub {
+                                            Text(String(npub.prefix(16)) + "...")
+                                                .font(RFFont.mono(11))
+                                                .foregroundColor(Color.rfOffline)
+                                        }
+                                    }
+                                    Spacer()
+                                    Image(systemName: "pencil")
+                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                }
+                                .padding(16)
+                                .background(Color.rfSurfaceContainer)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
                             }
-                            .padding(16)
-                            .background(Color.rfSurfaceContainer)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .buttonStyle(.plain)
                         }
 
                         // Payment Methods
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Payment Methods")
                             PaymentMethodPicker(settings: appState.settings)
+                                .onChange(of: appState.settings.paymentMethods) {
+                                    // Auto-publish backup when payment methods change
+                                    Task { await appState.publishProfileBackup() }
+                                }
                         }
 
                         // Saved Locations
@@ -120,6 +143,9 @@ struct SettingsTab: View {
                 ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
             }
             .sheet(isPresented: $showKeyBackup) { BackupKeySheet() }
+            .sheet(isPresented: $showEditProfile) {
+                EditProfileSheet(isSaving: $isSaving)
+            }
             .sheet(isPresented: $showShareSheet) {
                 if !shareText.isEmpty { ShareSheet(items: [shareText]) }
             }
@@ -149,6 +175,118 @@ struct SettingsTab: View {
             guard let nsec = try? await appState.keyManager?.exportNsec() else { return }
             shareText = nsec
             showShareSheet = true
+        }
+    }
+}
+
+// MARK: - Edit Profile Sheet
+
+struct EditProfileSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    @State private var editedName = ""
+    @Binding var isSaving: Bool
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.rfSurface.ignoresSafeArea()
+
+                VStack(spacing: 32) {
+                    Spacer().frame(height: 16)
+
+                    // Avatar
+                    ZStack {
+                        Circle()
+                            .fill(Color.rfPrimary.opacity(0.1))
+                            .frame(width: 80, height: 80)
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(Color.rfPrimary)
+                    }
+
+                    // Name field
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Display Name")
+                            .font(RFFont.caption())
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                        TextField("Your name", text: $editedName)
+                            .font(RFFont.body(16))
+                            .padding(14)
+                            .background(Color.rfSurfaceContainerLow)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .foregroundColor(Color.rfOnSurface)
+                            .onChange(of: editedName) {
+                                if editedName.count > 50 { editedName = String(editedName.prefix(50)) }
+                            }
+                    }
+                    .padding(.horizontal, 24)
+
+                    // Account ID (read-only)
+                    if let npub = appState.keypair?.npub {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Account ID")
+                                .font(RFFont.caption())
+                                .foregroundColor(Color.rfOnSurfaceVariant)
+                            Text(npub)
+                                .font(RFFont.mono(11))
+                                .foregroundColor(Color.rfOffline)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.rfSurfaceContainerLow)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .padding(.horizontal, 24)
+                    }
+
+                    Spacer()
+                }
+            }
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color.rfSurface, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        save()
+                    } label: {
+                        if isSaving {
+                            ProgressView().tint(Color.rfPrimary)
+                        } else {
+                            Text("Save")
+                                .bold()
+                                .foregroundColor(hasChanges ? Color.rfPrimary : Color.rfOffline)
+                        }
+                    }
+                    .disabled(!hasChanges || isSaving)
+                }
+            }
+            .onAppear {
+                editedName = appState.settings.profileName
+            }
+        }
+    }
+
+    private var hasChanges: Bool {
+        let trimmed = editedName.trimmingCharacters(in: .whitespaces)
+        return !trimmed.isEmpty && trimmed != appState.settings.profileName
+    }
+
+    private func save() {
+        let trimmed = editedName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        isSaving = true
+        appState.settings.profileName = trimmed
+        Task {
+            await appState.saveAndPublishSettings()
+            isSaving = false
+            dismiss()
         }
     }
 }

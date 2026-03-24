@@ -107,10 +107,10 @@ final class AppState {
         authState = .paymentSetup
     }
 
-    /// Mark payment setup as done, finish onboarding.
+    /// Mark payment setup as done, finish onboarding. Publishes profile + settings backup.
     func completePaymentSetup() async {
         settings.profileCompleted = true
-        await publishProfile()
+        await saveAndPublishSettings()
         authState = .ready
     }
 
@@ -128,6 +128,35 @@ final class AppState {
         } catch {
             AppLogger.auth.info("Failed to publish profile: \(error)")
         }
+    }
+
+    /// Publish Kind 30177 encrypted profile backup (settings + saved locations) to Nostr.
+    func publishProfileBackup() async {
+        guard let kp = keypair, let rm = relayManager else { return }
+        let backup = ProfileBackupContent(
+            savedLocations: savedLocations.favorites.map { loc in
+                SavedLocationBackup(
+                    name: loc.displayName, latitude: loc.latitude, longitude: loc.longitude,
+                    address: loc.addressLine, isFavorite: true
+                )
+            },
+            settings: SettingsBackupContent(
+                roadflarePaymentMethods: settings.paymentMethods.map(\.rawValue)
+            )
+        )
+        do {
+            let event = try await RideshareEventBuilder.profileBackup(content: backup, keypair: kp)
+            _ = try await rm.publish(event)
+            AppLogger.auth.info("Published profile backup to Nostr")
+        } catch {
+            AppLogger.auth.info("Failed to publish profile backup: \(error)")
+        }
+    }
+
+    /// Publish both Kind 0 (public profile) and Kind 30177 (encrypted backup) to Nostr.
+    func saveAndPublishSettings() async {
+        await publishProfile()
+        await publishProfileBackup()
     }
 
     /// Log out: clear all data.
@@ -157,10 +186,11 @@ final class AppState {
         keypair: NostrKeypair,
         driversRepository repo: FollowedDriversRepository
     ) async {
-        // Fetch profile (Kind 0) and followed drivers (Kind 30011) concurrently
+        // Fetch profile, followed drivers, and profile backup concurrently
         async let profileResult = fetchOwnProfile(rm: rm, keypair: keypair)
         async let driversResult = fetchFollowedDrivers(rm: rm, keypair: keypair, repo: repo)
-        _ = await (profileResult, driversResult)
+        async let backupResult = fetchProfileBackup(rm: rm, keypair: keypair)
+        _ = await (profileResult, driversResult, backupResult)
     }
 
     private func fetchOwnProfile(rm: RelayManager, keypair: NostrKeypair) async {
@@ -197,6 +227,25 @@ final class AppState {
             }
         } catch {
             AppLogger.auth.info("Followed drivers fetch failed (non-fatal): \(error)")
+        }
+    }
+
+    private func fetchProfileBackup(rm: RelayManager, keypair: NostrKeypair) async {
+        do {
+            let filter = NostrFilter.profileBackup(myPubkey: keypair.publicKeyHex)
+            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
+            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
+                let backup = try RideshareEventParser.parseProfileBackup(event: event, keypair: keypair)
+                // Restore payment methods if local is at default (empty or just cash)
+                let remotePaymentMethods = backup.settings.roadflarePaymentMethods
+                    .compactMap { PaymentMethod(rawValue: $0) }
+                if !remotePaymentMethods.isEmpty && settings.paymentMethods == [.cash] {
+                    settings.paymentMethods = remotePaymentMethods
+                    AppLogger.auth.info("Restored \(remotePaymentMethods.count) payment methods from Nostr backup")
+                }
+            }
+        } catch {
+            AppLogger.auth.info("Profile backup fetch failed (non-fatal): \(error)")
         }
     }
 

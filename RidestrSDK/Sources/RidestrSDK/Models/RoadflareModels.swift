@@ -271,6 +271,68 @@ private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
 
+// MARK: - Profile Backup (Kind 30177)
+
+/// Settings portion of the profile backup, matching Android's SettingsBackup.
+/// Encrypted to self in Kind 30177.
+public struct SettingsBackupContent: Codable, Sendable {
+    public var roadflarePaymentMethods: [String]
+    public var displayCurrency: String
+    public var distanceUnit: String
+
+    public init(
+        roadflarePaymentMethods: [String] = [],
+        displayCurrency: String = "USD",
+        distanceUnit: String = "MILES"
+    ) {
+        self.roadflarePaymentMethods = roadflarePaymentMethods
+        self.displayCurrency = displayCurrency
+        self.distanceUnit = distanceUnit
+    }
+}
+
+/// Full profile backup content (Kind 30177, encrypted to self).
+/// Matches Android's ProfileBackupEvent format.
+public struct ProfileBackupContent: Codable, Sendable {
+    public var savedLocations: [SavedLocationBackup]
+    public var settings: SettingsBackupContent
+    public var updatedAt: Int
+
+    enum CodingKeys: String, CodingKey {
+        case savedLocations
+        case settings
+        case updatedAt = "updated_at"
+    }
+
+    public init(
+        savedLocations: [SavedLocationBackup] = [],
+        settings: SettingsBackupContent = SettingsBackupContent(),
+        updatedAt: Int = Int(Date.now.timeIntervalSince1970)
+    ) {
+        self.savedLocations = savedLocations
+        self.settings = settings
+        self.updatedAt = updatedAt
+    }
+}
+
+/// Minimal saved location for backup (matching Android format).
+public struct SavedLocationBackup: Codable, Sendable {
+    public let name: String
+    public let latitude: Double
+    public let longitude: Double
+    public let address: String?
+    public let isFavorite: Bool
+
+    public init(name: String, latitude: Double, longitude: Double,
+                address: String? = nil, isFavorite: Bool = false) {
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.address = address
+        self.isFavorite = isFavorite
+    }
+}
+
 // MARK: - Ride History
 
 /// A completed or cancelled ride stored in history.

@@ -3,6 +3,27 @@ import Foundation
 /// Parses and decrypts incoming Nostr events for the Ridestr protocol.
 public enum RideshareEventParser {
 
+    // MARK: - Profile Backup (Kind 30177)
+
+    /// Parse and decrypt a profile backup event (Kind 30177, encrypted to self).
+    public static func parseProfileBackup(
+        event: NostrEvent,
+        keypair: NostrKeypair
+    ) throws -> ProfileBackupContent {
+        guard event.kind == EventKind.unifiedProfile.rawValue else {
+            throw RidestrError.ride(.invalidEvent("Expected Kind 30177, got \(event.kind)"))
+        }
+        guard event.pubkey == keypair.publicKeyHex else {
+            throw RidestrError.ride(.invalidEvent("Profile backup not authored by this user"))
+        }
+        let decrypted = try NIP44.decryptFromSelf(
+            ciphertext: event.content,
+            privateKeyHex: keypair.privateKeyHex,
+            publicKeyHex: keypair.publicKeyHex
+        )
+        return try JSONDecoder().decode(ProfileBackupContent.self, from: Data(decrypted.utf8))
+    }
+
     // MARK: - User Profile (Kind 0)
 
     /// Parse a Kind 0 metadata event (plaintext JSON, no decryption needed).
