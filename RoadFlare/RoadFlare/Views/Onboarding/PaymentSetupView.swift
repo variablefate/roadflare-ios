@@ -42,7 +42,7 @@ struct PaymentSetupView: View {
                         if appState.settings.paymentMethods.isEmpty {
                             appState.settings.paymentMethods = [.cash]
                         }
-                        appState.completePaymentSetup()
+                        Task { await appState.completePaymentSetup() }
                     } label: {
                         Text("Continue")
                     }

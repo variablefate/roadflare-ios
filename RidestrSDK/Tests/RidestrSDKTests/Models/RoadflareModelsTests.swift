@@ -145,6 +145,110 @@ struct RoadflareModelsTests {
         #expect(decoded.status == "stale")
     }
 
+    // MARK: - UserProfileContent (Kind 0)
+
+    @Test func profileToJSONAllFields() {
+        let profile = UserProfileContent(
+            name: "alice", displayName: "Alice", about: "Rider",
+            picture: "https://example.com/pic.jpg", banner: "https://example.com/banner.jpg",
+            website: "https://example.com", nip05: "alice@example.com",
+            lud16: "alice@getalby.com", lud06: "lnurl1..."
+        )
+        let json = profile.toJSON()
+        #expect(json.contains("\"name\":\"alice\""))
+        #expect(json.contains("\"display_name\":\"Alice\""))
+        #expect(json.contains("\"about\":\"Rider\""))
+        #expect(json.contains("\"lud16\":\"alice@getalby.com\""))
+    }
+
+    @Test func profileToJSONSkipsNilAndEmpty() {
+        let profile = UserProfileContent(name: "Bob", displayName: nil, about: "")
+        let json = profile.toJSON()
+        #expect(json.contains("\"name\":\"Bob\""))
+        #expect(!json.contains("display_name"))
+        #expect(!json.contains("about"))
+    }
+
+    @Test func profileToJSONEmpty() {
+        let profile = UserProfileContent()
+        #expect(profile.toJSON() == "{}")
+    }
+
+    @Test func profileFromJSONFull() {
+        let json = """
+        {"name":"alice","display_name":"Alice","about":"Bio","picture":"https://pic.jpg","nip05":"a@b.com","lud16":"a@ln.com"}
+        """
+        let profile = UserProfileContent.fromJSON(json)
+        #expect(profile?.name == "alice")
+        #expect(profile?.displayName == "Alice")
+        #expect(profile?.about == "Bio")
+        #expect(profile?.picture == "https://pic.jpg")
+        #expect(profile?.nip05 == "a@b.com")
+        #expect(profile?.lud16 == "a@ln.com")
+    }
+
+    @Test func profileFromJSONPartial() {
+        let json = """
+        {"display_name":"Bob"}
+        """
+        let profile = UserProfileContent.fromJSON(json)
+        #expect(profile?.displayName == "Bob")
+        #expect(profile?.name == nil)
+        #expect(profile?.about == nil)
+    }
+
+    @Test func profileFromJSONMalformed() {
+        #expect(UserProfileContent.fromJSON("not json") == nil)
+        #expect(UserProfileContent.fromJSON("") == nil)
+    }
+
+    @Test func profileRoundtrip() {
+        let original = UserProfileContent(name: "test", displayName: "Test User", about: "Hi")
+        let json = original.toJSON()
+        let decoded = UserProfileContent.fromJSON(json)
+        #expect(decoded?.name == original.name)
+        #expect(decoded?.displayName == original.displayName)
+        #expect(decoded?.about == original.about)
+    }
+
+    @Test func profileAndroidCompatJSON() {
+        // Verify JSON from Android client parses correctly (including vehicle fields)
+        let androidJSON = """
+        {"name":"Driver","display_name":"John Smith","about":"Professional driver","picture":"https://img.com/photo.jpg","lud16":"john@walletofsatoshi.com","car_make":"Toyota","car_model":"Camry","car_color":"Blue","car_year":"2024"}
+        """
+        let profile = UserProfileContent.fromJSON(androidJSON)
+        #expect(profile?.name == "Driver")
+        #expect(profile?.displayName == "John Smith")
+        #expect(profile?.lud16 == "john@walletofsatoshi.com")
+        #expect(profile?.carMake == "Toyota")
+        #expect(profile?.carModel == "Camry")
+        #expect(profile?.carColor == "Blue")
+        #expect(profile?.carYear == "2024")
+        #expect(profile?.vehicleDescription == "Blue Toyota Camry")
+    }
+
+    @Test func vehicleDescriptionCombinations() {
+        #expect(UserProfileContent(carMake: "Tesla", carModel: "Model S", carColor: "Black").vehicleDescription == "Black Tesla Model S")
+        #expect(UserProfileContent(carMake: "Toyota", carModel: "Camry").vehicleDescription == "Toyota Camry")
+        #expect(UserProfileContent(carMake: "Honda").vehicleDescription == "Honda")
+        #expect(UserProfileContent(carColor: "Red").vehicleDescription == "Red")
+        #expect(UserProfileContent(carModel: "Civic").vehicleDescription == "Civic")
+        #expect(UserProfileContent().vehicleDescription == nil)
+        #expect(UserProfileContent(carMake: "", carModel: "").vehicleDescription == nil)
+    }
+
+    @Test func vehicleFieldsRoundtrip() {
+        let original = UserProfileContent(name: "Driver", carMake: "Ford", carModel: "F-150", carColor: "White", carYear: "2023")
+        let json = original.toJSON()
+        #expect(json.contains("\"car_make\":\"Ford\""))
+        #expect(json.contains("\"car_year\":\"2023\""))
+        let decoded = UserProfileContent.fromJSON(json)
+        #expect(decoded?.carMake == "Ford")
+        #expect(decoded?.carModel == "F-150")
+        #expect(decoded?.carColor == "White")
+        #expect(decoded?.carYear == "2023")
+    }
+
     // MARK: - RideHistoryEntry
 
     @Test func rideHistoryEntryCodable() throws {

@@ -20,6 +20,10 @@ struct DriverDetailSheet: View {
                     LabeledContent("Name", value: displayName)
                     LabeledContent("Status", value: statusText)
 
+                    if let vehicle = appState.driversRepository?.driverProfiles[driver.pubkey]?.vehicleDescription {
+                        LabeledContent("Vehicle", value: vehicle)
+                    }
+
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Account ID")
                             .font(.caption)

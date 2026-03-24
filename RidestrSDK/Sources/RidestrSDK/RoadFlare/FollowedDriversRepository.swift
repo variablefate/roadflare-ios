@@ -18,6 +18,9 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// In-memory driver location cache (from Kind 30014 decryption).
     public private(set) var driverLocations: [String: CachedDriverLocation] = [:]
 
+    /// In-memory driver profile cache (from Kind 0 fetches). Not persisted.
+    public private(set) var driverProfiles: [String: UserProfileContent] = [:]
+
     /// Persistence delegate (UserDefaults-based or injected for testing).
     private let persistence: FollowedDriversPersistence
 
@@ -50,6 +53,7 @@ public final class FollowedDriversRepository: @unchecked Sendable {
             drivers.removeAll { $0.pubkey == pubkey }
             driverNames.removeValue(forKey: pubkey)
             driverLocations.removeValue(forKey: pubkey)
+            driverProfiles.removeValue(forKey: pubkey)
         }
         persistence.saveDrivers(drivers)
         persistence.saveDriverNames(driverNames)
@@ -105,6 +109,24 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// Get the cached display name for a driver.
     public func cachedDriverName(pubkey: String) -> String? {
         lock.withLock { driverNames[pubkey] }
+    }
+
+    /// Cache a driver's full profile from their Kind 0 event.
+    public func cacheDriverProfile(pubkey: String, profile: UserProfileContent) {
+        lock.withLock {
+            guard drivers.contains(where: { $0.pubkey == pubkey }) else { return }
+            driverProfiles[pubkey] = profile
+            // Also update the name cache
+            if let name = profile.displayName ?? profile.name, !name.isEmpty {
+                driverNames[pubkey] = name
+            }
+        }
+        persistence.saveDriverNames(driverNames)
+    }
+
+    /// Get the cached profile for a driver.
+    public func cachedDriverProfile(pubkey: String) -> UserProfileContent? {
+        lock.withLock { driverProfiles[pubkey] }
     }
 
     // MARK: - Driver Locations (in-memory only)
@@ -176,6 +198,7 @@ public final class FollowedDriversRepository: @unchecked Sendable {
             drivers = []
             driverNames = [:]
             driverLocations = [:]
+            driverProfiles = [:]
         }
         persistence.saveDrivers([])
         persistence.saveDriverNames([:])

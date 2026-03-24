@@ -51,7 +51,7 @@ struct ProfileSetupView: View {
                     }
                     .buttonStyle(RFSecondaryButtonStyle())
 
-                    Button { appState.completeProfileSetup(name: displayName) } label: {
+                    Button { Task { await appState.completeProfileSetup(name: displayName) } } label: {
                         Text("Continue")
                     }
                     .buttonStyle(RFPrimaryButtonStyle(isDisabled: displayName.trimmingCharacters(in: .whitespaces).isEmpty))

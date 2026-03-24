@@ -4,6 +4,68 @@ import Testing
 
 @Suite("RideshareEventParser Tests")
 struct RideshareEventParserTests {
+
+    // MARK: - Metadata (Kind 0)
+
+    @Test func parseMetadataValidEvent() {
+        let event = NostrEvent(
+            id: "m1", pubkey: "abc123", createdAt: 1700000000,
+            kind: EventKind.metadata.rawValue,
+            tags: [],
+            content: #"{"name":"Alice","display_name":"Alice R","about":"Rider"}"#,
+            sig: "sig"
+        )
+        let profile = RideshareEventParser.parseMetadata(event: event)
+        #expect(profile?.name == "Alice")
+        #expect(profile?.displayName == "Alice R")
+        #expect(profile?.about == "Rider")
+    }
+
+    @Test func parseMetadataWrongKind() {
+        let event = NostrEvent(
+            id: "m2", pubkey: "abc123", createdAt: 1700000000,
+            kind: EventKind.rideOffer.rawValue,
+            tags: [], content: #"{"name":"Bob"}"#, sig: "sig"
+        )
+        #expect(RideshareEventParser.parseMetadata(event: event) == nil)
+    }
+
+    @Test func parseMetadataMalformedJSON() {
+        let event = NostrEvent(
+            id: "m3", pubkey: "abc123", createdAt: 1700000000,
+            kind: EventKind.metadata.rawValue,
+            tags: [], content: "not json", sig: "sig"
+        )
+        #expect(RideshareEventParser.parseMetadata(event: event) == nil)
+    }
+
+    @Test func parseMetadataEmptyContent() {
+        let event = NostrEvent(
+            id: "m4", pubkey: "abc123", createdAt: 1700000000,
+            kind: EventKind.metadata.rawValue,
+            tags: [], content: "{}", sig: "sig"
+        )
+        let profile = RideshareEventParser.parseMetadata(event: event)
+        #expect(profile != nil)
+        #expect(profile?.name == nil)
+        #expect(profile?.displayName == nil)
+    }
+
+    @Test func metadataRoundtrip() async throws {
+        let keypair = try NostrKeypair.generate()
+        let profile = UserProfileContent(name: "test", displayName: "Test User")
+        let event = try await RideshareEventBuilder.metadata(profile: profile, keypair: keypair)
+
+        #expect(event.kind == Int(EventKind.metadata.rawValue))
+        #expect(event.tags.isEmpty)
+
+        let parsed = RideshareEventParser.parseMetadata(event: event)
+        #expect(parsed?.name == "test")
+        #expect(parsed?.displayName == "Test User")
+    }
+
+    // MARK: - RoadFlare Location
+
     @Test func parseRoadflareLocation() throws {
         let driverIdentity = try NostrKeypair.generate()
         let roadflareKey = try NostrKeypair.generate()

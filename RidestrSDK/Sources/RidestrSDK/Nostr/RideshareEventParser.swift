@@ -3,6 +3,14 @@ import Foundation
 /// Parses and decrypts incoming Nostr events for the Ridestr protocol.
 public enum RideshareEventParser {
 
+    // MARK: - User Profile (Kind 0)
+
+    /// Parse a Kind 0 metadata event (plaintext JSON, no decryption needed).
+    public static func parseMetadata(event: NostrEvent) -> UserProfileContent? {
+        guard event.kind == EventKind.metadata.rawValue else { return nil }
+        return UserProfileContent.fromJSON(event.content)
+    }
+
     // MARK: - Ride Acceptance (Kind 3174)
 
     /// Parse and decrypt a ride acceptance event.

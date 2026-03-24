@@ -94,6 +94,18 @@ struct NostrFilterTests {
         #expect(filter.tagFilters["p"] == ["my_pub"])
     }
 
+    @Test func metadataConvenience() {
+        let filter = NostrFilter.metadata(pubkeys: ["pub1", "pub2"])
+        #expect(filter.kinds == [EventKind.metadata.rawValue])
+        #expect(filter.authors == ["pub1", "pub2"])
+        #expect(filter.limit == 2)
+    }
+
+    @Test func metadataSinglePubkey() {
+        let filter = NostrFilter.metadata(pubkeys: ["pub1"])
+        #expect(filter.limit == 1)
+    }
+
     @Test func keyShareOneShotConvenience() {
         let filter = NostrFilter.keyShare(driverPubkey: "driver_pub", myPubkey: "my_pub")
         #expect(filter.kinds == [EventKind.replaceableKeyShare.rawValue])

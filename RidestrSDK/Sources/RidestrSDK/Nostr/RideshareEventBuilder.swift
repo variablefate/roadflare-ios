@@ -261,6 +261,24 @@ public enum RideshareEventBuilder {
     /// allow driver discovery without revealing the full relationship data.
     ///
     /// - Parameters:
+    // MARK: - User Profile (Kind 0)
+
+    /// Build and sign a NIP-01 metadata event (Kind 0).
+    /// Content is plaintext JSON (not encrypted).
+    public static func metadata(
+        profile: UserProfileContent,
+        keypair: NostrKeypair
+    ) async throws -> NostrEvent {
+        try await EventSigner.sign(
+            kind: .metadata,
+            content: profile.toJSON(),
+            tags: [],
+            keypair: keypair
+        )
+    }
+
+    // MARK: - Followed Drivers List (Kind 30011)
+
     ///   - drivers: The rider's list of followed drivers.
     ///   - keypair: The rider's signing keypair (encrypts to self).
     /// - Returns: A signed, self-encrypted Nostr event (Kind 30011).

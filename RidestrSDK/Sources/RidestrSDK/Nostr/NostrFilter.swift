@@ -102,6 +102,15 @@ public struct NostrFilter: Sendable {
 // MARK: - Rideshare Convenience Filters
 
 extension NostrFilter {
+    /// Filter for user profile metadata (Kind 0).
+    /// Limits to one event per pubkey (latest by timestamp wins).
+    public static func metadata(pubkeys: [String]) -> NostrFilter {
+        NostrFilter()
+            .kinds([.metadata])
+            .authors(pubkeys)
+            .limit(UInt32(max(pubkeys.count, 1)))
+    }
+
     /// Filter for ride acceptances targeting a specific offer.
     public static func rideAcceptances(offerEventId: String) -> NostrFilter {
         NostrFilter()

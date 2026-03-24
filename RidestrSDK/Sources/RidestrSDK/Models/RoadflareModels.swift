@@ -175,6 +175,102 @@ public struct KeyAckContent: Codable, Sendable {
     public let riderPubKey: String
 }
 
+// MARK: - User Profile / Metadata (Kind 0)
+
+/// NIP-01 user profile metadata (Kind 0 content).
+/// All fields optional — only non-nil/non-empty values are serialized.
+/// Uses snake_case JSON keys for cross-platform compatibility with Android.
+public struct UserProfileContent: Sendable, Equatable {
+    public var name: String?
+    public var displayName: String?
+    public var about: String?
+    public var picture: String?
+    public var banner: String?
+    public var website: String?
+    public var nip05: String?
+    public var lud16: String?
+    public var lud06: String?
+    // Vehicle info (driver profiles)
+    public var carMake: String?
+    public var carModel: String?
+    public var carColor: String?
+    public var carYear: String?
+
+    public init(
+        name: String? = nil, displayName: String? = nil, about: String? = nil,
+        picture: String? = nil, banner: String? = nil, website: String? = nil,
+        nip05: String? = nil, lud16: String? = nil, lud06: String? = nil,
+        carMake: String? = nil, carModel: String? = nil, carColor: String? = nil, carYear: String? = nil
+    ) {
+        self.name = name
+        self.displayName = displayName
+        self.about = about
+        self.picture = picture
+        self.banner = banner
+        self.website = website
+        self.nip05 = nip05
+        self.lud16 = lud16
+        self.lud06 = lud06
+        self.carMake = carMake
+        self.carModel = carModel
+        self.carColor = carColor
+        self.carYear = carYear
+    }
+
+    /// Vehicle description string (e.g., "Black Tesla Model S").
+    /// Returns nil if no vehicle info is available.
+    public var vehicleDescription: String? {
+        let parts = [carColor, carMake, carModel].compactMap { $0?.nilIfEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    /// Encode to JSON string, skipping nil/empty values.
+    public func toJSON() -> String {
+        var dict: [String: String] = [:]
+        if let v = name, !v.isEmpty { dict["name"] = v }
+        if let v = displayName, !v.isEmpty { dict["display_name"] = v }
+        if let v = about, !v.isEmpty { dict["about"] = v }
+        if let v = picture, !v.isEmpty { dict["picture"] = v }
+        if let v = banner, !v.isEmpty { dict["banner"] = v }
+        if let v = website, !v.isEmpty { dict["website"] = v }
+        if let v = nip05, !v.isEmpty { dict["nip05"] = v }
+        if let v = lud16, !v.isEmpty { dict["lud16"] = v }
+        if let v = lud06, !v.isEmpty { dict["lud06"] = v }
+        if let v = carMake, !v.isEmpty { dict["car_make"] = v }
+        if let v = carModel, !v.isEmpty { dict["car_model"] = v }
+        if let v = carColor, !v.isEmpty { dict["car_color"] = v }
+        if let v = carYear, !v.isEmpty { dict["car_year"] = v }
+        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: .sortedKeys),
+              let json = String(data: data, encoding: .utf8) else { return "{}" }
+        return json
+    }
+
+    /// Decode from Kind 0 event content JSON.
+    public static func fromJSON(_ json: String) -> UserProfileContent? {
+        guard let data = json.data(using: .utf8),
+              let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return UserProfileContent(
+            name: dict["name"] as? String,
+            displayName: dict["display_name"] as? String,
+            about: dict["about"] as? String,
+            picture: dict["picture"] as? String,
+            banner: dict["banner"] as? String,
+            website: dict["website"] as? String,
+            nip05: dict["nip05"] as? String,
+            lud16: dict["lud16"] as? String,
+            lud06: dict["lud06"] as? String,
+            carMake: dict["car_make"] as? String,
+            carModel: dict["car_model"] as? String,
+            carColor: dict["car_color"] as? String,
+            carYear: dict["car_year"] as? String
+        )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
 // MARK: - Ride History
 
 /// A completed or cancelled ride stored in history.

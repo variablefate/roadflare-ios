@@ -100,16 +100,34 @@ final class AppState {
         }
     }
 
-    /// Mark profile name as set, move to payment setup.
-    func completeProfileSetup(name: String) {
+    /// Mark profile name as set, publish to Nostr, move to payment setup.
+    func completeProfileSetup(name: String) async {
         settings.profileName = name
+        await publishProfile()
         authState = .paymentSetup
     }
 
     /// Mark payment setup as done, finish onboarding.
-    func completePaymentSetup() {
+    func completePaymentSetup() async {
         settings.profileCompleted = true
+        await publishProfile()
         authState = .ready
+    }
+
+    /// Publish Kind 0 metadata to Nostr.
+    func publishProfile() async {
+        guard let kp = keypair, let rm = relayManager else { return }
+        let profile = UserProfileContent(
+            name: settings.profileName,
+            displayName: settings.profileName
+        )
+        do {
+            let event = try await RideshareEventBuilder.metadata(profile: profile, keypair: kp)
+            _ = try await rm.publish(event)
+            AppLogger.auth.info("Published profile to Nostr")
+        } catch {
+            AppLogger.auth.info("Failed to publish profile: \(error)")
+        }
     }
 
     /// Log out: clear all data.
@@ -133,6 +151,82 @@ final class AppState {
 
     // MARK: - Private
 
+    /// Fetch profile (Kind 0) and followed drivers (Kind 30011) from Nostr.
+    private func syncFromNostr(
+        relayManager rm: RelayManager,
+        keypair: NostrKeypair,
+        driversRepository repo: FollowedDriversRepository
+    ) async {
+        // Fetch profile (Kind 0) and followed drivers (Kind 30011) concurrently
+        async let profileResult = fetchOwnProfile(rm: rm, keypair: keypair)
+        async let driversResult = fetchFollowedDrivers(rm: rm, keypair: keypair, repo: repo)
+        _ = await (profileResult, driversResult)
+    }
+
+    private func fetchOwnProfile(rm: RelayManager, keypair: NostrKeypair) async {
+        do {
+            let filter = NostrFilter.metadata(pubkeys: [keypair.publicKeyHex])
+            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
+            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first,
+               let profile = RideshareEventParser.parseMetadata(event: event) {
+                let name = profile.displayName ?? profile.name
+                if let name, !name.isEmpty, settings.profileName.isEmpty {
+                    settings.profileName = name
+                    AppLogger.auth.info("Restored profile name from Nostr: \(name)")
+                }
+            }
+        } catch {
+            AppLogger.auth.info("Profile fetch failed (non-fatal): \(error)")
+        }
+    }
+
+    private func fetchFollowedDrivers(
+        rm: RelayManager, keypair: NostrKeypair, repo: FollowedDriversRepository
+    ) async {
+        do {
+            let filter = NostrFilter.followedDriversList(myPubkey: keypair.publicKeyHex)
+            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
+            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
+                let content = try RideshareEventParser.parseFollowedDriversList(
+                    event: event, keypair: keypair
+                )
+                if repo.drivers.isEmpty && !content.drivers.isEmpty {
+                    repo.restoreFromNostr(content: content)
+                    AppLogger.auth.info("Restored \(content.drivers.count) drivers from Nostr")
+                }
+            }
+        } catch {
+            AppLogger.auth.info("Followed drivers fetch failed (non-fatal): \(error)")
+        }
+    }
+
+    /// Fetch Kind 0 profiles for all followed drivers to get display names and vehicle info.
+    private func fetchDriverProfiles(
+        relayManager rm: RelayManager,
+        driversRepository repo: FollowedDriversRepository
+    ) async {
+        let pubkeys = repo.allPubkeys
+        guard !pubkeys.isEmpty else { return }
+
+        do {
+            let filter = NostrFilter.metadata(pubkeys: pubkeys)
+            let events = try await rm.fetchEvents(filter: filter, timeout: 8)
+            // Dedup: group by pubkey, take latest by createdAt
+            let grouped = Dictionary(grouping: events, by: \.pubkey)
+            for (pubkey, driverEvents) in grouped {
+                if let latest = driverEvents.max(by: { $0.createdAt < $1.createdAt }),
+                   let profile = RideshareEventParser.parseMetadata(event: latest) {
+                    repo.cacheDriverProfile(pubkey: pubkey, profile: profile)
+                }
+            }
+            if !grouped.isEmpty {
+                AppLogger.auth.info("Fetched profiles for \(grouped.count) driver(s)")
+            }
+        } catch {
+            AppLogger.auth.info("Driver profile fetch failed (non-fatal): \(error)")
+        }
+    }
+
     private func setupServices(keypair: NostrKeypair) async {
         let rm = RelayManager(keypair: keypair)
         self.relayManager = rm
@@ -150,6 +244,9 @@ final class AppState {
             AppLogger.auth.info(" Relay connection FAILED: \(error)")
         }
 
+        // Sync profile and followed drivers from Nostr (on import or app restart)
+        await syncFromNostr(relayManager: rm, keypair: keypair, driversRepository: repo)
+
         // Set up ride coordinator and start background subscriptions
         let coordinator = RideCoordinator(
             relayManager: rm, keypair: keypair,
@@ -157,13 +254,15 @@ final class AppState {
             rideHistory: rideHistory
         )
         self.rideCoordinator = coordinator
-        AppLogger.auth.info(" Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
+        AppLogger.auth.info("Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
         coordinator.startLocationSubscriptions()
         coordinator.startKeyShareSubscription()
 
-        // Publish followed drivers list so drivers can discover followers
+        // Publish followed drivers + fetch driver profiles concurrently (non-blocking)
         if repo.hasDrivers {
-            await coordinator.publishFollowedDriversList()
+            async let _publish: () = coordinator.publishFollowedDriversList()
+            async let _profiles: () = fetchDriverProfiles(relayManager: rm, driversRepository: repo)
+            _ = await (_publish, _profiles)
         }
     }
 }

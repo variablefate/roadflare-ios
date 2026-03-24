@@ -27,7 +27,7 @@ struct SettingsTab: View {
                                 TextField("Your name", text: Bindable(appState.settings).profileName)
                                     .font(RFFont.body(15))
                                     .foregroundColor(Color.rfOnSurface)
-                                    // Empty name prevention handled by UserSettings.didSet guard
+                                    .onSubmit { Task { await appState.publishProfile() } }
                             }
                             .padding(16)
                             .background(Color.rfSurfaceContainer)
