@@ -2,7 +2,6 @@ import SwiftUI
 import RidestrSDK
 
 /// Connectivity settings sheet — shows relay status and Nostr protocol explainer.
-/// Accessed from Settings → Advanced → Connectivity.
 struct ConnectivitySheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -16,16 +15,6 @@ struct ConnectivitySheet: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Connection status
-                        HStack {
-                            Circle()
-                                .fill(isConnected ? Color.rfOnline : Color.rfError)
-                                .frame(width: 10, height: 10)
-                            Text(isConnected ? "Connected" : "Offline")
-                                .font(RFFont.headline(20))
-                                .foregroundColor(Color.rfOnSurface)
-                        }
-
                         // Relay list
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Relays")
@@ -33,7 +22,7 @@ struct ConnectivitySheet: View {
                                 ForEach(DefaultRelays.all, id: \.absoluteString) { url in
                                     HStack {
                                         Circle()
-                                            .fill(isConnected ? Color.rfOnline : Color.rfOffline)
+                                            .fill(isConnected ? Color.rfOnline : Color.rfError)
                                             .frame(width: 6, height: 6)
                                         Text(url.absoluteString)
                                             .font(RFFont.mono(12))
@@ -48,6 +37,35 @@ struct ConnectivitySheet: View {
                                 .font(RFFont.caption(12))
                                 .foregroundColor(Color.rfOffline)
                         }
+
+                        // Reconnect button
+                        Button {
+                            isReconnecting = true
+                            Task {
+                                await appState.relayManager?.reconnectIfNeeded()
+                                appState.rideCoordinator?.startLocationSubscriptions()
+                                appState.rideCoordinator?.startKeyShareSubscription()
+                                try? await Task.sleep(for: .seconds(2))
+                                await checkConnection()
+                                isReconnecting = false
+                            }
+                        } label: {
+                            if isReconnecting {
+                                ProgressView()
+                                    .tint(Color.rfPrimary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                            } else {
+                                Label("Reconnect", systemImage: "arrow.clockwise")
+                                    .font(RFFont.title(16))
+                                    .foregroundColor(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 14)
+                                    .background(Color.rfPrimary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                        }
+                        .disabled(isReconnecting)
 
                         // About Nostr Protocol explainer
                         DisclosureGroup {
@@ -75,53 +93,40 @@ struct ConnectivitySheet: View {
                         .background(Color.rfSurfaceContainer)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                        // Reconnect button
-                        if !isConnected {
-                            Button {
-                                isReconnecting = true
-                                Task {
-                                    await appState.relayManager?.reconnectIfNeeded()
-                                    appState.rideCoordinator?.startLocationSubscriptions()
-                                    appState.rideCoordinator?.startKeyShareSubscription()
-                                    if let rm = appState.relayManager { isConnected = await rm.isConnected }
-                                    isReconnecting = false
-                                }
-                            } label: {
-                                if isReconnecting {
-                                    ProgressView()
-                                        .tint(Color.rfPrimary)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 14)
-                                } else {
-                                    Label("Reconnect", systemImage: "arrow.clockwise")
-                                        .font(RFFont.title(16))
-                                        .foregroundColor(.black)
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 14)
-                                        .background(Color.rfPrimary)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                }
-                            }
-                            .disabled(isReconnecting)
-                        }
-
                         Spacer()
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
                 }
             }
-            .navigationTitle("Connectivity")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(isConnected ? Color.rfOnline : Color.rfError)
+                            .frame(width: 8, height: 8)
+                        Text("Connectivity")
+                            .font(RFFont.title(17))
+                            .foregroundColor(Color.rfOnSurface)
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.foregroundColor(Color.rfPrimary)
                 }
             }
+            .toolbarBackground(Color.rfSurface, for: .navigationBar)
         }
         .task {
-            if let rm = appState.relayManager { isConnected = await rm.isConnected }
+            await checkConnection()
+            // Poll while sheet is open
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                await checkConnection()
+            }
         }
+    }
+
+    private func checkConnection() async {
+        if let rm = appState.relayManager { isConnected = await rm.isConnected }
     }
 }

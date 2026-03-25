@@ -77,7 +77,7 @@ public actor RelayManager: RelayManagerProtocol {
     }
 
     public var isConnected: Bool {
-        client != nil && !connectedRelayURLs.isEmpty
+        client != nil && !connectedRelayURLs.isEmpty && _handlerAlive
     }
 
     private func markHandlerDead() {
