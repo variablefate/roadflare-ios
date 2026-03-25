@@ -28,9 +28,14 @@ struct WelcomeView: View {
                 }
 
                 VStack(spacing: 8) {
-                    Text("RoadFlare")
-                        .font(RFFont.headline(36))
-                        .foregroundColor(Color.rfOnSurface)
+                    HStack(spacing: 0) {
+                        Text("Road")
+                            .font(.system(size: 38, weight: .bold))
+                            .foregroundColor(Color.rfOnSurface)
+                        Text("Flare")
+                            .font(.system(size: 38, weight: .bold))
+                            .foregroundColor(Color.rfPrimary)
+                    }
                     Text("Your personal driver network")
                         .font(RFFont.body(17))
                         .foregroundColor(Color.rfOnSurfaceVariant)
