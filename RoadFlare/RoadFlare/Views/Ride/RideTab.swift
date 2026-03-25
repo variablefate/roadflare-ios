@@ -293,22 +293,25 @@ struct RideTab: View {
                                             Button {
                                                 fillNextAddress(loc)
                                             } label: {
-                                                HStack(spacing: 12) {
+                                                HStack(spacing: 10) {
                                                     Image(systemName: iconForLocation(loc.nickname ?? loc.displayName))
+                                                        .font(.system(size: 13))
                                                         .foregroundColor(Color.rfPrimary)
-                                                        .frame(width: 24)
-                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        .frame(width: 20)
+                                                    VStack(alignment: .leading, spacing: 1) {
                                                         Text(loc.nickname ?? loc.displayName)
-                                                            .font(RFFont.title(15))
+                                                            .font(RFFont.title(13))
                                                             .foregroundColor(Color.rfOnSurface)
                                                         Text(loc.addressLine)
-                                                            .font(RFFont.caption(12))
+                                                            .font(RFFont.caption(11))
                                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                                             .lineLimit(1)
                                                     }
                                                     Spacer()
                                                 }
-                                                .rfCard()
+                                                .padding(10)
+                                                .background(Color.rfSurfaceContainer)
+                                                .clipShape(RoundedRectangle(cornerRadius: 12))
                                             }
                                             .buttonStyle(.plain)
                                         }
@@ -320,22 +323,25 @@ struct RideTab: View {
                                             } onDelete: {
                                                 withAnimation { appState.savedLocations.remove(id: loc.id) }
                                             } content: {
-                                                HStack(spacing: 12) {
+                                                HStack(spacing: 10) {
                                                     Image(systemName: "clock")
+                                                        .font(.system(size: 13))
                                                         .foregroundColor(Color.rfOffline)
-                                                        .frame(width: 24)
-                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        .frame(width: 20)
+                                                    VStack(alignment: .leading, spacing: 1) {
                                                         Text(loc.displayName)
-                                                            .font(RFFont.body(14))
+                                                            .font(RFFont.body(13))
                                                             .foregroundColor(Color.rfOnSurface)
                                                         Text(loc.addressLine)
-                                                            .font(RFFont.caption(12))
+                                                            .font(RFFont.caption(11))
                                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                                             .lineLimit(1)
                                                     }
                                                     Spacer()
                                                 }
-                                                .rfCard(.low)
+                                                .padding(10)
+                                                .background(Color.rfSurfaceContainer)
+                                                .clipShape(RoundedRectangle(cornerRadius: 12))
                                             }
                                         }
                                     }

@@ -13,10 +13,10 @@ struct AppHeader: View {
             if title == "RoadFlare" {
                 HStack(spacing: 0) {
                     Text("Road")
-                        .font(.largeTitle.bold())
+                        .font(.system(size: 38, weight: .bold))
                         .foregroundColor(Color.rfOnSurface)
                     Text("Flare")
-                        .font(.largeTitle.bold())
+                        .font(.system(size: 38, weight: .bold))
                         .foregroundColor(Color.rfPrimary)
                 }
             } else {
