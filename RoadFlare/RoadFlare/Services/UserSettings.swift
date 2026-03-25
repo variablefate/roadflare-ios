@@ -6,6 +6,7 @@ import RidestrSDK
 final class UserSettings {
     private let defaults: UserDefaults
     private static let paymentMethodsKey = "user_payment_methods"
+    private static let customPaymentMethodsKey = "user_custom_payment_methods"
     private static let profileNameKey = "user_profile_name"
     private static let profileCompletedKey = "user_profile_completed"
 
@@ -14,12 +15,17 @@ final class UserSettings {
         didSet { savePaymentMethods() }
     }
 
+    /// Custom payment method names added by the user.
+    var customPaymentMethods: [String] {
+        didSet { defaults.set(customPaymentMethods, forKey: Self.customPaymentMethodsKey) }
+    }
+
     /// User's display name. Never persisted as empty — reverts to previous value.
     var profileName: String {
         didSet {
             let trimmed = profileName.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty && !oldValue.trimmingCharacters(in: .whitespaces).isEmpty {
-                profileName = oldValue  // Revert — don't persist empty
+                profileName = oldValue
             } else {
                 defaults.set(profileName, forKey: Self.profileNameKey)
             }
@@ -34,25 +40,21 @@ final class UserSettings {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
-        // Load payment methods
         if let raw = defaults.stringArray(forKey: Self.paymentMethodsKey) {
             self.paymentMethods = raw.compactMap { PaymentMethod(rawValue: $0) }
         } else {
-            self.paymentMethods = []  // Empty until user configures during onboarding
+            self.paymentMethods = []
         }
 
+        self.customPaymentMethods = defaults.stringArray(forKey: Self.customPaymentMethodsKey) ?? []
         self.profileName = defaults.string(forKey: Self.profileNameKey) ?? ""
         self.profileCompleted = defaults.bool(forKey: Self.profileCompletedKey)
     }
 
-    /// Toggle a payment method on/off. Enforces cash as fallback if all others are removed.
     func togglePaymentMethod(_ method: PaymentMethod) {
         if paymentMethods.contains(method) {
             paymentMethods.removeAll { $0 == method }
-            // If nothing left, force cash on
-            if paymentMethods.isEmpty && method != .cash {
-                paymentMethods = [.cash]
-            } else if paymentMethods.isEmpty {
+            if paymentMethods.isEmpty {
                 paymentMethods = [.cash]
             }
         } else {
@@ -60,22 +62,36 @@ final class UserSettings {
         }
     }
 
-    /// Whether a specific method is enabled.
     func isEnabled(_ method: PaymentMethod) -> Bool {
         paymentMethods.contains(method)
     }
 
-    /// Whether cash is forced on (it's the only method and user tried to remove others).
     var isCashForced: Bool {
         paymentMethods == [.cash]
     }
 
-    /// Clear all settings (for logout).
+    func addCustomPaymentMethod(_ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, !customPaymentMethods.contains(trimmed) else { return }
+        customPaymentMethods.append(trimmed)
+    }
+
+    func removeCustomPaymentMethod(_ name: String) {
+        customPaymentMethods.removeAll { $0 == name }
+    }
+
+    /// All payment method display names (built-in + custom) for the ride offer.
+    var allPaymentMethodNames: [String] {
+        paymentMethods.map(\.displayName) + customPaymentMethods
+    }
+
     func clearAll() {
         paymentMethods = []
+        customPaymentMethods = []
         profileName = ""
         profileCompleted = false
         defaults.removeObject(forKey: Self.paymentMethodsKey)
+        defaults.removeObject(forKey: Self.customPaymentMethodsKey)
         defaults.removeObject(forKey: Self.profileNameKey)
         defaults.removeObject(forKey: Self.profileCompletedKey)
     }

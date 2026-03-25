@@ -98,6 +98,9 @@ struct PaymentMethodPicker: View {
                 .buttonStyle(.plain)
                 .opacity(isCashLocked ? 0.5 : 1.0)
             }
+
+            // Custom methods + add button
+            customSection
         }
         .background(Color.rfSurfaceContainer)
         .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -110,6 +113,74 @@ struct PaymentMethodPicker: View {
         }
     }
 
+    @State private var showAddCustom = false
+    @State private var customName = ""
+
+    // Custom payment methods
+    private var customSection: some View {
+        VStack(spacing: 0) {
+            // Existing custom methods
+            ForEach(settings.customPaymentMethods, id: \.self) { name in
+                HStack(spacing: 12) {
+                    FlareIndicator()
+                        .frame(height: 24)
+
+                    Image(systemName: "tag")
+                        .frame(width: 24)
+                        .foregroundColor(Color.rfPrimary)
+
+                    Text(name)
+                        .font(RFFont.body())
+                        .foregroundColor(Color.rfOnSurface)
+
+                    Spacer()
+
+                    Button {
+                        settings.removeCustomPaymentMethod(name)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(Color.rfOffline)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                }
+                .padding(.vertical, 14)
+                .padding(.horizontal, 16)
+            }
+
+            // Add custom button
+            Button { showAddCustom = true } label: {
+                HStack(spacing: 12) {
+                    Color.clear.frame(width: 4, height: 24)
+
+                    Image(systemName: "plus.circle")
+                        .frame(width: 24)
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+
+                    Text("Add Custom Payment Method")
+                        .font(RFFont.body())
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+
+                    Spacer()
+                }
+                .padding(.vertical, 14)
+                .padding(.horizontal, 16)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .alert("Custom Payment Method", isPresented: $showAddCustom) {
+            TextField("e.g., Apple Pay, Crypto", text: $customName)
+            Button("Add") {
+                settings.addCustomPaymentMethod(customName)
+                customName = ""
+            }
+            Button("Cancel", role: .cancel) { customName = "" }
+        } message: {
+            Text("Enter the name of the payment method")
+        }
+    }
+
     private func iconName(for method: PaymentMethod) -> String {
         switch method {
         case .zelle: "building.columns"
@@ -118,6 +189,7 @@ struct PaymentMethodPicker: View {
         case .venmo: "v.circle"
         case .strike: "bolt"
         case .cash: "banknote"
+        case .bitcoin: "bitcoinsign.circle"
         }
     }
 }

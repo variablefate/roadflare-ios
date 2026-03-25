@@ -13,11 +13,9 @@ struct AppHeader: View {
 
     var body: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: -4) {
-                // Title — always single line, 38pt
+            VStack(alignment: .leading, spacing: -10) {
                 titleView
 
-                // Optional subtitle below title
                 if let subtitle {
                     Text(subtitle)
                         .font(.system(size: 34, weight: .bold))

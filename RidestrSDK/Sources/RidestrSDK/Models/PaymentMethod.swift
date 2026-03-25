@@ -10,11 +10,7 @@ public enum PaymentMethod: String, Codable, Sendable, CaseIterable {
     case venmo
     case strike
     case cash
-
-    // Future (protocol-defined but not implemented in v1)
-    // case cashu
-    // case lightning
-    // case fiatCash = "fiat_cash"
+    case bitcoin
 
     public var displayName: String {
         switch self {
@@ -24,6 +20,7 @@ public enum PaymentMethod: String, Codable, Sendable, CaseIterable {
         case .venmo: "Venmo"
         case .strike: "Strike"
         case .cash: "Cash"
+        case .bitcoin: "Bitcoin"
         }
     }
 
