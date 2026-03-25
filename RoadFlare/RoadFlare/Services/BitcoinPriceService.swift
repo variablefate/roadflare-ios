@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Fetches and caches the Bitcoin price in USD.
-/// Uses UTXOracle as primary API with CoinGecko as fallback (matching Android).
+/// CoinGecko is the primary API, UTXOracle is the fallback (rate-limited to 1 call/hour).
 /// Fetches on app start, then refreshes every hour.
 ///
 /// ## Conversion:
@@ -15,10 +15,8 @@ final class BitcoinPriceService {
     /// BTC price in whole USD (e.g., 90610 means $90,610 per BTC).
     private(set) var btcPriceUsd: Int?
     private var refreshTask: Task<Void, Never>?
+    private var lastUTXOracleCall: Date?
     private static let refreshInterval: TimeInterval = 3600  // 1 hour
-
-    private static let primaryURL = "https://api.utxoracle.io/latest.json"
-    private static let backupURL = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
 
     /// Fetch price immediately and start hourly refresh.
     func start() {
@@ -41,7 +39,6 @@ final class BitcoinPriceService {
     /// Convert USD dollars to satoshis. Returns nil if price not available.
     func usdToSats(_ dollars: Decimal) -> Int? {
         guard let price = btcPriceUsd, price > 0 else { return nil }
-        // dollars * 100_000_000 / price
         let sats = (dollars * 100_000_000) / Decimal(price)
         return NSDecimalNumber(decimal: sats).intValue
     }
@@ -55,37 +52,24 @@ final class BitcoinPriceService {
     // MARK: - Private
 
     private func fetchPrice() async {
-        // Try UTXOracle first
-        if let price = await fetchFromUTXOracle() {
-            btcPriceUsd = price
-            AppLogger.auth.info("BTC price from UTXOracle: $\(price)")
-            return
-        }
-        // Fallback to CoinGecko
+        // Try CoinGecko first (primary, no rate limit for free tier simple/price)
         if let price = await fetchFromCoinGecko() {
             btcPriceUsd = price
             AppLogger.auth.info("BTC price from CoinGecko: $\(price)")
             return
         }
+        // Fallback to UTXOracle (rate-limited to 1 call per hour)
+        if let price = await fetchFromUTXOracle() {
+            btcPriceUsd = price
+            AppLogger.auth.info("BTC price from UTXOracle: $\(price)")
+            return
+        }
         AppLogger.auth.info("All BTC price APIs failed")
     }
 
-    /// UTXOracle: `{ "price": 90610, "updated_at": "..." }`
-    private func fetchFromUTXOracle() async -> Int? {
-        guard let url = URL(string: Self.primaryURL) else { return nil }
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            return json?["price"] as? Int
-        } catch {
-            return nil
-        }
-    }
-
-    /// CoinGecko: `{ "bitcoin": { "usd": 90610.0 } }`
+    /// CoinGecko (primary): `{ "bitcoin": { "usd": 90610.0 } }`
     private func fetchFromCoinGecko() async -> Int? {
-        guard let url = URL(string: Self.backupURL) else { return nil }
+        guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd") else { return nil }
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
@@ -93,6 +77,23 @@ final class BitcoinPriceService {
             let bitcoin = json?["bitcoin"] as? [String: Any]
             let price = bitcoin?["usd"] as? Double
             return price.map { Int($0) }
+        } catch {
+            return nil
+        }
+    }
+
+    /// UTXOracle (fallback, max 1 call per hour): `{ "price": 90610 }`
+    private func fetchFromUTXOracle() async -> Int? {
+        if let last = lastUTXOracleCall, Date.now.timeIntervalSince(last) < 3600 {
+            return nil  // Rate limited
+        }
+        guard let url = URL(string: "https://api.utxoracle.io/latest.json") else { return nil }
+        do {
+            lastUTXOracleCall = .now
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return json?["price"] as? Int
         } catch {
             return nil
         }
