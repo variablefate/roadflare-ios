@@ -194,6 +194,37 @@ struct RideshareEventBuilderTests {
         #expect(EventSigner.verify(event))
     }
 
+    @Test func buildFollowNotification() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.followNotification(
+            driverPubkey: driver.publicKeyHex,
+            riderName: "Alice",
+            keypair: rider
+        )
+
+        #expect(event.kind == Int(EventKind.followNotification.rawValue))
+        #expect(event.pubkey == rider.publicKeyHex)
+
+        // Verify tags
+        let pTag = event.tags.first { $0.first == "p" }
+        #expect(pTag?[1] == driver.publicKeyHex)
+        let tTag = event.tags.first { $0.first == "t" }
+        #expect(tTag?[1] == "roadflare-follow")
+        let expTag = event.tags.first { $0.first == "expiration" }
+        #expect(expTag != nil)
+
+        // Verify content is NIP-44 encrypted and decryptable by driver
+        let decrypted = try NIP44.decrypt(
+            ciphertext: event.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: rider.publicKeyHex
+        )
+        #expect(decrypted.contains("\"action\":\"follow\""))
+        #expect(decrypted.contains("\"riderName\":\"Alice\""))
+    }
+
     @Test func expirationTagsSet() async throws {
         let rider = try NostrKeypair.generate()
         let driver = try NostrKeypair.generate()

@@ -160,10 +160,31 @@ final class AppState {
         await publishProfileBackup()
     }
 
+    /// Try to restore a specific driver's key from our Kind 30011 backup on the relay.
+    /// Used during mid-session re-add when the key was lost locally but exists in the backup.
+    func restoreKeyFromBackup(driverPubkey: String) async {
+        guard let kp = keypair, let rm = relayManager, let repo = driversRepository else { return }
+        do {
+            let filter = NostrFilter.followedDriversList(myPubkey: kp.publicKeyHex)
+            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
+            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
+                let content = try RideshareEventParser.parseFollowedDriversList(event: event, keypair: kp)
+                if let entry = content.drivers.first(where: { $0.pubkey == driverPubkey }),
+                   let key = entry.roadflareKey {
+                    repo.updateDriverKey(driverPubkey: driverPubkey, roadflareKey: key)
+                    AppLogger.auth.info("Restored key for \(driverPubkey.prefix(8)) from Kind 30011 backup")
+                }
+            }
+        } catch {
+            // Non-fatal — will fall through to stale ack
+        }
+    }
+
     /// Send Kind 3187 follow notification to a driver (real-time nudge).
     /// The rider's Kind 30011 p-tags are the source of truth — this is just a push notification.
     func sendFollowNotification(driverPubkey: String) async {
-        guard let kp = keypair, let rm = relayManager else { return }
+        guard let kp = keypair, let rm = relayManager,
+              !settings.profileName.isEmpty else { return }
         do {
             let event = try await RideshareEventBuilder.followNotification(
                 driverPubkey: driverPubkey,

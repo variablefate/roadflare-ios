@@ -14,7 +14,7 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
 
     // RoadFlare (regular events)
     case keyShare = 3186
-    case followNotification = 3187  // DEPRECATED — use p-tag queries on Kind 30011
+    case followNotification = 3187  // Real-time nudge only — Kind 30011 p-tags are source of truth
     case keyAcknowledgement = 3188
 
     // NIP-60 wallet (future)
