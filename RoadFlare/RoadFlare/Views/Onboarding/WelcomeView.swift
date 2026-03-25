@@ -16,25 +16,26 @@ struct WelcomeView: View {
             VStack(spacing: 40) {
                 Spacer()
 
-                // Title above icon
-                HStack(spacing: 0) {
-                    Text("Road")
-                        .font(.system(size: 44, weight: .bold))
-                        .foregroundColor(Color.rfOnSurface)
-                    Text("Flare")
-                        .font(.system(size: 44, weight: .bold))
-                        .foregroundColor(Color.rfPrimary)
-                }
+                // Logo group (title + icon + subtitle, tight spacing)
+                VStack(spacing: 20) {
+                    HStack(spacing: 0) {
+                        Text("Road")
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundColor(Color.rfOnSurface)
+                        Text("Flare")
+                            .font(.system(size: 44, weight: .bold))
+                            .foregroundColor(Color.rfPrimary)
+                    }
 
-                // Icon
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient.rfFlare)
-                        .frame(width: 100, height: 100)
-                        .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
-                    Image(systemName: "car.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(.black)
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient.rfFlare)
+                            .frame(width: 100, height: 100)
+                            .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
+                        Image(systemName: "car.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.black)
+                    }
                 }
 
                 // Subtitle
