@@ -1,91 +1,91 @@
 import SwiftUI
 import RidestrSDK
 
-struct ConnectivityIndicator: View {
-    @Environment(AppState.self) private var appState
-    @State private var showRelaySheet = false
-    @State private var connected = false
-
-    var body: some View {
-        Button { showRelaySheet = true } label: {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(connected ? Color.rfOnline : Color.rfError)
-                    .frame(width: 6, height: 6)
-                Text(connected ? "Connected" : "Offline")
-                    .font(RFFont.caption(10))
-                    .foregroundColor(Color.rfOnSurfaceVariant)
-                    .fixedSize()
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Color.rfSurfaceContainerHigh)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Relay connection: \(connected ? "Connected" : "Offline")")
-        .accessibilityHint("Tap to view relay details")
-        .sheet(isPresented: $showRelaySheet) { RelayManagementSheet() }
-        .task {
-            await checkConnection()
-            // Poll every 10 seconds for status changes
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(10))
-                await checkConnection()
-            }
-        }
-    }
-
-    private func checkConnection() async {
-        if let rm = appState.relayManager { connected = await rm.isConnected }
-    }
-}
-
-struct RelayManagementSheet: View {
+/// Connectivity settings sheet — shows relay status and Nostr protocol explainer.
+/// Accessed from Settings → Advanced → Connectivity.
+struct ConnectivitySheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var isConnected = false
 
     var body: some View {
-        ZStack {
-            Color.rfSurface.ignoresSafeArea()
-            NavigationStack {
-                VStack(spacing: 24) {
-                    HStack {
-                        StatusDot(status: isConnected ? "online" : "offline")
-                        Text(isConnected ? "Connected" : "Offline")
-                            .font(RFFont.headline(20))
-                            .foregroundColor(Color.rfOnSurface)
-                    }
+        NavigationStack {
+            ZStack {
+                Color.rfSurface.ignoresSafeArea()
 
-                    VStack(spacing: 8) {
-                        ForEach(DefaultRelays.all, id: \.absoluteString) { url in
-                            HStack {
-                                StatusDot(status: isConnected ? "online" : "offline")
-                                Text(url.absoluteString)
-                                    .font(RFFont.mono(12))
-                                    .foregroundColor(Color.rfOnSurfaceVariant)
-                                Spacer()
-                            }
-                            .rfCard(.low)
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Connection status
+                        HStack {
+                            Circle()
+                                .fill(isConnected ? Color.rfOnline : Color.rfError)
+                                .frame(width: 10, height: 10)
+                            Text(isConnected ? "Connected" : "Offline")
+                                .font(RFFont.headline(20))
+                                .foregroundColor(Color.rfOnSurface)
                         }
+
+                        // Relay list
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("Relays")
+                            VStack(spacing: 8) {
+                                ForEach(DefaultRelays.all, id: \.absoluteString) { url in
+                                    HStack {
+                                        Circle()
+                                            .fill(isConnected ? Color.rfOnline : Color.rfOffline)
+                                            .frame(width: 6, height: 6)
+                                        Text(url.absoluteString)
+                                            .font(RFFont.mono(12))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                        Spacer()
+                                    }
+                                    .rfCard(.low)
+                                }
+                            }
+
+                            Text("Relay connections are managed automatically.")
+                                .font(RFFont.caption(12))
+                                .foregroundColor(Color.rfOffline)
+                        }
+
+                        // About Nostr Protocol explainer
+                        DisclosureGroup {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("RoadFlare is built on Nostr, an open communication protocol — similar to how email is a protocol.")
+                                    .font(RFFont.body(14))
+                                    .foregroundColor(Color.rfOnSurfaceVariant)
+
+                                Text("Just like many different companies run their own email servers but can all communicate with each other, Nostr works the same way. No single company owns the protocol — it's used by many people and apps.")
+                                    .font(RFFont.body(14))
+                                    .foregroundColor(Color.rfOnSurfaceVariant)
+
+                                Text("Relays are the servers that pass messages between users, similar to how email servers relay email. Your account is a cryptographic key pair that works across any app that supports the Nostr protocol.")
+                                    .font(RFFont.body(14))
+                                    .foregroundColor(Color.rfOnSurfaceVariant)
+                            }
+                            .padding(.top, 8)
+                        } label: {
+                            Text("About Nostr Protocol")
+                                .font(RFFont.body(15))
+                                .foregroundColor(Color.rfOnSurfaceVariant)
+                        }
+                        .tint(Color.rfOnSurfaceVariant)
+                        .padding(16)
+                        .background(Color.rfSurfaceContainer)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                        Spacer()
                     }
-
-                    Text("Relay connections are managed automatically.")
-                        .font(RFFont.caption(12))
-                        .foregroundColor(Color.rfOffline)
-                        .multilineTextAlignment(.center)
-
-                    Spacer()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
                 }
-                .padding(24)
-                .navigationTitle("Connectivity")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(Color.rfSurface, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { dismiss() }.foregroundColor(Color.rfPrimary)
-                    }
+            }
+            .navigationTitle("Connectivity")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color.rfSurface, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.foregroundColor(Color.rfPrimary)
                 }
             }
         }

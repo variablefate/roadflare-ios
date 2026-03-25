@@ -50,9 +50,6 @@ struct RideTab: View {
             .navigationTitle("RoadFlare")
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
-            }
             .sheet(isPresented: $showChat) { WiredChatView() }
             .onAppear {
                 // Pick up driver selection from DriverDetailSheet navigation

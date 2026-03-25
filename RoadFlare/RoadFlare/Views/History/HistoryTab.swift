@@ -36,9 +36,6 @@ struct HistoryTab: View {
             .navigationTitle("History")
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
-            }
         }
     }
 }

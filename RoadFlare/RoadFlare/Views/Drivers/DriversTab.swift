@@ -89,7 +89,6 @@ struct DriversTab: View {
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showProfile = true } label: {
                         Image(systemName: "person.crop.circle")

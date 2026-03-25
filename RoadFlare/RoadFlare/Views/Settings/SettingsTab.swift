@@ -7,6 +7,7 @@ struct SettingsTab: View {
     @State private var showKeyBackup = false
     @State private var showLogoutConfirm = false
     @State private var showEditProfile = false
+    @State private var showConnectivity = false
 
     var body: some View {
         NavigationStack {
@@ -92,6 +93,18 @@ struct SettingsTab: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
 
+                        // Advanced
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionLabel("Advanced")
+                            VStack(spacing: 0) {
+                                SettingsButton(icon: "antenna.radiowaves.left.and.right", label: "Connectivity") {
+                                    showConnectivity = true
+                                }
+                            }
+                            .background(Color.rfSurfaceContainer)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                        }
+
                         // About
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("About")
@@ -122,10 +135,8 @@ struct SettingsTab: View {
             .navigationTitle("Settings")
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
-            }
             .sheet(isPresented: $showKeyBackup) { BackupKeySheet() }
+            .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showEditProfile) {
                 EditProfileSheet()
             }
