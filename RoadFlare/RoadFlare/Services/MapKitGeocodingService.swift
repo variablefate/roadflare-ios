@@ -49,7 +49,21 @@ final class MapKitServices {
     // MARK: - Route Calculation
 
     /// Calculate driving route between two locations.
+    /// If routing fails (e.g., POI without street address), retries with reverse-geocoded
+    /// street coordinates as a fallback.
     func calculateRoute(from pickup: Location, to destination: Location) async throws -> RouteResult {
+        do {
+            return try await routeBetween(pickup, destination)
+        } catch {
+            // Routing failed — POI may not be routable. Reverse-geocode both endpoints
+            // to snap to the nearest street address and retry.
+            let fallbackPickup = try await snapToStreetAddress(pickup)
+            let fallbackDest = try await snapToStreetAddress(destination)
+            return try await routeBetween(fallbackPickup, fallbackDest)
+        }
+    }
+
+    private func routeBetween(_ pickup: Location, _ destination: Location) async throws -> RouteResult {
         let request = MKDirections.Request()
         request.source = MKMapItem(placemark: MKPlacemark(
             coordinate: CLLocationCoordinate2D(latitude: pickup.latitude, longitude: pickup.longitude)
@@ -70,6 +84,25 @@ final class MapKitServices {
             distanceKm: route.distance / 1000.0,
             durationMinutes: route.expectedTravelTime / 60.0,
             summary: route.name
+        )
+    }
+
+    /// Reverse-geocode a location to get the nearest street address coordinates.
+    /// Falls back to the original location if reverse geocoding fails.
+    private func snapToStreetAddress(_ location: Location) async throws -> Location {
+        let clLocation = CLLocation(latitude: location.latitude, longitude: location.longitude)
+        let placemarks = try await geocoder.reverseGeocodeLocation(clLocation)
+        guard let placemark = placemarks.first,
+              let coord = placemark.location?.coordinate else { return location }
+
+        let streetAddress = [placemark.subThoroughfare, placemark.thoroughfare, placemark.locality]
+            .compactMap { $0 }
+            .joined(separator: " ")
+
+        return Location(
+            latitude: coord.latitude,
+            longitude: coord.longitude,
+            address: streetAddress.isEmpty ? location.address : streetAddress
         )
     }
 
