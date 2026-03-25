@@ -31,25 +31,28 @@ struct SyncScreen: View {
                     Text(appState.syncStatus)
                         .font(RFFont.body(15))
                         .foregroundColor(Color.rfOnSurfaceVariant)
-                        .animation(.easeInOut, value: appState.syncStatus)
+                        .contentTransition(.numericText())
                 }
 
                 Spacer()
 
-                // Restored data summary (shows as items are found)
-                VStack(spacing: 12) {
-                    if appState.syncRestoredName {
-                        restoredRow(icon: "person.fill", text: "Profile: \(appState.settings.profileName)")
-                    }
-                    if appState.syncRestoredDrivers > 0 {
-                        restoredRow(icon: "person.2.fill", text: "\(appState.syncRestoredDrivers) driver\(appState.syncRestoredDrivers == 1 ? "" : "s") restored")
-                    }
-                    if appState.syncRestoredLocations > 0 {
-                        restoredRow(icon: "mappin", text: "\(appState.syncRestoredLocations) saved location\(appState.syncRestoredLocations == 1 ? "" : "s")")
-                    }
-                    if appState.settings.paymentMethods.count > 1 || appState.settings.paymentMethods != [.cash] {
-                        restoredRow(icon: "creditcard", text: "Payment methods restored")
-                    }
+                // Restored data summary — fixed layout, rows fade in via opacity
+                VStack(spacing: 10) {
+                    restoredRow(icon: "person.fill",
+                                text: "Profile: \(appState.settings.profileName)",
+                                visible: appState.syncRestoredName)
+
+                    restoredRow(icon: "person.2.fill",
+                                text: "\(appState.syncRestoredDrivers) driver\(appState.syncRestoredDrivers == 1 ? "" : "s") restored",
+                                visible: appState.syncRestoredDrivers > 0)
+
+                    restoredRow(icon: "mappin",
+                                text: "\(appState.syncRestoredLocations) saved location\(appState.syncRestoredLocations == 1 ? "" : "s")",
+                                visible: appState.syncRestoredLocations > 0)
+
+                    restoredRow(icon: "creditcard",
+                                text: "Payment methods restored",
+                                visible: appState.settings.paymentMethods.count > 1)
                 }
                 .padding(.horizontal, 32)
 
@@ -58,7 +61,7 @@ struct SyncScreen: View {
         }
     }
 
-    private func restoredRow(icon: String, text: String) -> some View {
+    private func restoredRow(icon: String, text: String, visible: Bool) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .foregroundColor(Color.rfOnline)
@@ -70,6 +73,7 @@ struct SyncScreen: View {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundColor(Color.rfOnline)
         }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .opacity(visible ? 1 : 0)
+        .animation(.easeIn(duration: 0.3), value: visible)
     }
 }

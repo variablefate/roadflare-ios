@@ -119,8 +119,11 @@ final class AppState {
 
         await setupServicesWithSync(keypair: kp)
 
-        // After sync, navigate based on whether profile was already completed
-        if settings.profileCompleted {
+        // If we restored a name + payment methods, skip profile setup entirely
+        if !settings.profileName.isEmpty && !settings.paymentMethods.isEmpty {
+            settings.profileCompleted = true
+            authState = .ready
+        } else if settings.profileCompleted {
             authState = .ready
         } else {
             authState = .profileIncomplete
