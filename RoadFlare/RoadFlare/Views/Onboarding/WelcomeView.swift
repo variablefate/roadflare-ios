@@ -16,42 +16,47 @@ struct WelcomeView: View {
             VStack(spacing: 40) {
                 Spacer()
 
-                // Logo + title (tight group)
-                VStack(spacing: 8) {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient.rfFlare)
-                            .frame(width: 100, height: 100)
-                            .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
-                        Image(systemName: "car.fill")
-                            .font(.system(size: 44))
-                            .foregroundStyle(.black)
-                    }
-
-                    HStack(spacing: 0) {
-                        Text("Road")
-                            .font(.system(size: 38, weight: .bold))
-                            .foregroundColor(Color.rfOnSurface)
-                        Text("Flare")
-                            .font(.system(size: 38, weight: .bold))
-                            .foregroundColor(Color.rfPrimary)
-                    }
-                    Text("Your personal driver network")
-                        .font(RFFont.body(17))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
+                // Title above icon
+                HStack(spacing: 0) {
+                    Text("Road")
+                        .font(.system(size: 44, weight: .bold))
+                        .foregroundColor(Color.rfOnSurface)
+                    Text("Flare")
+                        .font(.system(size: 44, weight: .bold))
+                        .foregroundColor(Color.rfPrimary)
                 }
 
-                Text("Request rides from drivers you know and trust.")
-                    .font(RFFont.body(15))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(Color.rfOnSurfaceVariant)
-                    .padding(.horizontal, 32)
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient.rfFlare)
+                        .frame(width: 100, height: 100)
+                        .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
+                    Image(systemName: "car.fill")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.black)
+                }
 
-                Text("No strangers. No platform fees. No middleman.")
-                    .font(RFFont.body(15))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(Color.rfOnSurfaceVariant)
-                    .padding(.horizontal, 32)
+                // Subtitle (large, like navigation titles)
+                VStack(spacing: 8) {
+                    Text("Your personal driver network")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(Color.rfOnSurface)
+
+                    Text("Request rides from drivers you know and trust.")
+                        .font(RFFont.body(15))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+                }
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+
+                // Bullet points
+                VStack(alignment: .leading, spacing: 10) {
+                    bulletPoint("NO STRANGERS")
+                    bulletPoint("NO PLATFORM FEES")
+                    bulletPoint("NO MIDDLEMAN")
+                }
+                .padding(.horizontal, 48)
 
                 Spacer()
 
@@ -103,6 +108,18 @@ struct WelcomeView: View {
             ImportKeySheet(importText: $importText, errorMessage: $errorMessage) {
                 importKey()
             }
+        }
+    }
+
+    private func bulletPoint(_ text: String) -> some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(Color.rfPrimary)
+                .frame(width: 5, height: 5)
+            Text(text)
+                .font(.system(size: 11, weight: .medium, design: .default))
+                .tracking(1.5)
+                .foregroundColor(Color.rfOnSurfaceVariant)
         }
     }
 
