@@ -18,11 +18,23 @@ final class BitcoinPriceService {
     private var lastUTXOracleCall: Date?
     private static let refreshInterval: TimeInterval = 3600  // 1 hour
 
-    /// Fetch price immediately and start hourly refresh.
+    /// Fetch price immediately and start hourly refresh. Retries on failure.
     func start() {
         refreshTask?.cancel()
         refreshTask = Task {
+            // Initial fetch with retry
             await fetchPrice()
+            if btcPriceUsd == nil {
+                // First attempt failed — retry after 10 seconds
+                try? await Task.sleep(for: .seconds(10))
+                await fetchPrice()
+            }
+            if btcPriceUsd == nil {
+                // Still failed — retry after 30 seconds
+                try? await Task.sleep(for: .seconds(30))
+                await fetchPrice()
+            }
+            // Hourly refresh
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.refreshInterval))
                 guard !Task.isCancelled else { break }
@@ -72,12 +84,17 @@ final class BitcoinPriceService {
         guard let url = URL(string: "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd") else { return nil }
         do {
             let (data, response) = try await URLSession.shared.data(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard statusCode == 200 else {
+                AppLogger.auth.info("CoinGecko API returned \(statusCode)")
+                return nil
+            }
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             let bitcoin = json?["bitcoin"] as? [String: Any]
             let price = bitcoin?["usd"] as? Double
             return price.map { Int($0) }
         } catch {
+            AppLogger.auth.info("CoinGecko API error: \(error)")
             return nil
         }
     }
@@ -91,10 +108,15 @@ final class BitcoinPriceService {
         do {
             lastUTXOracleCall = .now
             let (data, response) = try await URLSession.shared.data(from: url)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard statusCode == 200 else {
+                AppLogger.auth.info("UTXOracle API returned \(statusCode)")
+                return nil
+            }
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             return json?["price"] as? Int
         } catch {
+            AppLogger.auth.info("UTXOracle API error: \(error)")
             return nil
         }
     }

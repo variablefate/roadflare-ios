@@ -350,6 +350,7 @@ final class RideCoordinator {
         }
 
         if let confirmationId = stateMachine.confirmationEventId {
+            // Post-confirmation: send Kind 3179 cancellation
             do {
                 let event = try await RideshareEventBuilder.cancellation(
                     counterpartyPubkey: driverPubkey,
@@ -357,6 +358,17 @@ final class RideCoordinator {
                     reason: reason, keypair: keypair
                 )
                 _ = try await relayManager.publish(event)
+            } catch { /* Best effort */ }
+        } else if let offerEventId = stateMachine.offerEventId {
+            // Pre-acceptance: delete the offer event via NIP-09 so driver stops seeing it
+            do {
+                let deletion = try await RideshareEventBuilder.deletion(
+                    eventIds: [offerEventId],
+                    reason: reason ?? "rider cancelled",
+                    kinds: [.rideOffer],
+                    keypair: keypair
+                )
+                _ = try await relayManager.publish(deletion)
             } catch { /* Best effort */ }
         }
 

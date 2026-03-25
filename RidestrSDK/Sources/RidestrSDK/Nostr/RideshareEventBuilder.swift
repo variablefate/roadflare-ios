@@ -290,6 +290,27 @@ public enum RideshareEventBuilder {
         )
     }
 
+    // MARK: - Event Deletion (NIP-09, Kind 5)
+
+    /// Build and sign a NIP-09 deletion event (Kind 5).
+    /// Requests relays to delete the specified events.
+    public static func deletion(
+        eventIds: [String],
+        reason: String = "",
+        kinds: [EventKind]? = nil,
+        keypair: NostrKeypair
+    ) async throws -> NostrEvent {
+        var tags: [[String]] = eventIds.map { [NostrTags.eventRef, $0] }
+        if let kinds {
+            for kind in Set(kinds) {
+                tags.append(["k", String(kind.rawValue)])
+            }
+        }
+        return try await EventSigner.sign(
+            kind: 5, content: reason, tags: tags, keypair: keypair
+        )
+    }
+
     // MARK: - Follow Notification (Kind 3187)
 
     /// Build and sign a follow notification event (Kind 3187).
