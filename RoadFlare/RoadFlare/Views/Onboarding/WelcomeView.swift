@@ -11,110 +11,121 @@ struct WelcomeView: View {
     @State private var isLoading = false
 
     var body: some View {
-        ZStack {
-            Color.rfSurface.ignoresSafeArea()
+        GeometryReader { geo in
+            let h = geo.size.height
 
-            VStack(spacing: 40) {
-                Spacer()
+            ZStack {
+                Color.rfSurface.ignoresSafeArea()
 
-                // Logo group (title + icon + subtitle, tight spacing)
-                VStack(spacing: 20) {
-                    HStack(spacing: 0) {
-                        Text("Road")
-                            .font(.system(size: 44, weight: .bold))
-                            .foregroundColor(Color.rfOnSurface)
-                        Text("Flare")
-                            .font(.system(size: 44, weight: .bold))
-                            .foregroundColor(Color.rfPrimary)
-                    }
+                VStack(spacing: 0) {
+                    Spacer(minLength: h * 0.03)
 
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient.rfFlare)
-                            .frame(width: 100, height: 100)
-                            .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
-                        Image(systemName: "car.fill")
-                            .font(.system(size: 44))
-                            .foregroundStyle(.black)
-                    }
-                }
-
-                // Subtitle
-                VStack(spacing: 8) {
-                    VStack(spacing: -4) {
-                        Text("Your Personal")
-                            .font(.system(size: 34, weight: .bold))
-                            .tracking(-0.5)
-                            .foregroundColor(Color.rfOnSurface)
-                        Text("Driver Network")
-                            .font(.system(size: 34, weight: .bold))
-                            .tracking(-0.5)
-                            .foregroundColor(Color.rfOnSurface)
-                    }
-
-                    Text("Request rides from drivers you know and trust.")
-                        .font(RFFont.body(15))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-                .padding(.top, -16)
-
-                // Bullet points
-                VStack(alignment: .leading, spacing: 16) {
-                    bulletPoint("NO STRANGERS")
-                    bulletPoint("NO MIDDLEMAN")
-                    bulletPoint("NO PLATFORM FEES")
-                }
-                .padding(.leading, 52)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer()
-
-                VStack(spacing: 16) {
-                    if #available(iOS 18.0, *) {
-                        Button {
-                            createWithPasskey()
-                        } label: {
-                            Label("Create with Passkey", systemImage: "person.badge.key.fill")
+                    // Logo group
+                    VStack(spacing: h * 0.02) {
+                        HStack(spacing: 0) {
+                            Text("Road")
+                                .font(.system(size: 44, weight: .bold))
+                                .foregroundColor(Color.rfOnSurface)
+                            Text("Flare")
+                                .font(.system(size: 44, weight: .bold))
+                                .foregroundColor(Color.rfPrimary)
                         }
-                        .buttonStyle(RFPrimaryButtonStyle())
+
+                        ZStack {
+                            Circle()
+                                .fill(LinearGradient.rfFlare)
+                                .frame(width: 100, height: 100)
+                                .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
+                            Image(systemName: "car.fill")
+                                .font(.system(size: 44))
+                                .foregroundStyle(.black)
+                        }
+                    }
+
+                    Color.clear.frame(height: h * 0.015)
+
+                    // Subtitle
+                    VStack(spacing: 10) {
+                        VStack(spacing: -6) {
+                            Text("Your personal")
+                                .font(.custom("SpaceGrotesk-Bold", size: 42))
+                                .tracking(-1.05)
+                                .foregroundColor(Color.rfOnSurface)
+                            Text("driver network")
+                                .font(.custom("SpaceGrotesk-Bold", size: 42))
+                                .tracking(-1.05)
+                                .foregroundColor(Color.rfOnSurface)
+                        }
+
+                        Text("Request rides from drivers you know and trust.")
+                            .font(RFFont.body(15))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                    }
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+
+                    Spacer(minLength: h * 0.03)
+
+                    // Bullet points
+                    VStack(alignment: .leading, spacing: 16) {
+                        bulletPoint("NO STRANGERS")
+                        bulletPoint("NO MIDDLEMAN")
+                        bulletPoint("NO PLATFORM FEES")
+                    }
+                    .padding(.leading, 52)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer(minLength: h * 0.03)
+
+                    // Buttons
+                    VStack(spacing: 16) {
+                        if #available(iOS 18.0, *) {
+                            Button {
+                                createWithPasskey()
+                            } label: {
+                                Label("Create with Passkey", systemImage: "person.badge.key.fill")
+                            }
+                            .buttonStyle(RFPrimaryButtonStyle())
+                            .disabled(isLoading)
+                        }
+
+                        Button {
+                            showImport = true
+                        } label: {
+                            Text("Log In With Existing Account")
+                        }
+                        .buttonStyle(RFSecondaryButtonStyle())
                         .disabled(isLoading)
+
+                        Button {
+                            generateTraditionalKey()
+                        } label: {
+                            Text(isPasskeyAvailable ? "Create Without Passkey" : "Create New Account")
+                        }
+                        .buttonStyle(RFGhostButtonStyle())
+                        .disabled(isLoading)
+                        .padding(.top, 4)
+                    }
+                    .padding(.horizontal, 24)
+
+                    if isLoading {
+                        ProgressView()
+                            .tint(.rfPrimary)
                     }
 
-                    Button {
-                        showImport = true
-                    } label: {
-                        Text("Log In With Existing Account")
+                    if let error = errorMessage {
+                        Text(error)
+                            .font(RFFont.caption())
+                            .foregroundColor(Color.rfError)
+                            .padding(.horizontal, 24)
                     }
-                    .buttonStyle(RFSecondaryButtonStyle())
-                    .disabled(isLoading)
 
-                    Button {
-                        generateTraditionalKey()
-                    } label: {
-                        Text(isPasskeyAvailable ? "Create Without Passkey" : "Create New Account")
-                    }
-                    .buttonStyle(RFGhostButtonStyle())
-                    .disabled(isLoading)
+                    Spacer(minLength: 8)
+
+                    legalText
+
+                    Spacer(minLength: h * 0.03)
                 }
-                .padding(.horizontal, 24)
-
-                if isLoading {
-                    ProgressView()
-                        .tint(.rfPrimary)
-                }
-
-                if let error = errorMessage {
-                    Text(error)
-                        .font(RFFont.caption())
-                        .foregroundColor(Color.rfError)
-                        .padding(.horizontal, 24)
-                }
-
-                legalText
-
-                Spacer().frame(height: 20)
             }
         }
         .sheet(isPresented: $showImport) {

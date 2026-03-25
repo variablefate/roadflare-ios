@@ -8,5 +8,9 @@
 	<string>RoadFlare uses your location to set your pickup address and find nearby drivers.</string>
 	<key>CFBundleDisplayName</key>
 	<string>RoadFlare</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>SpaceGrotesk-Bold.ttf</string>
+	</array>
 </dict>
 </plist>
