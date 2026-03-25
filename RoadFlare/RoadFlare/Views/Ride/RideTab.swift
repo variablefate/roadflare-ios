@@ -261,14 +261,6 @@ struct RideTab: View {
                                                 .font(RFFont.headline(24))
                                                 .foregroundColor(Color.rfPrimary)
                                         }
-                                        if let sats = appState.bitcoinPrice.usdToSats(fare.fareUSD) {
-                                            HStack {
-                                                Spacer()
-                                                Text("≈ \(sats) sats")
-                                                    .font(RFFont.caption(11))
-                                                    .foregroundColor(Color.rfOffline)
-                                            }
-                                        }
                                     }
                                     .rfCard(.high)
                                 }
