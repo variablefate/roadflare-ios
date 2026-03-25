@@ -109,7 +109,7 @@ struct DriversTab: View {
         guard let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) else { return }
         let name = appState.driversRepository?.driverNames[driver.pubkey] ?? ""
         let nameParam = name.isEmpty ? "" : "?name=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)"
-        let text = "nostr:\(npub)\(nameParam)"
+        let text = "\(npub)\(nameParam)"
 
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let root = windowScene.keyWindow?.rootViewController else { return }
