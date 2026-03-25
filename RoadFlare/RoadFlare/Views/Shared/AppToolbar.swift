@@ -20,7 +20,7 @@ struct AppHeader: View {
                         .foregroundColor(Color.rfPrimary)
                 }
             } else if title == "Favorite Drivers" {
-                HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: -2) {
                     Text("Favorite")
                         .font(.largeTitle.bold())
                         .foregroundColor(Color.rfOnSurface)
