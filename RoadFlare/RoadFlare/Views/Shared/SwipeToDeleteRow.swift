@@ -25,7 +25,7 @@ struct SwipeToDeleteRow<Content: View>: View {
                 } label: {
                     Image(systemName: "trash.fill")
                         .foregroundColor(.white)
-                        .frame(width: deleteWidth, height: .infinity)
+                        .frame(width: deleteWidth)
                         .frame(maxHeight: .infinity)
                 }
                 .background(Color.rfError)

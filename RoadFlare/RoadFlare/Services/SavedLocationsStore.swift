@@ -19,10 +19,18 @@ final class SavedLocationsStore {
         locations.filter(\.isPinned)
     }
 
-    /// Recent (non-pinned) locations, newest first.
+    /// Recent (non-pinned) locations, newest first. Excludes locations near any favorite.
     var recents: [SavedLocation] {
-        locations.filter { !$0.isPinned }
-            .sorted { $0.timestampMs > $1.timestampMs }
+        let favs = favorites
+        return locations.filter { loc in
+            guard !loc.isPinned else { return false }
+            // Exclude if within 50m of any favorite
+            return !favs.contains { fav in
+                let dist = sqrt(pow(fav.latitude - loc.latitude, 2) + pow(fav.longitude - loc.longitude, 2)) * 111_000
+                return dist < StorageConstants.duplicateLocationThresholdMeters
+            }
+        }
+        .sorted { $0.timestampMs > $1.timestampMs }
     }
 
     /// Add or update a saved location.

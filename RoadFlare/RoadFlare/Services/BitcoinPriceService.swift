@@ -14,6 +14,12 @@ import os
 final class BitcoinPriceService {
     /// BTC price in whole USD (e.g., 90610 means $90,610 per BTC).
     private(set) var btcPriceUsd: Int?
+
+    /// Test-only setter for btcPriceUsd.
+    var btcPriceUsdForTesting: Int? {
+        get { btcPriceUsd }
+        set { btcPriceUsd = newValue }
+    }
     private var refreshTask: Task<Void, Never>?
     private var lastUTXOracleCall: Date?
     private static let refreshInterval: TimeInterval = 3600  // 1 hour
