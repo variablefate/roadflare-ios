@@ -58,12 +58,12 @@ struct WelcomeView: View {
                 .padding(.top, -16)
 
                 // Bullet points
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 16) {
                     bulletPoint("NO STRANGERS")
                     bulletPoint("NO PLATFORM FEES")
                     bulletPoint("NO MIDDLEMAN")
                 }
-                .padding(.leading, 44)
+                .padding(.leading, 52)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
