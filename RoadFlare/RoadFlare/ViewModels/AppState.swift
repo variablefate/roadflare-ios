@@ -160,6 +160,23 @@ final class AppState {
         await publishProfileBackup()
     }
 
+    /// Send Kind 3187 follow notification to a driver (real-time nudge).
+    /// The rider's Kind 30011 p-tags are the source of truth — this is just a push notification.
+    func sendFollowNotification(driverPubkey: String) async {
+        guard let kp = keypair, let rm = relayManager else { return }
+        do {
+            let event = try await RideshareEventBuilder.followNotification(
+                driverPubkey: driverPubkey,
+                riderName: settings.profileName,
+                keypair: kp
+            )
+            _ = try await rm.publish(event)
+            AppLogger.auth.info("Sent follow notification to \(driverPubkey.prefix(8))")
+        } catch {
+            // Non-fatal — Kind 30011 p-tags are the real source of truth
+        }
+    }
+
     /// Log out: clear all data.
     func logout() async {
         await rideCoordinator?.stopAll()

@@ -290,6 +290,48 @@ public enum RideshareEventBuilder {
         )
     }
 
+    // MARK: - Follow Notification (Kind 3187)
+
+    /// Build and sign a follow notification event (Kind 3187).
+    /// Sent by a rider to a driver as a real-time push when adding them.
+    /// Content is NIP-44 encrypted to the driver's pubkey.
+    /// Short expiry (5 minutes) — this is just a nudge, not the source of truth.
+    /// The rider's Kind 30011 p-tags are the actual source of truth for follows.
+    public static func followNotification(
+        driverPubkey: String,
+        riderName: String,
+        keypair: NostrKeypair
+    ) async throws -> NostrEvent {
+        try validatePubkey(driverPubkey, label: "Driver pubkey")
+
+        let content: [String: Any] = [
+            "action": "follow",
+            "riderName": riderName,
+            "timestamp": Int(Date.now.timeIntervalSince1970)
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: content),
+              let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(underlying: NSError(domain: "JSON", code: 0)))
+        }
+
+        let encrypted = try NIP44.encrypt(
+            plaintext: plaintext,
+            senderPrivateKeyHex: keypair.privateKeyHex,
+            recipientPublicKeyHex: driverPubkey
+        )
+
+        let expiration = Int(Date.now.timeIntervalSince1970) + Int(EventExpiration.roadflareFollowNotifyMinutes * 60)
+        let tags: [[String]] = [
+            [NostrTags.pubkeyRef, driverPubkey],
+            [NostrTags.hashtag, "roadflare-follow"],
+            ["expiration", String(expiration)]
+        ]
+
+        return try await EventSigner.sign(
+            kind: .followNotification, content: encrypted, tags: tags, keypair: keypair
+        )
+    }
+
     // MARK: - User Profile (Kind 0)
 
     /// Build and sign a NIP-01 metadata event (Kind 0).

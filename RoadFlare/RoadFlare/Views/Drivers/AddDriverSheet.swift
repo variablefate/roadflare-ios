@@ -368,11 +368,11 @@ struct AddDriverSheet: View {
             appState.driversRepository?.cacheDriverName(pubkey: hexPubkey, name: name)
         }
 
-        // Publish Kind 30011 so driver can discover this follower.
-        // If we don't have a key yet, send a stale ack to request one.
-        // (The key may already exist from Kind 30011 restore — check first.)
+        // Publish Kind 30011 (source of truth) + Kind 3187 (real-time nudge to driver).
+        // If we don't have a key yet, also send a stale ack to request one.
         Task {
             await appState.rideCoordinator?.publishFollowedDriversList()
+            await appState.sendFollowNotification(driverPubkey: hexPubkey)
             if appState.driversRepository?.getRoadflareKey(driverPubkey: hexPubkey) == nil {
                 await appState.rideCoordinator?.requestKeyRefresh(driverPubkey: hexPubkey)
             }
