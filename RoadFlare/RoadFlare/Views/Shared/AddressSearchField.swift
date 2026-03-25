@@ -3,18 +3,23 @@ import MapKit
 import CoreLocation
 
 /// Address search field with MKLocalSearchCompleter autocomplete.
+/// Resolves selected completions via MKLocalSearch for routable coordinates.
 /// Optionally shows "Use My Current Location" as the first dropdown item.
 struct AddressSearchField: View {
     let placeholder: String
     let icon: String
     let iconColor: Color
     @Binding var text: String
+    /// Called with the display text when a suggestion is selected. Coordinates are resolved internally.
     let onSelect: (String) -> Void
+    /// Called with resolved coordinates when a suggestion is tapped.
+    var onResolvedLocation: ((Double, Double) -> Void)? = nil
     var showCurrentLocation: Bool = false
     var onUseCurrentLocation: (() -> Void)? = nil
 
     @State private var completer = AddressCompleter()
     @State private var showSuggestions = false
+    @State private var isResolving = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
@@ -33,7 +38,9 @@ struct AddressSearchField: View {
                         showSuggestions = isFocused
                     }
 
-                if !text.isEmpty {
+                if isResolving {
+                    ProgressView().scaleEffect(0.7)
+                } else if !text.isEmpty {
                     Button { text = ""; showSuggestions = false } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(Color.rfOffline)
@@ -76,10 +83,7 @@ struct AddressSearchField: View {
                     // Search suggestions
                     ForEach(completer.results.prefix(4), id: \.self) { result in
                         Button {
-                            text = [result.title, result.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
-                            showSuggestions = false
-                            isFocused = false
-                            onSelect(text)
+                            selectCompletion(result)
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(result.title)
@@ -100,6 +104,49 @@ struct AddressSearchField: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Resolve a search completion to routable coordinates via MKLocalSearch,
+    /// then update the text field and notify the caller.
+    private func selectCompletion(_ completion: MKLocalSearchCompletion) {
+        showSuggestions = false
+        isFocused = false
+        isResolving = true
+
+        let displayText = [completion.title, completion.subtitle]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
+        text = displayText
+
+        // Resolve to actual coordinates via MKLocalSearch
+        Task {
+            let request = MKLocalSearch.Request(completion: completion)
+            request.resultTypes = [.address, .pointOfInterest]
+            let search = MKLocalSearch(request: request)
+
+            do {
+                let response = try await search.start()
+                if let mapItem = response.mapItems.first {
+                    let coord = mapItem.placemark.coordinate
+                    // Use the resolved address if available
+                    let resolvedAddress = [
+                        mapItem.placemark.subThoroughfare,
+                        mapItem.placemark.thoroughfare,
+                        mapItem.placemark.locality
+                    ].compactMap { $0 }.joined(separator: " ")
+
+                    if !resolvedAddress.isEmpty {
+                        text = "\(completion.title), \(resolvedAddress)"
+                    }
+                    onResolvedLocation?(coord.latitude, coord.longitude)
+                }
+            } catch {
+                // MKLocalSearch failed — fall back to text-based geocoding
+            }
+
+            isResolving = false
+            onSelect(text)
         }
     }
 }

@@ -7,6 +7,8 @@ struct RideTab: View {
     @Environment(AppState.self) private var appState
     @State private var pickupAddress = ""
     @State private var destinationAddress = ""
+    @State private var resolvedPickupCoord: (lat: Double, lon: Double)?
+    @State private var resolvedDestCoord: (lat: Double, lon: Double)?
     @State private var selectedDriverPubkey: String?
     @State private var showChat = false
     @State private var showCancelWarning = false
@@ -165,6 +167,7 @@ struct RideTab: View {
                                             iconColor: .rfOnline,
                                             text: $pickupAddress,
                                             onSelect: { _ in recalculateFare() },
+                                            onResolvedLocation: { lat, lon in resolvedPickupCoord = (lat, lon) },
                                             showCurrentLocation: true,
                                             onUseCurrentLocation: { useCurrentLocation() }
                                         )
@@ -176,7 +179,8 @@ struct RideTab: View {
                                             icon: "circle.fill",
                                             iconColor: .rfPrimary,
                                             text: $destinationAddress,
-                                            onSelect: { _ in recalculateFare() }
+                                            onSelect: { _ in recalculateFare() },
+                                            onResolvedLocation: { lat, lon in resolvedDestCoord = (lat, lon) }
                                         )
                                     }
 
@@ -185,6 +189,9 @@ struct RideTab: View {
                                         let temp = pickupAddress
                                         pickupAddress = destinationAddress
                                         destinationAddress = temp
+                                        let tempCoord = resolvedPickupCoord
+                                        resolvedPickupCoord = resolvedDestCoord
+                                        resolvedDestCoord = tempCoord
                                         coordinator?.currentFareEstimate = nil
                                         recalculateFare()
                                     } label: {
@@ -289,29 +296,41 @@ struct RideTab: View {
     }
 
     /// Auto-calculate fare when addresses are selected. Debounced to avoid rapid geocoding.
+    /// Uses pre-resolved coordinates from MKLocalSearch when available (handles POIs correctly).
     private func recalculateFare() {
         guard !pickupAddress.isEmpty, !destinationAddress.isEmpty else { return }
         guard let calculator = appState.fareCalculator else { return }
 
-        // Cancel any in-flight calculation (debounce)
         fareCalcTask?.cancel()
         coordinator?.currentFareEstimate = nil
         isCalculatingFare = true; fareError = nil
 
         fareCalcTask = Task {
-            // Brief debounce — wait for typing to settle
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { isCalculatingFare = false; return }
 
             do {
-                guard let pickup = try await mapKit.geocode(address: pickupAddress) else {
+                // Use pre-resolved coordinates if available, otherwise geocode from text
+                let pickup: Location
+                if let coord = resolvedPickupCoord {
+                    pickup = Location(latitude: coord.lat, longitude: coord.lon, address: pickupAddress)
+                } else if let geocoded = try await mapKit.geocode(address: pickupAddress) {
+                    pickup = geocoded
+                } else {
                     fareError = "Could not find pickup address"; isCalculatingFare = false; return
                 }
                 guard !Task.isCancelled else { isCalculatingFare = false; return }
-                guard let destination = try await mapKit.geocode(address: destinationAddress) else {
+
+                let destination: Location
+                if let coord = resolvedDestCoord {
+                    destination = Location(latitude: coord.lat, longitude: coord.lon, address: destinationAddress)
+                } else if let geocoded = try await mapKit.geocode(address: destinationAddress) {
+                    destination = geocoded
+                } else {
                     fareError = "Could not find destination"; isCalculatingFare = false; return
                 }
                 guard !Task.isCancelled else { isCalculatingFare = false; return }
+
                 let fare = try await mapKit.estimateFare(from: pickup, to: destination, calculator: calculator)
                 guard !Task.isCancelled else { isCalculatingFare = false; return }
                 coordinator?.currentFareEstimate = fare
