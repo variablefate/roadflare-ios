@@ -26,6 +26,7 @@ struct DriversTab: View {
                                         appState.selectedTab = 1
                                     },
                                     onShare: { shareDriver(driver) },
+                                    onDelete: { removeDriver(driver) },
                                     onTap: { selectedDriver = driver }
                                 )
                             }
@@ -116,6 +117,14 @@ struct DriversTab: View {
         sharingDriver = driver
     }
 
+    private func removeDriver(_ driver: FollowedDriver) {
+        appState.driversRepository?.removeDriver(pubkey: driver.pubkey)
+        Task {
+            await appState.rideCoordinator?.publishFollowedDriversList()
+            appState.rideCoordinator?.startLocationSubscriptions()
+        }
+    }
+
     private func refreshDrivers() async {
         appState.driversRepository?.clearDriverLocations()
         appState.rideCoordinator?.startLocationSubscriptions()
@@ -147,6 +156,7 @@ struct DriverCard: View {
     let repo: FollowedDriversRepository
     let onRequest: () -> Void
     let onShare: () -> Void
+    let onDelete: () -> Void
     let onTap: () -> Void
 
     private var profile: UserProfileContent? { repo.driverProfiles[driver.pubkey] }
@@ -155,37 +165,36 @@ struct DriverCard: View {
         repo.driverNames[driver.pubkey] ?? driver.name ?? shortPubkey
     }
 
-    var body: some View {
-        HStack(spacing: 14) {
-            // Profile photo / avatar
-            driverAvatar
+    @State private var showDeleteConfirm = false
 
-            // Info + action
-            VStack(alignment: .leading, spacing: 6) {
-                // Name
-                Text(displayName)
-                    .font(RFFont.title(17))
-                    .foregroundColor(Color.rfOnSurface)
+    var body: some View {
+        HStack(spacing: 0) {
+            // Main card content (tappable)
+            HStack(spacing: 14) {
+                driverAvatar
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(displayName)
+                        .font(RFFont.title(17))
+                        .foregroundColor(Color.rfOnSurface)
+                        .lineLimit(1)
+
+                    HStack(spacing: 0) {
+                        if let vehicle = profile?.vehicleDescription {
+                            Text(vehicle.uppercased())
+                                .font(RFFont.caption(11))
+                                .foregroundColor(Color.rfOnSurfaceVariant)
+                            Text(" · ")
+                                .font(RFFont.caption(11))
+                                .foregroundColor(Color.rfOffline)
+                        }
+                        Text(statusText)
+                            .font(RFFont.caption(11))
+                            .foregroundColor(statusAccentColor)
+                    }
                     .lineLimit(1)
 
-                // Vehicle + status line
-                HStack(spacing: 0) {
-                    if let vehicle = profile?.vehicleDescription {
-                        Text(vehicle.uppercased())
-                            .font(RFFont.caption(11))
-                            .foregroundColor(Color.rfOnSurfaceVariant)
-                        Text(" · ")
-                            .font(RFFont.caption(11))
-                            .foregroundColor(Color.rfOffline)
-                    }
-                    Text(statusText)
-                        .font(RFFont.caption(11))
-                        .foregroundColor(statusAccentColor)
-                }
-                .lineLimit(1)
-
-                // Action button / status badge
-                HStack(spacing: 8) {
+                    // Status badge / request button
                     if isOnline {
                         Button(action: onRequest) {
                             Text("Request Now")
@@ -222,27 +231,26 @@ struct DriverCard: View {
                             .background(Color.rfSurfaceContainerHigh)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
-
-                    // Share button
-                    Button(action: onShare) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 14))
-                            .foregroundColor(Color.rfOnSurfaceVariant)
-                            .frame(width: 32, height: 32)
-                            .background(Color.rfSurfaceContainerHigh)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
                 }
-            }
 
-            Spacer()
+                Spacer()
+
+                // Share button (right side, larger touch target)
+                Button(action: onShare) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.system(size: 16))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+                        .frame(width: 44, height: 44)
+                        .background(Color.rfSurfaceContainerHigh)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14)
         }
-        .padding(14)
         .background(Color.rfSurfaceContainer)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(alignment: .leading) {
-            // Left accent bar
             RoundedRectangle(cornerRadius: 2)
                 .fill(statusAccentColor)
                 .frame(width: 3)
@@ -250,9 +258,22 @@ struct DriverCard: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
+        .contextMenu {
+            Button(role: .destructive) {
+                showDeleteConfirm = true
+            } label: {
+                Label("Remove Driver", systemImage: "trash")
+            }
+        }
+        .confirmationDialog("Remove \(displayName)?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Remove Driver", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to remove this driver from your network?")
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(displayName), \(statusText)")
-        .accessibilityHint("Tap for driver details")
+        .accessibilityHint("Tap for driver details, swipe to delete")
     }
 
     // MARK: - Avatar
