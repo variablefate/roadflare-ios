@@ -156,18 +156,20 @@ final class LocationCoordinator {
     func checkForStaleKeys() async {
         for driver in driversRepository.drivers {
             guard driver.hasKey else {
-                // No key at all — request one (rate-limited by caller)
+                // No key at all — request one
                 await requestKeyRefresh(driverPubkey: driver.pubkey)
                 continue
             }
-            guard let localKeyUpdatedAt = driver.roadflareKey?.keyUpdatedAt, localKeyUpdatedAt > 0 else { continue }
+
+            // Compare local keyUpdatedAt (may be nil/0 for old keys) against
+            // driver's Kind 30012 public key_updated_at tag
+            let localKeyUpdatedAt = driver.roadflareKey?.keyUpdatedAt ?? 0
 
             do {
                 let filter = NostrFilter.driverRoadflareState(driverPubkey: driver.pubkey)
                 let events = try await relayManager.fetchEvents(filter: filter, timeout: 5)
                 guard let event = events.first else { continue }
 
-                // Extract public key_updated_at tag (no decryption needed)
                 let keyUpdatedAtTag = event.tags.first { $0.count >= 2 && $0[0] == "key_updated_at" }
                 guard let remoteTimestamp = keyUpdatedAtTag.flatMap({ Int($0[1]) }) else { continue }
 
