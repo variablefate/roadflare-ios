@@ -7,6 +7,7 @@ struct DriversTab: View {
     @State private var selectedDriver: FollowedDriver?
     @State private var shareText: String?
     @State private var showShareSheet = false
+    @State private var showProfile = false
 
     var body: some View {
         NavigationStack {
@@ -90,14 +91,15 @@ struct DriversTab: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectivityIndicator() }
                 ToolbarItem(placement: .primaryAction) {
-                    Button { showAddDriver = true } label: {
-                        Image(systemName: "plus.circle.fill")
+                    Button { showProfile = true } label: {
+                        Image(systemName: "person.crop.circle")
                             .foregroundColor(Color.rfPrimary)
                     }
                 }
             }
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
             .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
+            .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(isPresented: $showShareSheet) {
                 if let shareText { ShareSheet(items: [shareText]) }
             }

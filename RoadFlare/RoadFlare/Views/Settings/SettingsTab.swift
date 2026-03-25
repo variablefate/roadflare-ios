@@ -148,6 +148,7 @@ struct EditProfileSheet: View {
     @State private var editedName = ""
     @State private var saveState: SaveState = .idle
     @State private var copiedAccountId = false
+    @State private var showBackupKey = false
 
     enum SaveState {
         case idle, saving, saved
@@ -222,10 +223,31 @@ struct EditProfileSheet: View {
                         .padding(.horizontal, 24)
                     }
 
+                    // View Recovery Key button
+                    Button { showBackupKey = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "key")
+                                .foregroundColor(Color.rfPrimary)
+                            Text("View Recovery Key")
+                                .font(RFFont.body(15))
+                                .foregroundColor(Color.rfPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundColor(Color.rfOffline)
+                        }
+                        .padding(14)
+                        .background(Color.rfSurfaceContainerLow)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 24)
+
                     Spacer()
                 }
             }
             .navigationTitle("Edit Profile")
+            .sheet(isPresented: $showBackupKey) { BackupKeySheet() }
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbar {
