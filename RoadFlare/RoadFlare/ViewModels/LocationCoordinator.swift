@@ -127,6 +127,7 @@ final class LocationCoordinator {
                 driverPubkey: keyShare.driverPubkey,
                 roadflareKey: keyShare.roadflareKey
             )
+            driversRepository.clearKeyStale(pubkey: keyShare.driverPubkey)
 
             // Send acknowledgement (Kind 3188)
             let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
@@ -175,7 +176,10 @@ final class LocationCoordinator {
 
                 if remoteTimestamp > localKeyUpdatedAt {
                     AppLogger.location.info("Stale key detected for \(driver.pubkey.prefix(8)): local=\(localKeyUpdatedAt), remote=\(remoteTimestamp)")
+                    driversRepository.markKeyStale(pubkey: driver.pubkey)
                     await requestKeyRefresh(driverPubkey: driver.pubkey)
+                } else {
+                    driversRepository.clearKeyStale(pubkey: driver.pubkey)
                 }
             } catch {
                 // Non-fatal — will check again next time

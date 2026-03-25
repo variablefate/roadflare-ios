@@ -5,6 +5,8 @@ struct DriversTab: View {
     @Environment(AppState.self) private var appState
     @State private var showAddDriver = false
     @State private var selectedDriver: FollowedDriver?
+    @State private var shareText: String?
+    @State private var showShareSheet = false
 
     var body: some View {
         NavigationStack {
@@ -23,6 +25,7 @@ struct DriversTab: View {
                                         appState.requestRideDriverPubkey = driver.pubkey
                                         appState.selectedTab = 1
                                     },
+                                    onShare: { shareDriver(driver) },
                                     onTap: { selectedDriver = driver }
                                 )
                             }
@@ -95,7 +98,28 @@ struct DriversTab: View {
             }
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
             .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
+            .sheet(isPresented: $showShareSheet) {
+                if let shareText { ShareSheet(items: [shareText]) }
+            }
+            .refreshable {
+                await refreshDrivers()
+            }
         }
+    }
+
+    private func shareDriver(_ driver: FollowedDriver) {
+        if let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) {
+            let name = appState.driversRepository?.driverNames[driver.pubkey] ?? ""
+            let nameParam = name.isEmpty ? "" : "?name=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)"
+            shareText = "nostr:\(npub)\(nameParam)"
+            showShareSheet = true
+        }
+    }
+
+    private func refreshDrivers() async {
+        appState.driversRepository?.clearDriverLocations()
+        appState.rideCoordinator?.startLocationSubscriptions()
+        await appState.rideCoordinator?.checkForStaleKeys()
     }
 
     /// Sort drivers: online first, then on_ride, then pending, then offline.
@@ -122,6 +146,7 @@ struct DriverCard: View {
     let driver: FollowedDriver
     let repo: FollowedDriversRepository
     let onRequest: () -> Void
+    let onShare: () -> Void
     let onTap: () -> Void
 
     private var profile: UserProfileContent? { repo.driverProfiles[driver.pubkey] }
@@ -160,33 +185,54 @@ struct DriverCard: View {
                 .lineLimit(1)
 
                 // Action button / status badge
-                if isOnline {
-                    Button(action: onRequest) {
-                        Text("Request Now")
-                            .font(RFFont.title(13))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                            .background(Color.rfPrimary)
+                HStack(spacing: 8) {
+                    if isOnline {
+                        Button(action: onRequest) {
+                            Text("Request Now")
+                                .font(RFFont.title(13))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(Color.rfPrimary)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                    } else if hasStaleKey {
+                        Text("Key Outdated")
+                            .font(RFFont.caption(12))
+                            .foregroundColor(Color.rfError)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(Color.rfError.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else if !driver.hasKey {
+                        Text("Pending Approval")
+                            .font(RFFont.caption(12))
+                            .foregroundColor(Color.rfTertiary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(Color.rfTertiary.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        Text("Unavailable")
+                            .font(RFFont.caption(12))
+                            .foregroundColor(Color.rfOffline)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+                            .background(Color.rfSurfaceContainerHigh)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    // Share button
+                    Button(action: onShare) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                            .frame(width: 32, height: 32)
+                            .background(Color.rfSurfaceContainerHigh)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
-                } else if !driver.hasKey {
-                    Text("Pending Approval")
-                        .font(RFFont.caption(12))
-                        .foregroundColor(Color.rfTertiary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(Color.rfTertiary.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    Text("Unavailable")
-                        .font(RFFont.caption(12))
-                        .foregroundColor(Color.rfOffline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 6)
-                        .background(Color.rfSurfaceContainerHigh)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
 
@@ -247,6 +293,10 @@ struct DriverCard: View {
     }
 
     // MARK: - Status
+
+    private var hasStaleKey: Bool {
+        repo.staleKeyPubkeys.contains(driver.pubkey)
+    }
 
     private var isOnline: Bool {
         driver.hasKey && location?.status == "online"

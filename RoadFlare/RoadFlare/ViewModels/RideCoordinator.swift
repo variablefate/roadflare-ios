@@ -140,8 +140,14 @@ final class RideCoordinator {
             return
         }
         do {
+            // Protocol prices in sats. Convert USD → sats using rough rate.
+            // Driver app converts back using the same constant (2000 sats/$).
+            // TODO: Replace with live BTC price API for accurate conversion.
+            let satsPerDollar: Decimal = 2000
+            let fareSats = fareEstimate.fareUSD * satsPerDollar
+
             let offerContent = RideOfferContent(
-                fareEstimate: fareEstimate.fareUSD,
+                fareEstimate: fareSats,
                 destination: destination.approximate(),
                 approxPickup: pickup.approximate(),
                 rideRouteKm: fareEstimate.distanceMiles / 0.621371,

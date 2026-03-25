@@ -157,26 +157,46 @@ struct RideTab: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 SectionLabel("Ride Details")
 
-                                VStack(spacing: 0) {
-                                    AddressSearchField(
-                                        placeholder: "Pickup address",
-                                        icon: "circle.fill",
-                                        iconColor: .rfOnline,
-                                        text: $pickupAddress,
-                                        onSelect: { _ in recalculateFare() },
-                                        showCurrentLocation: true,
-                                        onUseCurrentLocation: { useCurrentLocation() }
-                                    )
+                                HStack(spacing: 0) {
+                                    VStack(spacing: 0) {
+                                        AddressSearchField(
+                                            placeholder: "Pickup address",
+                                            icon: "circle.fill",
+                                            iconColor: .rfOnline,
+                                            text: $pickupAddress,
+                                            onSelect: { _ in recalculateFare() },
+                                            showCurrentLocation: true,
+                                            onUseCurrentLocation: { useCurrentLocation() }
+                                        )
 
-                                    Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
+                                        Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
 
-                                    AddressSearchField(
-                                        placeholder: "Destination",
-                                        icon: "circle.fill",
-                                        iconColor: .rfPrimary,
-                                        text: $destinationAddress,
-                                        onSelect: { _ in recalculateFare() }
-                                    )
+                                        AddressSearchField(
+                                            placeholder: "Destination",
+                                            icon: "circle.fill",
+                                            iconColor: .rfPrimary,
+                                            text: $destinationAddress,
+                                            onSelect: { _ in recalculateFare() }
+                                        )
+                                    }
+
+                                    // Swap button
+                                    Button {
+                                        let temp = pickupAddress
+                                        pickupAddress = destinationAddress
+                                        destinationAddress = temp
+                                        coordinator?.currentFareEstimate = nil
+                                        recalculateFare()
+                                    } label: {
+                                        Image(systemName: "arrow.up.arrow.down")
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                            .frame(width: 36, height: 36)
+                                            .background(Color.rfSurfaceContainerHigh)
+                                            .clipShape(Circle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .padding(.trailing, 8)
                                 }
                                 .background(Color.rfSurfaceContainer)
                                 .clipShape(RoundedRectangle(cornerRadius: 16))

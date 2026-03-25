@@ -21,6 +21,9 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// In-memory driver profile cache (from Kind 0 fetches). Not persisted.
     public private(set) var driverProfiles: [String: UserProfileContent] = [:]
 
+    /// Drivers with stale keys (detected via Kind 30012 comparison). In-memory only.
+    public private(set) var staleKeyPubkeys: Set<String> = []
+
     /// Persistence delegate (UserDefaults-based or injected for testing).
     private let persistence: FollowedDriversPersistence
 
@@ -162,6 +165,16 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// Clear all cached locations.
     public func clearDriverLocations() {
         lock.withLock { driverLocations.removeAll() }
+    }
+
+    /// Mark a driver's key as stale (needs refresh from driver).
+    public func markKeyStale(pubkey: String) {
+        lock.withLock { staleKeyPubkeys.insert(pubkey) }
+    }
+
+    /// Clear the stale key flag for a driver (key was refreshed).
+    public func clearKeyStale(pubkey: String) {
+        lock.withLock { staleKeyPubkeys.remove(pubkey) }
     }
 
     /// Get a driver's RoadFlare key for decrypting their location broadcasts.
