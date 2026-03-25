@@ -1,7 +1,6 @@
 import SwiftUI
 import RidestrSDK
 
-/// Connectivity settings sheet — shows relay status and Nostr protocol explainer.
 struct ConnectivitySheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -9,9 +8,28 @@ struct ConnectivitySheet: View {
     @State private var isReconnecting = false
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color.rfSurface.ignoresSafeArea()
+        ZStack {
+            Color.rfSurface.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(isConnected ? Color.rfOnline : Color.rfError)
+                            .frame(width: 10, height: 10)
+                        Text("Connectivity")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(Color.rfOnSurface)
+                    }
+                    Spacer()
+                    Button("Done") { dismiss() }
+                        .font(RFFont.title(16))
+                        .foregroundColor(Color.rfPrimary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 12)
 
                 ScrollView {
                     VStack(spacing: 24) {
@@ -96,29 +114,11 @@ struct ConnectivitySheet: View {
                         Spacer()
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 16)
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(isConnected ? Color.rfOnline : Color.rfError)
-                            .frame(width: 8, height: 8)
-                        Text("Connectivity")
-                            .font(RFFont.title(17))
-                            .foregroundColor(Color.rfOnSurface)
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }.foregroundColor(Color.rfPrimary)
-                }
-            }
-            .toolbarBackground(Color.rfSurface, for: .navigationBar)
         }
         .task {
             await checkConnection()
-            // Poll while sheet is open
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 await checkConnection()
