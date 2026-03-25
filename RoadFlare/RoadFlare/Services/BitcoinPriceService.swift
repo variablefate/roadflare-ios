@@ -49,16 +49,19 @@ final class BitcoinPriceService {
     }
 
     /// Convert USD dollars to satoshis. Returns nil if price not available.
+    /// Uses Double arithmetic (matching Android) to avoid Decimal encoding issues.
     func usdToSats(_ dollars: Decimal) -> Int? {
         guard let price = btcPriceUsd, price > 0 else { return nil }
-        let sats = (dollars * 100_000_000) / Decimal(price)
-        return NSDecimalNumber(decimal: sats).intValue
+        let usd = NSDecimalNumber(decimal: dollars).doubleValue
+        let sats = usd * 100_000_000.0 / Double(price)
+        return Int(sats)
     }
 
     /// Convert satoshis to USD dollars. Returns nil if price not available.
     func satsToUsd(_ sats: Int) -> Decimal? {
         guard let price = btcPriceUsd, price > 0 else { return nil }
-        return Decimal(sats) * Decimal(price) / 100_000_000
+        let usd = Double(sats) * Double(price) / 100_000_000.0
+        return Decimal(usd)
     }
 
     // MARK: - Private
