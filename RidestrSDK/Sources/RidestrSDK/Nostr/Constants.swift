@@ -59,7 +59,7 @@ public enum GeohashPrecision {
 
 /// Storage limits matching Android implementation.
 public enum StorageConstants {
-    public static let maxRecentLocations = 15
+    public static let maxRecentLocations = 3
     public static let duplicateLocationThresholdMeters = 50.0
     public static let maxRideHistory = 500
     public static let maxFavoriteAddresses = 10

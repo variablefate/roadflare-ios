@@ -361,6 +361,8 @@ struct RideTab: View {
                     displayName: destinationAddress, addressLine: destination.address ?? destinationAddress,
                     isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
                 ))
+                // Backup saved locations to Nostr
+                await appState.publishProfileBackup()
             } catch {
                 if !Task.isCancelled { fareError = "Route calculation failed. Check addresses." }
             }
