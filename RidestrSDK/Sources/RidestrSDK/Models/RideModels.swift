@@ -42,7 +42,8 @@ public enum RiderStage: String, Codable, Sendable {
 
 /// Content of a RoadFlare ride offer (Kind 3173, NIP-44 encrypted to driver).
 public struct RideOfferContent: Codable, Sendable {
-    public let fareEstimate: Decimal
+    /// Fare in satoshis (matching Android's Double encoding for JSON compatibility).
+    public let fareEstimate: Double
     public let destination: Location
     public let approxPickup: Location
     public let pickupRouteKm: Double?
@@ -67,7 +68,7 @@ public struct RideOfferContent: Codable, Sendable {
     }
 
     public init(
-        fareEstimate: Decimal,
+        fareEstimate: Double,
         destination: Location,
         approxPickup: Location,
         pickupRouteKm: Double? = nil,

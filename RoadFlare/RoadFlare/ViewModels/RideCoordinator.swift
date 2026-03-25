@@ -147,10 +147,10 @@ final class RideCoordinator {
                 lastError = "Bitcoin price not available. Try again in a moment."
                 return
             }
-            let fareSats = Decimal(fareSatsInt)
+            AppLogger.ride.info("Sending offer: $\(fareEstimate.fareUSD) USD = \(fareSatsInt) sats (BTC=$\(self.bitcoinPrice.btcPriceUsd ?? 0))")
 
             let offerContent = RideOfferContent(
-                fareEstimate: fareSats,
+                fareEstimate: Double(fareSatsInt),
                 destination: destination.approximate(),
                 approxPickup: pickup.approximate(),
                 rideRouteKm: fareEstimate.distanceMiles / 0.621371,

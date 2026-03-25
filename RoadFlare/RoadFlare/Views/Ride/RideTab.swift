@@ -220,14 +220,24 @@ struct RideTab: View {
                                     }
                                     .rfCard(.high)
                                 } else if let fare = coordinator?.currentFareEstimate {
-                                    HStack {
-                                        Text(String(format: "%.1f mi · %.0f min", fare.distanceMiles, fare.durationMinutes))
-                                            .font(RFFont.caption())
-                                            .foregroundColor(Color.rfOnSurfaceVariant)
-                                        Spacer()
-                                        Text(formatFare(fare.fareUSD))
-                                            .font(RFFont.headline(24))
-                                            .foregroundColor(Color.rfPrimary)
+                                    VStack(spacing: 6) {
+                                        HStack {
+                                            Text(String(format: "%.1f mi · %.0f min", fare.distanceMiles, fare.durationMinutes))
+                                                .font(RFFont.caption())
+                                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                            Spacer()
+                                            Text(formatFare(fare.fareUSD))
+                                                .font(RFFont.headline(24))
+                                                .foregroundColor(Color.rfPrimary)
+                                        }
+                                        if let sats = appState.bitcoinPrice.usdToSats(fare.fareUSD) {
+                                            HStack {
+                                                Spacer()
+                                                Text("≈ \(sats) sats")
+                                                    .font(RFFont.caption(11))
+                                                    .foregroundColor(Color.rfOffline)
+                                            }
+                                        }
                                     }
                                     .rfCard(.high)
                                 }
