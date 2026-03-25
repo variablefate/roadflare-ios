@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import RidestrSDK
 
 struct DriversTab: View {
@@ -7,6 +6,7 @@ struct DriversTab: View {
     @State private var showAddDriver = false
     @State private var selectedDriver: FollowedDriver?
     @State private var showProfile = false
+    @State private var sharingDriver: FollowedDriver?
 
     var body: some View {
         NavigationStack {
@@ -99,6 +99,12 @@ struct DriversTab: View {
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
             .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
+            .sheet(item: $sharingDriver) { driver in
+                DriverShareSheet(
+                    driver: driver,
+                    driverName: appState.driversRepository?.driverNames[driver.pubkey] ?? driver.name
+                )
+            }
             .refreshable {
                 await refreshDrivers()
             }
@@ -106,15 +112,7 @@ struct DriversTab: View {
     }
 
     private func shareDriver(_ driver: FollowedDriver) {
-        guard let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) else { return }
-        let name = appState.driversRepository?.driverNames[driver.pubkey] ?? ""
-        let nameParam = name.isEmpty ? "" : "?name=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)"
-        let text = "\(npub)\(nameParam)"
-
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let root = windowScene.keyWindow?.rootViewController else { return }
-        let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
-        root.present(vc, animated: true)
+        sharingDriver = driver
     }
 
     private func refreshDrivers() async {
