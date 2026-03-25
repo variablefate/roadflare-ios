@@ -269,11 +269,50 @@ struct RideTab: View {
                                     Text(error).font(RFFont.caption()).foregroundColor(Color.rfError)
                                 }
 
-                                Button { sendOffer() } label: {
-                                    Text("Send RoadFlare Request")
+                                // Show send button only when fare is calculated
+                                if coordinator?.currentFareEstimate != nil && !isCalculatingFare {
+                                    Button { sendOffer() } label: {
+                                        Text("Send RoadFlare Request")
+                                    }
+                                    .buttonStyle(RFPrimaryButtonStyle())
+                                } else if pickupAddress.isEmpty || destinationAddress.isEmpty {
+                                    // Show saved locations as quick picks when addresses are empty
+                                    if !recentLocationItems.isEmpty {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            Text("Quick Picks")
+                                                .font(RFFont.caption(12))
+                                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                                .textCase(.uppercase)
+                                                .tracking(1)
+                                            ForEach(recentLocationItems.prefix(4), id: \.name) { loc in
+                                                Button {
+                                                    if pickupAddress.isEmpty {
+                                                        pickupAddress = loc.address.isEmpty ? loc.name : loc.address
+                                                        resolvedPickupCoord = (loc.lat, loc.lon)
+                                                    } else {
+                                                        destinationAddress = loc.address.isEmpty ? loc.name : loc.address
+                                                        resolvedDestCoord = (loc.lat, loc.lon)
+                                                    }
+                                                    recalculateFare()
+                                                } label: {
+                                                    HStack(spacing: 10) {
+                                                        Image(systemName: iconForLocation(loc.name))
+                                                            .foregroundColor(Color.rfPrimary)
+                                                            .frame(width: 20)
+                                                        Text(loc.name)
+                                                            .font(RFFont.body(14))
+                                                            .foregroundColor(Color.rfOnSurface)
+                                                        Spacer()
+                                                    }
+                                                    .padding(12)
+                                                    .background(Color.rfSurfaceContainer)
+                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                        }
+                                    }
                                 }
-                                .buttonStyle(RFPrimaryButtonStyle(isDisabled: coordinator?.currentFareEstimate == nil))
-                                .disabled(coordinator?.currentFareEstimate == nil || isCalculatingFare)
                             }
                         }
                     }
@@ -302,6 +341,14 @@ struct RideTab: View {
     }
 
     // MARK: - Actions
+
+    private func iconForLocation(_ name: String) -> String {
+        switch name.lowercased() {
+        case "home": return "house.fill"
+        case "work": return "briefcase.fill"
+        default: return "mappin"
+        }
+    }
 
     /// Saved locations (favorites first, then recents) for address field dropdowns.
     private var recentLocationItems: [(name: String, address: String, lat: Double, lon: Double)] {

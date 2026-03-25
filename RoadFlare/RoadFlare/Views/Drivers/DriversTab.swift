@@ -284,13 +284,11 @@ struct DriverCard: View {
     private var driverAvatar: some View {
         Group {
             if let pictureURL = profile?.picture, let url = URL(string: pictureURL) {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    avatarPlaceholder
-                }
-                .frame(width: 64, height: 64)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                CachedAsyncImage(url: url, size: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .background(
+                        avatarPlaceholder
+                    )
             } else {
                 avatarPlaceholder
             }
