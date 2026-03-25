@@ -119,17 +119,17 @@ final class AppState {
 
         await setupServicesWithSync(keypair: kp)
 
-        // If we restored a name from Nostr, skip profile setup entirely
-        if !settings.profileName.isEmpty {
-            if settings.paymentMethods.isEmpty {
-                settings.paymentMethods = [.cash]  // Default fallback
-            }
+        // Navigate based on what was restored
+        if settings.profileName.isEmpty {
+            // No name → go to profile setup
+            authState = .profileIncomplete
+        } else if settings.paymentMethods.isEmpty {
+            // Have name but no payment methods → go to payment setup
+            authState = .paymentSetup
+        } else {
+            // Have both → fully ready
             settings.profileCompleted = true
             authState = .ready
-        } else if settings.profileCompleted {
-            authState = .ready
-        } else {
-            authState = .profileIncomplete
         }
     }
 
@@ -175,7 +175,8 @@ final class AppState {
                 )
             },
             settings: SettingsBackupContent(
-                roadflarePaymentMethods: settings.paymentMethods.map(\.rawValue)
+                roadflarePaymentMethods: settings.paymentMethods.map(\.rawValue),
+                customPaymentMethods: settings.customPaymentMethods
             )
         )
         do {
@@ -318,12 +319,35 @@ final class AppState {
             let events = try await rm.fetchEvents(filter: filter, timeout: 5)
             if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
                 let backup = try RideshareEventParser.parseProfileBackup(event: event, keypair: keypair)
-                // Restore payment methods if local is at default (empty or just cash)
+
+                // Restore payment methods (if local is empty/default)
                 let remotePaymentMethods = backup.settings.roadflarePaymentMethods
                     .compactMap { PaymentMethod(rawValue: $0) }
-                if !remotePaymentMethods.isEmpty && settings.paymentMethods == [.cash] {
+                if !remotePaymentMethods.isEmpty &&
+                    (settings.paymentMethods.isEmpty || settings.paymentMethods == [.cash]) {
                     settings.paymentMethods = remotePaymentMethods
-                    AppLogger.auth.info("Restored \(remotePaymentMethods.count) payment methods from Nostr backup")
+                    AppLogger.auth.info("Restored \(remotePaymentMethods.count) payment methods")
+                }
+
+                // Restore custom payment methods
+                if settings.customPaymentMethods.isEmpty && !backup.settings.customPaymentMethods.isEmpty {
+                    settings.customPaymentMethods = backup.settings.customPaymentMethods
+                    AppLogger.auth.info("Restored \(backup.settings.customPaymentMethods.count) custom payment methods")
+                }
+
+                // Restore saved locations (favorites)
+                if savedLocations.favorites.isEmpty && !backup.savedLocations.isEmpty {
+                    for loc in backup.savedLocations where loc.isPinned {
+                        savedLocations.save(SavedLocation(
+                            id: UUID().uuidString,
+                            latitude: loc.lat, longitude: loc.lon,
+                            displayName: loc.displayName,
+                            addressLine: loc.addressLine ?? loc.displayName,
+                            isPinned: true, nickname: loc.nickname,
+                            timestampMs: loc.timestampMs ?? Int(Date.now.timeIntervalSince1970 * 1000)
+                        ))
+                    }
+                    AppLogger.auth.info("Restored \(backup.savedLocations.count) saved locations")
                 }
             }
         } catch {

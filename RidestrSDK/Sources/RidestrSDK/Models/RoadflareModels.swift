@@ -277,15 +277,18 @@ private extension String {
 /// Encrypted to self in Kind 30177.
 public struct SettingsBackupContent: Codable, Sendable {
     public var roadflarePaymentMethods: [String]
+    public var customPaymentMethods: [String]
     public var displayCurrency: String
     public var distanceUnit: String
 
     public init(
         roadflarePaymentMethods: [String] = [],
+        customPaymentMethods: [String] = [],
         displayCurrency: String = "USD",
         distanceUnit: String = "MILES"
     ) {
         self.roadflarePaymentMethods = roadflarePaymentMethods
+        self.customPaymentMethods = customPaymentMethods
         self.displayCurrency = displayCurrency
         self.distanceUnit = distanceUnit
     }
