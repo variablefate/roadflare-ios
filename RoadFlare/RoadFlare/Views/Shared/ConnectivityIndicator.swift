@@ -14,14 +14,9 @@ struct ConnectivitySheet: View {
             VStack(spacing: 0) {
                 // Header
                 HStack {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(isConnected ? Color.rfOnline : Color.rfError)
-                            .frame(width: 10, height: 10)
-                        Text("Connectivity")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(Color.rfOnSurface)
-                    }
+                    Text("Connectivity")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(Color.rfOnSurface)
                     Spacer()
                     Button("Done") { dismiss() }
                         .font(RFFont.title(16))
