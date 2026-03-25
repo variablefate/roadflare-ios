@@ -100,7 +100,8 @@ final class AppState {
         }
     }
 
-    /// Mark profile name as set, publish to Nostr, move to payment setup.
+    /// Mark profile name as set, publish Kind 0 to Nostr, move to payment setup.
+    /// Does NOT publish Kind 30177 yet — payment methods aren't set until next step.
     func completeProfileSetup(name: String) async {
         settings.profileName = name
         await publishProfile()
@@ -136,8 +137,8 @@ final class AppState {
         let backup = ProfileBackupContent(
             savedLocations: savedLocations.favorites.map { loc in
                 SavedLocationBackup(
-                    name: loc.displayName, latitude: loc.latitude, longitude: loc.longitude,
-                    address: loc.addressLine, isFavorite: true
+                    displayName: loc.displayName, lat: loc.latitude, lon: loc.longitude,
+                    addressLine: loc.addressLine, isPinned: true
                 )
             },
             settings: SettingsBackupContent(

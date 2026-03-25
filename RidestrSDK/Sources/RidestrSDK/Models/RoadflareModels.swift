@@ -293,43 +293,73 @@ public struct SettingsBackupContent: Codable, Sendable {
 
 /// Full profile backup content (Kind 30177, encrypted to self).
 /// Matches Android's ProfileBackupEvent format.
+/// The `vehicles` field is present for Android compat but unused by iOS (rider-only).
 public struct ProfileBackupContent: Codable, Sendable {
+    public var vehicles: [VehicleBackup]
     public var savedLocations: [SavedLocationBackup]
     public var settings: SettingsBackupContent
     public var updatedAt: Int
 
     enum CodingKeys: String, CodingKey {
+        case vehicles
         case savedLocations
         case settings
         case updatedAt = "updated_at"
     }
 
     public init(
+        vehicles: [VehicleBackup] = [],
         savedLocations: [SavedLocationBackup] = [],
         settings: SettingsBackupContent = SettingsBackupContent(),
         updatedAt: Int = Int(Date.now.timeIntervalSince1970)
     ) {
+        self.vehicles = vehicles
         self.savedLocations = savedLocations
         self.settings = settings
         self.updatedAt = updatedAt
     }
 }
 
-/// Minimal saved location for backup (matching Android format).
-public struct SavedLocationBackup: Codable, Sendable {
-    public let name: String
-    public let latitude: Double
-    public let longitude: Double
-    public let address: String?
-    public let isFavorite: Bool
+/// Minimal vehicle struct for backup compat with Android.
+/// iOS rider app doesn't use vehicles, but must decode them to avoid parse failures.
+public struct VehicleBackup: Codable, Sendable {
+    public let id: String?
+    public let make: String?
+    public let model: String?
+    public let year: Int?
+    public let color: String?
+    public let licensePlate: String?
+    public let isPrimary: Bool?
 
-    public init(name: String, latitude: Double, longitude: Double,
-                address: String? = nil, isFavorite: Bool = false) {
-        self.name = name
-        self.latitude = latitude
-        self.longitude = longitude
-        self.address = address
-        self.isFavorite = isFavorite
+    public init(id: String? = nil, make: String? = nil, model: String? = nil,
+                year: Int? = nil, color: String? = nil, licensePlate: String? = nil, isPrimary: Bool? = nil) {
+        self.id = id; self.make = make; self.model = model
+        self.year = year; self.color = color; self.licensePlate = licensePlate; self.isPrimary = isPrimary
+    }
+}
+
+/// Saved location for backup. Field names match Android's SavedLocation JSON format.
+public struct SavedLocationBackup: Codable, Sendable {
+    public let displayName: String
+    public let lat: Double
+    public let lon: Double
+    public let addressLine: String?
+    public let isPinned: Bool
+    public let locality: String?
+    public let nickname: String?
+    public let timestampMs: Int?
+
+    public init(displayName: String, lat: Double, lon: Double,
+                addressLine: String? = nil, isPinned: Bool = false,
+                locality: String? = nil, nickname: String? = nil, timestampMs: Int? = nil) {
+        self.displayName = displayName
+        self.lat = lat
+        self.lon = lon
+        self.addressLine = addressLine
+        self.isPinned = isPinned
+        self.locality = locality
+        self.nickname = nickname
+        self.timestampMs = timestampMs
     }
 }
 

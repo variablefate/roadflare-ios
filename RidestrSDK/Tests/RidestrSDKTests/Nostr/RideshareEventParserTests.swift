@@ -64,6 +64,23 @@ struct RideshareEventParserTests {
         #expect(parsed?.displayName == "Test User")
     }
 
+    // MARK: - Profile Backup (Kind 30177)
+
+    @Test func profileBackupRoundtrip() async throws {
+        let keypair = try NostrKeypair.generate()
+        let content = ProfileBackupContent(
+            savedLocations: [SavedLocationBackup(displayName: "Home", lat: 40.7, lon: -74.0, isPinned: true)],
+            settings: SettingsBackupContent(roadflarePaymentMethods: ["venmo", "cash"])
+        )
+        let event = try await RideshareEventBuilder.profileBackup(content: content, keypair: keypair)
+        #expect(event.kind == Int(EventKind.unifiedProfile.rawValue))
+
+        let parsed = try RideshareEventParser.parseProfileBackup(event: event, keypair: keypair)
+        #expect(parsed.savedLocations.count == 1)
+        #expect(parsed.savedLocations[0].displayName == "Home")
+        #expect(parsed.settings.roadflarePaymentMethods == ["venmo", "cash"])
+    }
+
     // MARK: - RoadFlare Location
 
     @Test func parseRoadflareLocation() throws {

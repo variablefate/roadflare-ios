@@ -90,8 +90,18 @@ struct NostrFilterTests {
 
     @Test func keySharesConvenience() {
         let filter = NostrFilter.keyShares(myPubkey: "my_pub")
-        #expect(filter.kinds == [EventKind.replaceableKeyShare.rawValue])
+        // Listens for both Kind 30186 (new) and Kind 3186 (legacy)
+        #expect(filter.kinds?.contains(EventKind.replaceableKeyShare.rawValue) == true)
+        #expect(filter.kinds?.contains(EventKind.keyShare.rawValue) == true)
         #expect(filter.tagFilters["p"] == ["my_pub"])
+    }
+
+    @Test func profileBackupConvenience() {
+        let filter = NostrFilter.profileBackup(myPubkey: "my_pub")
+        #expect(filter.kinds == [EventKind.unifiedProfile.rawValue])
+        #expect(filter.authors == ["my_pub"])
+        #expect(filter.tagFilters["d"] == ["rideshare-profile"])
+        #expect(filter.limit == 1)
     }
 
     @Test func metadataConvenience() {
@@ -108,9 +118,11 @@ struct NostrFilterTests {
 
     @Test func keyShareOneShotConvenience() {
         let filter = NostrFilter.keyShare(driverPubkey: "driver_pub", myPubkey: "my_pub")
-        #expect(filter.kinds == [EventKind.replaceableKeyShare.rawValue])
+        // Listens for both Kind 30186 (new) and Kind 3186 (legacy)
+        #expect(filter.kinds?.contains(EventKind.replaceableKeyShare.rawValue) == true)
+        #expect(filter.kinds?.contains(EventKind.keyShare.rawValue) == true)
         #expect(filter.authors == ["driver_pub"])
-        #expect(filter.tagFilters["d"] == ["my_pub"])
+        #expect(filter.tagFilters["p"] == ["my_pub"])
         #expect(filter.limit == 1)
     }
 

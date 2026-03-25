@@ -249,6 +249,64 @@ struct RoadflareModelsTests {
         #expect(decoded?.carYear == "2023")
     }
 
+    // MARK: - ProfileBackupContent (Kind 30177)
+
+    @Test func profileBackupCodableRoundtrip() throws {
+        let content = ProfileBackupContent(
+            savedLocations: [
+                SavedLocationBackup(displayName: "Home", lat: 40.7, lon: -74.0, addressLine: "123 Main St", isPinned: true)
+            ],
+            settings: SettingsBackupContent(roadflarePaymentMethods: ["venmo", "zelle"])
+        )
+        let data = try JSONEncoder().encode(content)
+        let decoded = try JSONDecoder().decode(ProfileBackupContent.self, from: data)
+        #expect(decoded.savedLocations.count == 1)
+        #expect(decoded.savedLocations[0].displayName == "Home")
+        #expect(decoded.savedLocations[0].lat == 40.7)
+        #expect(decoded.savedLocations[0].lon == -74.0)
+        #expect(decoded.savedLocations[0].isPinned == true)
+        #expect(decoded.settings.roadflarePaymentMethods == ["venmo", "zelle"])
+        #expect(decoded.vehicles.isEmpty)
+    }
+
+    @Test func profileBackupDecodesAndroidFormat() throws {
+        // Simulate JSON from Android with vehicles array
+        let androidJSON = """
+        {
+            "vehicles": [{"id":"v1","make":"Toyota","model":"Camry","year":2022,"color":"Blue","licensePlate":"ABC123","isPrimary":true}],
+            "savedLocations": [{"displayName":"Work","lat":37.78,"lon":-122.41,"addressLine":"456 Market St","isPinned":true,"locality":"SF"}],
+            "settings": {"roadflarePaymentMethods":["cash_app","venmo"],"displayCurrency":"USD","distanceUnit":"MILES","notificationSoundEnabled":true},
+            "updated_at": 1700000000
+        }
+        """
+        let decoded = try JSONDecoder().decode(ProfileBackupContent.self, from: androidJSON.data(using: .utf8)!)
+        #expect(decoded.vehicles.count == 1)
+        #expect(decoded.vehicles[0].make == "Toyota")
+        #expect(decoded.vehicles[0].isPrimary == true)
+        #expect(decoded.savedLocations.count == 1)
+        #expect(decoded.savedLocations[0].displayName == "Work")
+        #expect(decoded.savedLocations[0].locality == "SF")
+        #expect(decoded.settings.roadflarePaymentMethods == ["cash_app", "venmo"])
+        #expect(decoded.updatedAt == 1700000000)
+    }
+
+    @Test func profileBackupEmptyArrays() throws {
+        let json = """
+        {"vehicles":[],"savedLocations":[],"settings":{"roadflarePaymentMethods":[],"displayCurrency":"USD","distanceUnit":"MILES"},"updated_at":0}
+        """
+        let decoded = try JSONDecoder().decode(ProfileBackupContent.self, from: json.data(using: .utf8)!)
+        #expect(decoded.vehicles.isEmpty)
+        #expect(decoded.savedLocations.isEmpty)
+        #expect(decoded.settings.roadflarePaymentMethods.isEmpty)
+    }
+
+    @Test func settingsBackupContentDefaults() {
+        let settings = SettingsBackupContent()
+        #expect(settings.roadflarePaymentMethods.isEmpty)
+        #expect(settings.displayCurrency == "USD")
+        #expect(settings.distanceUnit == "MILES")
+    }
+
     // MARK: - RideHistoryEntry
 
     @Test func rideHistoryEntryCodable() throws {

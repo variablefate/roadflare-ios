@@ -10,7 +10,6 @@ struct SettingsTab: View {
     @State private var showEditProfile = false
     @State private var shareText = ""
     @State private var savedToPasswords = false
-    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
@@ -57,8 +56,9 @@ struct SettingsTab: View {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Payment Methods")
                             PaymentMethodPicker(settings: appState.settings)
-                                .onChange(of: appState.settings.paymentMethods) {
-                                    // Auto-publish backup when payment methods change
+                                .onChange(of: appState.settings.paymentMethods) { oldValue, newValue in
+                                    // Only publish if this was a user-initiated change, not a restore
+                                    guard oldValue != newValue, appState.authState == .ready else { return }
                                     Task { await appState.publishProfileBackup() }
                                 }
                         }
@@ -144,7 +144,7 @@ struct SettingsTab: View {
             }
             .sheet(isPresented: $showKeyBackup) { BackupKeySheet() }
             .sheet(isPresented: $showEditProfile) {
-                EditProfileSheet(isSaving: $isSaving)
+                EditProfileSheet()
             }
             .sheet(isPresented: $showShareSheet) {
                 if !shareText.isEmpty { ShareSheet(items: [shareText]) }
@@ -185,7 +185,11 @@ struct EditProfileSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var editedName = ""
-    @Binding var isSaving: Bool
+    @State private var saveState: SaveState = .idle
+
+    enum SaveState {
+        case idle, saving, saved
+    }
 
     var body: some View {
         NavigationStack {
@@ -251,20 +255,25 @@ struct EditProfileSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .foregroundColor(Color.rfOnSurfaceVariant)
+                        .disabled(saveState != .idle)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         save()
                     } label: {
-                        if isSaving {
+                        switch saveState {
+                        case .saving:
                             ProgressView().tint(Color.rfPrimary)
-                        } else {
+                        case .saved:
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(Color.rfOnline)
+                        case .idle:
                             Text("Save")
                                 .bold()
                                 .foregroundColor(hasChanges ? Color.rfPrimary : Color.rfOffline)
                         }
                     }
-                    .disabled(!hasChanges || isSaving)
+                    .disabled(!hasChanges || saveState != .idle)
                 }
             }
             .onAppear {
@@ -281,11 +290,12 @@ struct EditProfileSheet: View {
     private func save() {
         let trimmed = editedName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
-        isSaving = true
+        saveState = .saving
         appState.settings.profileName = trimmed
         Task {
             await appState.saveAndPublishSettings()
-            isSaving = false
+            saveState = .saved
+            try? await Task.sleep(for: .milliseconds(600))
             dismiss()
         }
     }
