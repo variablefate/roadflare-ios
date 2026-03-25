@@ -7,6 +7,7 @@ import CoreLocation
 final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var completion: ((CLLocation) -> Void)?
+    var permissionDenied = false
 
     override init() {
         super.init()
@@ -15,17 +16,21 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
     }
 
     /// Request a single location fix. Calls completion with the location.
-    /// Requests permission if not yet granted.
+    /// Requests permission if not yet granted. Sets permissionDenied if user denied.
     func requestLocation(completion: @escaping (CLLocation) -> Void) {
         self.completion = completion
+        permissionDenied = false
 
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
             manager.requestLocation()
-        default:
-            break
+        case .denied, .restricted:
+            permissionDenied = true
+            self.completion = nil
+        @unknown default:
+            self.completion = nil
         }
     }
 
@@ -47,10 +52,16 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
-            if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            switch manager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways:
                 if completion != nil {
                     manager.requestLocation()
                 }
+            case .denied, .restricted:
+                permissionDenied = true
+                completion = nil
+            default:
+                break
             }
         }
     }

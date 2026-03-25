@@ -63,7 +63,7 @@ public actor RelayManager: RelayManagerProtocol {
     }
 
     public func disconnect() async {
-        // Finish all subscription continuations via router
+        _handlerAlive = false
         notificationHandler?.removeAll()
         activeStreams.removeAll()
         notificationTask?.cancel()
