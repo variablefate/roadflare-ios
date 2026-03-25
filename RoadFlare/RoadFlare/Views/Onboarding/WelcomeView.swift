@@ -45,7 +45,7 @@ struct WelcomeView: View {
                             .foregroundColor(Color.rfOnSurface)
                         Text("Driver Network")
                             .font(.system(size: 34, weight: .bold))
-                            .foregroundColor(Color.rfPrimary)
+                            .foregroundColor(Color.rfOnSurface)
                     }
 
                     Text("Request rides from drivers you know and trust.")
@@ -61,7 +61,7 @@ struct WelcomeView: View {
                     bulletPoint("NO PLATFORM FEES")
                     bulletPoint("NO MIDDLEMAN")
                 }
-                .padding(.leading, 24)
+                .padding(.leading, 36)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
