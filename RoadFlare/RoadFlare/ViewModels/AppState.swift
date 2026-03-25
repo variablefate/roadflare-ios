@@ -36,6 +36,7 @@ final class AppState {
     private(set) var remoteConfigManager: RemoteConfigManager?
     let rideHistory = RideHistoryStore()
     let savedLocations = SavedLocationsStore()
+    let bitcoinPrice = BitcoinPriceService()
 
     // MARK: - User State
 
@@ -223,6 +224,7 @@ final class AppState {
         driversRepository = nil
         fareCalculator = nil
         remoteConfigManager = nil
+        bitcoinPrice.stop()
         authState = .loggedOut
     }
 
@@ -331,6 +333,7 @@ final class AppState {
         self.driversRepository = repo
         self.fareCalculator = FareCalculator()
         self.remoteConfigManager = RemoteConfigManager(relayManager: rm)
+        bitcoinPrice.start()
 
         do {
             AppLogger.auth.info(" Connecting to \(DefaultRelays.all.count) relays...")
@@ -348,7 +351,7 @@ final class AppState {
         let coordinator = RideCoordinator(
             relayManager: rm, keypair: keypair,
             driversRepository: repo, settings: settings,
-            rideHistory: rideHistory
+            rideHistory: rideHistory, bitcoinPrice: bitcoinPrice
         )
         self.rideCoordinator = coordinator
         AppLogger.auth.info("Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
