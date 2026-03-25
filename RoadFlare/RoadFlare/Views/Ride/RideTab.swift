@@ -419,17 +419,23 @@ struct RideTab: View {
     }
 
     /// Use the rider's current GPS location as the pickup address.
+    @State private var isLocating = false
+
     private func useCurrentLocation() {
+        isLocating = true
+        pickupAddress = "Finding your location..."
         locationManager.requestLocation { clLocation in
             Task {
                 let lat = clLocation.coordinate.latitude
                 let lon = clLocation.coordinate.longitude
+                resolvedPickupCoord = (lat, lon)
                 do {
                     let loc = try await mapKit.reverseGeocode(latitude: lat, longitude: lon)
                     pickupAddress = loc.address ?? String(format: "%.5f, %.5f", lat, lon)
                 } catch {
                     pickupAddress = String(format: "%.5f, %.5f", lat, lon)
                 }
+                isLocating = false
                 recalculateFare()
             }
         }
