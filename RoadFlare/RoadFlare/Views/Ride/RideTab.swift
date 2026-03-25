@@ -313,42 +313,30 @@ struct RideTab: View {
                                             .buttonStyle(.plain)
                                         }
 
-                                        // Recents
+                                        // Recents (swipe left to delete)
                                         ForEach(appState.savedLocations.recents) { loc in
-                                            HStack(spacing: 12) {
-                                                Button {
-                                                    fillNextAddress(loc)
-                                                } label: {
-                                                    HStack(spacing: 12) {
-                                                        Image(systemName: "clock")
-                                                            .foregroundColor(Color.rfOffline)
-                                                            .frame(width: 24)
-                                                        VStack(alignment: .leading, spacing: 2) {
-                                                            Text(loc.displayName)
-                                                                .font(RFFont.body(14))
-                                                                .foregroundColor(Color.rfOnSurface)
-                                                            Text(loc.addressLine)
-                                                                .font(RFFont.caption(12))
-                                                                .foregroundColor(Color.rfOnSurfaceVariant)
-                                                                .lineLimit(1)
-                                                        }
-                                                        Spacer()
-                                                    }
-                                                }
-                                                .buttonStyle(.plain)
-
-                                                // Delete recent
-                                                Button {
-                                                    withAnimation { appState.savedLocations.remove(id: loc.id) }
-                                                } label: {
-                                                    Image(systemName: "xmark")
-                                                        .font(.system(size: 12))
+                                            SwipeToDeleteRow {
+                                                fillNextAddress(loc)
+                                            } onDelete: {
+                                                withAnimation { appState.savedLocations.remove(id: loc.id) }
+                                            } content: {
+                                                HStack(spacing: 12) {
+                                                    Image(systemName: "clock")
                                                         .foregroundColor(Color.rfOffline)
-                                                        .frame(width: 36, height: 36)
-                                                        .contentShape(Rectangle())
+                                                        .frame(width: 24)
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(loc.displayName)
+                                                            .font(RFFont.body(14))
+                                                            .foregroundColor(Color.rfOnSurface)
+                                                        Text(loc.addressLine)
+                                                            .font(RFFont.caption(12))
+                                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                                            .lineLimit(1)
+                                                    }
+                                                    Spacer()
                                                 }
+                                                .rfCard(.low)
                                             }
-                                            .rfCard(.low)
                                         }
                                     }
                                 }

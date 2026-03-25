@@ -70,43 +70,35 @@ struct SavedLocationsView: View {
                             .rfCard(.low)
                         } else {
                             ForEach(appState.savedLocations.recents) { loc in
-                                HStack(spacing: 12) {
-                                    Image(systemName: "clock")
-                                        .foregroundColor(Color.rfOffline)
-                                        .frame(width: 24)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(loc.displayName)
-                                            .font(RFFont.body(14))
-                                            .foregroundColor(Color.rfOnSurface)
-                                        Text(loc.addressLine)
-                                            .font(RFFont.caption(12))
-                                            .foregroundColor(Color.rfOnSurfaceVariant)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer()
-
-                                    // Save as favorite
-                                    Button { editingLocation = loc } label: {
-                                        Image(systemName: "star")
+                                SwipeToDeleteRow {
+                                    editingLocation = loc
+                                } onDelete: {
+                                    withAnimation { appState.savedLocations.remove(id: loc.id) }
+                                } content: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "clock")
                                             .foregroundColor(Color.rfOffline)
-                                            .frame(width: 36, height: 36)
-                                            .contentShape(Rectangle())
-                                    }
-
-                                    // Delete
-                                    Button {
-                                        withAnimation {
-                                            appState.savedLocations.remove(id: loc.id)
+                                            .frame(width: 24)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(loc.displayName)
+                                                .font(RFFont.body(14))
+                                                .foregroundColor(Color.rfOnSurface)
+                                            Text(loc.addressLine)
+                                                .font(RFFont.caption(12))
+                                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                                .lineLimit(1)
                                         }
-                                    } label: {
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(Color.rfOffline)
-                                            .frame(width: 36, height: 36)
-                                            .contentShape(Rectangle())
+                                        Spacer()
+
+                                        Button { editingLocation = loc } label: {
+                                            Image(systemName: "star")
+                                                .foregroundColor(Color.rfOffline)
+                                                .frame(width: 36, height: 36)
+                                                .contentShape(Rectangle())
+                                        }
                                     }
+                                    .rfCard(.low)
                                 }
-                                .rfCard(.low)
                             }
                         }
                     }

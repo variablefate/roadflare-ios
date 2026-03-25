@@ -10,9 +10,20 @@ struct AppHeader: View {
 
     var body: some View {
         HStack {
-            Text(title)
-                .font(.largeTitle.bold())
-                .foregroundColor(Color.rfOnSurface)
+            if title == "RoadFlare" {
+                HStack(spacing: 0) {
+                    Text("Road")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(Color.rfOnSurface)
+                    Text("Flare")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(Color.rfPrimary)
+                }
+            } else {
+                Text(title)
+                    .font(.largeTitle.bold())
+                    .foregroundColor(Color.rfOnSurface)
+            }
 
             Spacer()
 
