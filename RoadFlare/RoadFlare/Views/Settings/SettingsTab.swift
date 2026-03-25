@@ -119,7 +119,10 @@ struct SettingsTab: View {
                             SectionLabel("About")
                             VStack(spacing: 0) {
                                 SettingsRow(icon: "info.circle", label: "Version", value: RidestrSDKVersion.version)
-                                SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
+                                Button { appState.selectedTab = 1 } label: {
+                                    SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
+                                }
+                                .buttonStyle(.plain)
                             }
                             .background(Color.rfSurfaceContainer)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
