@@ -11,8 +11,17 @@ struct SettingsTab: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.rfSurface.ignoresSafeArea()
+            VStack(spacing: 0) {
+                // Settings header (matching other tabs)
+                HStack {
+                    Text("Settings")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(Color.rfOnSurface)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
 
                 ScrollView {
                     VStack(spacing: 24) {
@@ -132,9 +141,8 @@ struct SettingsTab: View {
                     .padding(.bottom, 32)
                 }
             }
-            .navigationTitle("Settings")
-            .toolbarBackground(Color.rfSurface, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .background(Color.rfSurface)
+            .navigationBarHidden(true)
             .sheet(isPresented: $showKeyBackup) { BackupKeySheet() }
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showEditProfile) {
