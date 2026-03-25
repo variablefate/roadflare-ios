@@ -56,17 +56,17 @@ struct WelcomeView: View {
                     }
 
                     Button {
-                        generateTraditionalKey()
+                        showImport = true
                     } label: {
-                        Text(isPasskeyAvailable ? "Create Without Passkey" : "Create New Account")
+                        Text("Log In With Existing Account")
                     }
                     .buttonStyle(RFSecondaryButtonStyle())
                     .disabled(isLoading)
 
                     Button {
-                        showImport = true
+                        generateTraditionalKey()
                     } label: {
-                        Text("Log In With Existing Account")
+                        Text(isPasskeyAvailable ? "Create Without Passkey" : "Create New Account")
                     }
                     .buttonStyle(RFGhostButtonStyle())
                     .disabled(isLoading)
