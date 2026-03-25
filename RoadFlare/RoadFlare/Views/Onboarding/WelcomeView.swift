@@ -36,17 +36,17 @@ struct WelcomeView: View {
                         .foregroundColor(Color.rfOnSurfaceVariant)
                 }
 
-                VStack(spacing: 12) {
-                    Text("Request rides from drivers you know and trust.")
-                        .font(RFFont.body(15))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
+                Text("Request rides from drivers you know and trust.")
+                    .font(RFFont.body(15))
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(Color.rfOnSurfaceVariant)
+                    .padding(.horizontal, 32)
 
-                    Text("No strangers. No platform fees. No middleman.")
-                        .font(RFFont.body(15))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
-                }
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                Text("No strangers. No platform fees. No middleman.")
+                    .font(RFFont.body(15))
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(Color.rfOnSurfaceVariant)
+                    .padding(.horizontal, 32)
 
                 Spacer()
 
