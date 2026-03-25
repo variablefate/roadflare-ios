@@ -60,8 +60,8 @@ struct WelcomeView: View {
                 // Bullet points
                 VStack(alignment: .leading, spacing: 16) {
                     bulletPoint("NO STRANGERS")
-                    bulletPoint("NO PLATFORM FEES")
                     bulletPoint("NO MIDDLEMAN")
+                    bulletPoint("NO PLATFORM FEES")
                 }
                 .padding(.leading, 52)
                 .frame(maxWidth: .infinity, alignment: .leading)
