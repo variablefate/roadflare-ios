@@ -26,12 +26,15 @@ struct RideTab: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.rfSurface.ignoresSafeArea()
+            VStack(spacing: 0) {
+                AppHeader(title: "RoadFlare", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
 
-                switch stage {
-                case .idle:
-                    idleView
+                ZStack {
+                    Color.rfSurface.ignoresSafeArea()
+
+                    switch stage {
+                    case .idle:
+                        idleView
                 default:
                     RideStatusCard(
                         stage: stage,
@@ -49,9 +52,10 @@ struct RideTab: View {
                     )
                     .environment(\.ridestrTheme, roadFlareTheme)
                 }
+                }
             }
-            .navigationTitle("")
-            .appToolbar(title: "RoadFlare", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+            .background(Color.rfSurface)
+            .navigationBarHidden(true)
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showChat) { WiredChatView() }

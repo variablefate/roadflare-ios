@@ -9,10 +9,13 @@ struct HistoryTab: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.rfSurface.ignoresSafeArea()
+            VStack(spacing: 0) {
+                AppHeader(title: "History", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
 
-                if appState.rideHistory.rides.isEmpty {
+                ZStack {
+                    Color.rfSurface
+
+                    if appState.rideHistory.rides.isEmpty {
                     VStack(spacing: 24) {
                         Image(systemName: "clock")
                             .font(.system(size: 48))
@@ -36,8 +39,9 @@ struct HistoryTab: View {
                     }
                 }
             }
-            .navigationTitle("")
-            .appToolbar(title: "History", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+            }
+            .background(Color.rfSurface)
+            .navigationBarHidden(true)
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .task {

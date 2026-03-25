@@ -12,10 +12,13 @@ struct DriversTab: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color.rfSurface.ignoresSafeArea()
+            VStack(spacing: 0) {
+                AppHeader(title: "My Drivers", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
 
-                if let repo = appState.driversRepository, repo.hasDrivers {
+                ZStack {
+                    Color.rfSurface
+
+                    if let repo = appState.driversRepository, repo.hasDrivers {
                     ScrollView {
                         VStack(spacing: 16) {
                             // Sorted: online first, then on_ride, then offline
@@ -86,9 +89,10 @@ struct DriversTab: View {
                             .padding(.horizontal, 48)
                     }
                 }
+                }
             }
-            .navigationTitle("")
-            .appToolbar(title: "My Drivers", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+            .background(Color.rfSurface)
+            .navigationBarHidden(true)
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
             .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
