@@ -213,7 +213,7 @@ struct AddDriverSheet: View {
 
                 // Add button
                 Button { addDriver(hexPubkey: hexPubkey) } label: {
-                    Label("Add to My Drivers", systemImage: "person.badge.plus")
+                    Label("Add to Favorite Drivers", systemImage: "person.badge.plus")
                 }
                 .buttonStyle(RFPrimaryButtonStyle())
             }

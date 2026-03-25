@@ -13,7 +13,7 @@ struct DriversTab: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                AppHeader(title: "My Drivers", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+                AppHeader(title: "Favorite Drivers", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
 
                 ZStack {
                     Color.rfSurface

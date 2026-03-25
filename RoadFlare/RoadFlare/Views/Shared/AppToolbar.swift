@@ -19,6 +19,15 @@ struct AppHeader: View {
                         .font(.system(size: 38, weight: .bold))
                         .foregroundColor(Color.rfPrimary)
                 }
+            } else if title == "Favorite Drivers" {
+                HStack(spacing: 8) {
+                    Text("Favorite")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(Color.rfOnSurface)
+                    Text("Drivers")
+                        .font(.largeTitle.bold())
+                        .foregroundColor(Color.rfPrimary)
+                }
             } else {
                 Text(title)
                     .font(.largeTitle.bold())
