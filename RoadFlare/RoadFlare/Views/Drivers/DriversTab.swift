@@ -1,12 +1,11 @@
 import SwiftUI
+import UIKit
 import RidestrSDK
 
 struct DriversTab: View {
     @Environment(AppState.self) private var appState
     @State private var showAddDriver = false
     @State private var selectedDriver: FollowedDriver?
-    @State private var shareText: String?
-    @State private var showShareSheet = false
     @State private var showProfile = false
 
     var body: some View {
@@ -100,9 +99,6 @@ struct DriversTab: View {
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
             .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
-            .sheet(isPresented: $showShareSheet) {
-                if let shareText { ShareSheet(items: [shareText]) }
-            }
             .refreshable {
                 await refreshDrivers()
             }
@@ -110,12 +106,15 @@ struct DriversTab: View {
     }
 
     private func shareDriver(_ driver: FollowedDriver) {
-        if let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) {
-            let name = appState.driversRepository?.driverNames[driver.pubkey] ?? ""
-            let nameParam = name.isEmpty ? "" : "?name=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)"
-            shareText = "nostr:\(npub)\(nameParam)"
-            showShareSheet = true
-        }
+        guard let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) else { return }
+        let name = appState.driversRepository?.driverNames[driver.pubkey] ?? ""
+        let nameParam = name.isEmpty ? "" : "?name=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)"
+        let text = "nostr:\(npub)\(nameParam)"
+
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = windowScene.keyWindow?.rootViewController else { return }
+        let vc = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        root.present(vc, animated: true)
     }
 
     private func refreshDrivers() async {
