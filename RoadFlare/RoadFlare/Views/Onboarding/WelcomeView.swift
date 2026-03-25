@@ -37,11 +37,16 @@ struct WelcomeView: View {
                         .foregroundStyle(.black)
                 }
 
-                // Subtitle (large, like navigation titles)
+                // Subtitle
                 VStack(spacing: 8) {
-                    Text("Your personal driver network")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(Color.rfOnSurface)
+                    VStack(spacing: -4) {
+                        Text("Your Personal")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(Color.rfOnSurface)
+                        Text("Driver Network")
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundColor(Color.rfPrimary)
+                    }
 
                     Text("Request rides from drivers you know and trust.")
                         .font(RFFont.body(15))
@@ -56,7 +61,8 @@ struct WelcomeView: View {
                     bulletPoint("NO PLATFORM FEES")
                     bulletPoint("NO MIDDLEMAN")
                 }
-                .padding(.horizontal, 48)
+                .padding(.leading, 24)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
 
