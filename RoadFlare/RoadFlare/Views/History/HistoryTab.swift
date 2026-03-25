@@ -3,6 +3,9 @@ import RidestrSDK
 
 struct HistoryTab: View {
     @Environment(AppState.self) private var appState
+    @State private var showProfile = false
+    @State private var showConnectivity = false
+    @State private var isOffline = false
 
     var body: some View {
         NavigationStack {
@@ -33,9 +36,16 @@ struct HistoryTab: View {
                     }
                 }
             }
-            .navigationTitle("History")
-            .toolbarBackground(Color.rfSurface, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationTitle("")
+            .appToolbar(title: "History", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+            .sheet(isPresented: $showProfile) { EditProfileSheet() }
+            .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
+            .task {
+                while !Task.isCancelled {
+                    if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
+                    try? await Task.sleep(for: .seconds(10))
+                }
+            }
         }
     }
 }

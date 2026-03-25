@@ -17,6 +17,9 @@ struct RideTab: View {
     @State private var mapKit = MapKitServices()
     @State private var locationManager = RiderLocationManager()
     @State private var fareCalcTask: Task<Void, Never>?
+    @State private var showProfile = false
+    @State private var showConnectivity = false
+    @State private var isOffline = false
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }
@@ -47,10 +50,12 @@ struct RideTab: View {
                     .environment(\.ridestrTheme, roadFlareTheme)
                 }
             }
-            .navigationTitle("RoadFlare")
-            .toolbarBackground(Color.rfSurface, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationTitle("")
+            .appToolbar(title: "RoadFlare", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+            .sheet(isPresented: $showProfile) { EditProfileSheet() }
+            .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showChat) { WiredChatView() }
+            .task { await monitorConnection() }
             .onAppear {
                 // Pick up driver selection from DriverDetailSheet navigation
                 if let pubkey = appState.requestRideDriverPubkey {
@@ -395,6 +400,13 @@ struct RideTab: View {
                 driverPubkey: driverPubkey, pickup: pickup,
                 destination: destination, fareEstimate: fare
             )
+        }
+    }
+
+    private func monitorConnection() async {
+        while !Task.isCancelled {
+            if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
+            try? await Task.sleep(for: .seconds(10))
         }
     }
 }

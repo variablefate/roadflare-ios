@@ -6,6 +6,8 @@ struct DriversTab: View {
     @State private var showAddDriver = false
     @State private var selectedDriver: FollowedDriver?
     @State private var showProfile = false
+    @State private var showConnectivity = false
+    @State private var isOffline = false
     @State private var sharingDriver: FollowedDriver?
 
     var body: some View {
@@ -23,7 +25,7 @@ struct DriversTab: View {
                                     repo: repo,
                                     onRequest: {
                                         appState.requestRideDriverPubkey = driver.pubkey
-                                        appState.selectedTab = 1
+                                        appState.selectedTab = 0  // RoadFlare tab
                                     },
                                     onShare: { shareDriver(driver) },
                                     onDelete: { removeDriver(driver) },
@@ -85,17 +87,9 @@ struct DriversTab: View {
                     }
                 }
             }
-            .navigationTitle("My Drivers")
-            .toolbarBackground(Color.rfSurface, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showProfile = true } label: {
-                        Image(systemName: "person.crop.circle")
-                            .foregroundColor(Color.rfPrimary)
-                    }
-                }
-            }
+            .navigationTitle("")
+            .appToolbar(title: "My Drivers", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
+            .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
             .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
@@ -108,6 +102,12 @@ struct DriversTab: View {
             }
             .refreshable {
                 await refreshDrivers()
+            }
+            .task {
+                while !Task.isCancelled {
+                    if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
+                    try? await Task.sleep(for: .seconds(10))
+                }
             }
         }
     }

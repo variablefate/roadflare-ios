@@ -7,6 +7,7 @@ struct ConnectivitySheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var isConnected = false
+    @State private var isReconnecting = false
 
     var body: some View {
         NavigationStack {
@@ -73,6 +74,36 @@ struct ConnectivitySheet: View {
                         .padding(16)
                         .background(Color.rfSurfaceContainer)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                        // Reconnect button
+                        if !isConnected {
+                            Button {
+                                isReconnecting = true
+                                Task {
+                                    await appState.relayManager?.reconnectIfNeeded()
+                                    appState.rideCoordinator?.startLocationSubscriptions()
+                                    appState.rideCoordinator?.startKeyShareSubscription()
+                                    if let rm = appState.relayManager { isConnected = await rm.isConnected }
+                                    isReconnecting = false
+                                }
+                            } label: {
+                                if isReconnecting {
+                                    ProgressView()
+                                        .tint(Color.rfPrimary)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 14)
+                                } else {
+                                    Label("Reconnect", systemImage: "arrow.clockwise")
+                                        .font(RFFont.title(16))
+                                        .foregroundColor(.black)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 14)
+                                        .background(Color.rfPrimary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                }
+                            }
+                            .disabled(isReconnecting)
+                        }
 
                         Spacer()
                     }
