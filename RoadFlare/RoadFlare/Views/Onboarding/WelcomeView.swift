@@ -3,6 +3,7 @@ import RidestrSDK
 
 struct WelcomeView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.openURL) private var openURL
     @State private var passkeyManager = PasskeyManager()
     @State private var showImport = false
     @State private var importText = ""
@@ -43,9 +44,11 @@ struct WelcomeView: View {
                     VStack(spacing: -4) {
                         Text("Your Personal")
                             .font(.system(size: 34, weight: .bold))
+                            .tracking(-0.5)
                             .foregroundColor(Color.rfOnSurface)
                         Text("Driver Network")
                             .font(.system(size: 34, weight: .bold))
+                            .tracking(-0.5)
                             .foregroundColor(Color.rfOnSurface)
                     }
 
@@ -109,6 +112,8 @@ struct WelcomeView: View {
                         .padding(.horizontal, 24)
                 }
 
+                legalText
+
                 Spacer().frame(height: 20)
             }
         }
@@ -117,6 +122,16 @@ struct WelcomeView: View {
                 importKey()
             }
         }
+    }
+
+    private var legalText: some View {
+        Text("By continuing, you accept the [Terms of Service](https://roadflare.app/terms) and [Privacy Policy](https://roadflare.app/privacy)")
+            .font(RFFont.caption(11))
+            .foregroundColor(Color.rfOffline)
+            .tint(Color.rfOnSurfaceVariant)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 24)
     }
 
     private func bulletPoint(_ text: String) -> some View {

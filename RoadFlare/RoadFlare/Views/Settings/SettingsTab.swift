@@ -60,40 +60,36 @@ struct SettingsTab: View {
                             }
                             .buttonStyle(.plain)
 
-                            // Backup & Recovery
+                            // Backup & Saved Locations (combined card)
                             VStack(spacing: 0) {
                                 SettingsButton(icon: "key", label: "Backup & Recovery") {
                                     showKeyBackup = true
                                 }
+                                NavigationLink {
+                                    SavedLocationsView()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "mappin.and.ellipse")
+                                            .frame(width: 20)
+                                            .foregroundColor(Color.rfPrimary)
+                                        Text("Saved Locations")
+                                            .font(RFFont.body(15))
+                                            .foregroundColor(Color.rfOnSurface)
+                                        Spacer()
+                                        Text("\(appState.savedLocations.favorites.count) favorites")
+                                            .font(RFFont.caption(12))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundColor(Color.rfOffline)
+                                    }
+                                    .padding(16)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
                             }
                             .background(Color.rfSurfaceContainer)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                            // Saved Locations
-                            NavigationLink {
-                                SavedLocationsView()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .frame(width: 20)
-                                        .foregroundColor(Color.rfPrimary)
-                                    Text("Saved Locations")
-                                        .font(RFFont.body(15))
-                                        .foregroundColor(Color.rfOnSurface)
-                                    Spacer()
-                                    Text("\(appState.savedLocations.favorites.count) favorites")
-                                        .font(RFFont.caption(12))
-                                        .foregroundColor(Color.rfOnSurfaceVariant)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundColor(Color.rfOffline)
-                                }
-                                .padding(16)
-                                .background(Color.rfSurfaceContainer)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
                         }
 
                         // Payment
@@ -141,7 +137,28 @@ struct SettingsTab: View {
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("About")
                             VStack(spacing: 0) {
-                                SettingsRow(icon: "info.circle", label: "Version", value: RidestrSDKVersion.version)
+                                NavigationLink {
+                                    AppInfoScreen()
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "info.circle")
+                                            .frame(width: 20)
+                                            .foregroundColor(Color.rfPrimary)
+                                        Text("App Info")
+                                            .font(RFFont.body(15))
+                                            .foregroundColor(Color.rfOnSurface)
+                                        Spacer()
+                                        Text("Version \(RidestrSDKVersion.version)")
+                                            .font(RFFont.body(14))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption)
+                                            .foregroundColor(Color.rfOffline)
+                                    }
+                                    .padding(16)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
                                 Button { appState.selectedTab = 1 } label: {
                                     SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
                                         .contentShape(Rectangle())
