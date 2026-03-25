@@ -54,6 +54,10 @@ public protocol RelayManagerProtocol: Sendable {
 
     /// Whether at least one relay is connected.
     var isConnected: Bool { get async }
+
+    /// Reconnect to relays if the notification handler died.
+    /// Callers must restart subscriptions after this returns.
+    func reconnectIfNeeded() async
 }
 
 // MARK: - Retry Extension

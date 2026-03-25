@@ -198,6 +198,15 @@ final class AppState {
         }
     }
 
+    /// Called when app returns to foreground. Reconnects relays and restarts subscriptions if needed.
+    func handleForeground() async {
+        guard authState == .ready, let rm = relayManager, let coordinator = rideCoordinator else { return }
+        await rm.reconnectIfNeeded()
+        // Restart subscriptions (they terminate when relay disconnects)
+        coordinator.startLocationSubscriptions()
+        coordinator.startKeyShareSubscription()
+    }
+
     /// Log out: clear all data.
     func logout() async {
         await rideCoordinator?.stopAll()

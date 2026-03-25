@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 import RidestrSDK
 import RidestrUI
 
@@ -12,6 +13,7 @@ struct RideTab: View {
     @State private var isCalculatingFare = false
     @State private var fareError: String?
     @State private var mapKit = MapKitServices()
+    @State private var locationManager = RiderLocationManager()
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }
@@ -160,7 +162,9 @@ struct RideTab: View {
                                         icon: "circle.fill",
                                         iconColor: .rfOnline,
                                         text: $pickupAddress,
-                                        onSelect: { _ in }
+                                        onSelect: { _ in recalculateFare() },
+                                        showCurrentLocation: true,
+                                        onUseCurrentLocation: { useCurrentLocation() }
                                     )
 
                                     Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
@@ -170,15 +174,24 @@ struct RideTab: View {
                                         icon: "circle.fill",
                                         iconColor: .rfPrimary,
                                         text: $destinationAddress,
-                                        onSelect: { _ in }
+                                        onSelect: { _ in recalculateFare() }
                                     )
                                 }
                                 .background(Color.rfSurfaceContainer)
                                 .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                                if let fare = coordinator?.currentFareEstimate {
+                                if isCalculatingFare {
                                     HStack {
-                                        Text(String(format: "%.1f mi", fare.distanceMiles))
+                                        ProgressView().tint(Color.rfPrimary)
+                                        Text("Calculating fare...")
+                                            .font(RFFont.body(14))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                        Spacer()
+                                    }
+                                    .rfCard(.high)
+                                } else if let fare = coordinator?.currentFareEstimate {
+                                    HStack {
+                                        Text(String(format: "%.1f mi · %.0f min", fare.distanceMiles, fare.durationMinutes))
                                             .font(RFFont.caption())
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Spacer()
@@ -204,14 +217,10 @@ struct RideTab: View {
                                 }
 
                                 Button { sendOffer() } label: {
-                                    if isCalculatingFare {
-                                        ProgressView().tint(.black)
-                                    } else {
-                                        Text("Send RoadFlare Request")
-                                    }
+                                    Text("Send RoadFlare Request")
                                 }
-                                .buttonStyle(RFPrimaryButtonStyle(isDisabled: pickupAddress.isEmpty || destinationAddress.isEmpty))
-                                .disabled(pickupAddress.isEmpty || destinationAddress.isEmpty || isCalculatingFare)
+                                .buttonStyle(RFPrimaryButtonStyle(isDisabled: coordinator?.currentFareEstimate == nil))
+                                .disabled(coordinator?.currentFareEstimate == nil || isCalculatingFare)
                             }
                         }
                     }
@@ -241,10 +250,29 @@ struct RideTab: View {
 
     // MARK: - Actions
 
-    private func sendOffer() {
-        guard !isCalculatingFare else { return }  // Prevent double-tap
-        guard let driverPubkey = selectedDriverPubkey,
-              let calculator = appState.fareCalculator else { return }
+    /// Use the rider's current GPS location as the pickup address.
+    private func useCurrentLocation() {
+        locationManager.requestLocation { clLocation in
+            Task {
+                let lat = clLocation.coordinate.latitude
+                let lon = clLocation.coordinate.longitude
+                do {
+                    let loc = try await mapKit.reverseGeocode(latitude: lat, longitude: lon)
+                    pickupAddress = loc.address ?? String(format: "%.5f, %.5f", lat, lon)
+                } catch {
+                    pickupAddress = String(format: "%.5f, %.5f", lat, lon)
+                }
+                recalculateFare()
+            }
+        }
+    }
+
+    /// Auto-calculate fare when addresses are selected. Shows fare card before sending.
+    private func recalculateFare() {
+        guard !pickupAddress.isEmpty, !destinationAddress.isEmpty else { return }
+        guard let calculator = appState.fareCalculator else { return }
+        guard !isCalculatingFare else { return }
+        coordinator?.currentFareEstimate = nil
         isCalculatingFare = true; fareError = nil
         Task {
             do {
@@ -256,11 +284,26 @@ struct RideTab: View {
                 }
                 let fare = try await mapKit.estimateFare(from: pickup, to: destination, calculator: calculator)
                 coordinator?.currentFareEstimate = fare
-                await coordinator?.sendRideOffer(driverPubkey: driverPubkey, pickup: pickup, destination: destination, fareEstimate: fare)
+                coordinator?.pickupLocation = pickup
+                coordinator?.destinationLocation = destination
             } catch {
                 fareError = "Route calculation failed. Check addresses."
             }
             isCalculatingFare = false
+        }
+    }
+
+    /// Send ride offer using the pre-calculated fare.
+    private func sendOffer() {
+        guard let driverPubkey = selectedDriverPubkey,
+              let fare = coordinator?.currentFareEstimate,
+              let pickup = coordinator?.pickupLocation,
+              let destination = coordinator?.destinationLocation else { return }
+        Task {
+            await coordinator?.sendRideOffer(
+                driverPubkey: driverPubkey, pickup: pickup,
+                destination: destination, fareEstimate: fare
+            )
         }
     }
 }

@@ -1,13 +1,17 @@
 import SwiftUI
 import MapKit
+import CoreLocation
 
 /// Address search field with MKLocalSearchCompleter autocomplete.
+/// Optionally shows "Use My Current Location" as the first dropdown item.
 struct AddressSearchField: View {
     let placeholder: String
     let icon: String
     let iconColor: Color
     @Binding var text: String
     let onSelect: (String) -> Void
+    var showCurrentLocation: Bool = false
+    var onUseCurrentLocation: (() -> Void)? = nil
 
     @State private var completer = AddressCompleter()
     @State private var showSuggestions = false
@@ -23,10 +27,10 @@ struct AddressSearchField: View {
                     .focused($isFocused)
                     .onChange(of: text) {
                         completer.search(text)
-                        showSuggestions = isFocused && !text.isEmpty
+                        showSuggestions = isFocused
                     }
                     .onChange(of: isFocused) {
-                        showSuggestions = isFocused && !text.isEmpty
+                        showSuggestions = isFocused
                     }
 
                 if !text.isEmpty {
@@ -38,9 +42,38 @@ struct AddressSearchField: View {
             }
             .padding(14)
 
-            if showSuggestions && !completer.results.isEmpty {
+            if showSuggestions {
                 VStack(spacing: 0) {
                     Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1)
+
+                    // "Use My Current Location" button (pickup field only)
+                    if showCurrentLocation, let onUseCurrentLocation {
+                        Button {
+                            onUseCurrentLocation()
+                            showSuggestions = false
+                            isFocused = false
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: "location.fill")
+                                    .foregroundColor(Color.rfPrimary)
+                                    .frame(width: 20)
+                                Text("Use My Current Location")
+                                    .font(RFFont.body(14))
+                                    .foregroundColor(Color.rfPrimary)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if !completer.results.isEmpty {
+                            Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1)
+                        }
+                    }
+
+                    // Search suggestions
                     ForEach(completer.results.prefix(4), id: \.self) { result in
                         Button {
                             text = [result.title, result.subtitle].filter { !$0.isEmpty }.joined(separator: ", ")
@@ -72,7 +105,6 @@ struct AddressSearchField: View {
 }
 
 /// MKLocalSearchCompleter wrapper for SwiftUI.
-/// Delegate callbacks dispatch to main thread for safe @Observable updates.
 @Observable
 class AddressCompleter: NSObject, MKLocalSearchCompleterDelegate {
     var results: [MKLocalSearchCompletion] = []
@@ -93,7 +125,6 @@ class AddressCompleter: NSObject, MKLocalSearchCompleterDelegate {
     }
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-        // MKLocalSearchCompleter calls delegate on main thread
         results = completer.results
     }
 

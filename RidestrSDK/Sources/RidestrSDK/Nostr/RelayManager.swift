@@ -42,13 +42,16 @@ public actor RelayManager: RelayManagerProtocol {
         let router = NotificationRouter()
         self.notificationHandler = router
         let clientRef = newClient
-        notificationTask = Task.detached { [router] in
+        notificationTask = Task.detached { [weak self, router] in
             do {
                 try await clientRef.handleNotifications(handler: router)
             } catch {
-                // handleNotifications only returns on disconnect or error
                 RidestrLogger.error("[RelayManager] Notification handler stopped: \(error)")
             }
+            // handleNotifications exited — relay disconnected.
+            // Finish all continuations so AsyncStream consumers exit their for-await loops.
+            router.removeAll()
+            RidestrLogger.error("[RelayManager] All subscription streams terminated due to disconnect")
         }
     }
 
@@ -68,6 +71,37 @@ public actor RelayManager: RelayManagerProtocol {
 
     public var isConnected: Bool {
         client != nil && !connectedRelayURLs.isEmpty
+    }
+
+    /// Reconnect to relays if disconnected. Call from app foreground handler.
+    /// Does NOT restart subscriptions — callers must re-subscribe after this returns.
+    public func reconnectIfNeeded() async {
+        guard let client else { return }
+
+        // Check if notification handler is still alive
+        let handlerDead = notificationTask == nil || notificationTask?.isCancelled == true
+
+        if handlerDead && !connectedRelayURLs.isEmpty {
+            RidestrLogger.error("[RelayManager] Reconnecting — notification handler died")
+            await client.connect()
+            try? await Task.sleep(for: .seconds(1))
+
+            // Restart notification handler
+            let router = NotificationRouter()
+            self.notificationHandler = router
+            let clientRef = client
+            notificationTask = Task.detached { [weak self, router] in
+                do {
+                    try await clientRef.handleNotifications(handler: router)
+                } catch {
+                    RidestrLogger.error("[RelayManager] Notification handler stopped: \(error)")
+                }
+                router.removeAll()
+            }
+
+            // Clear old stream mappings — callers must re-subscribe
+            activeStreams.removeAll()
+        }
     }
 
     // MARK: - Publishing

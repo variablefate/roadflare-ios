@@ -88,6 +88,10 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
         lock.withLock { _isConnected }
     }
 
+    public func reconnectIfNeeded() async {
+        // No-op in fake — tests control connection state directly
+    }
+
     public func publish(_ event: NostrEvent) async throws -> String {
         if shouldFailPublish {
             throw RidestrError.relay(.notConnected)
