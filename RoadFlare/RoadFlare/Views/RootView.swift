@@ -12,6 +12,9 @@ struct RootView: View {
         case .loggedOut:
             WelcomeView()
 
+        case .syncing:
+            SyncScreen()
+
         case .profileIncomplete:
             ProfileSetupView()
 

@@ -6,6 +6,7 @@ import RidestrSDK
 enum AuthState {
     case loading
     case loggedOut
+    case syncing  // Restoring data from Nostr after key import
     case profileIncomplete
     case paymentSetup
     case ready
@@ -42,6 +43,13 @@ final class AppState {
 
     private(set) var keypair: NostrKeypair?
     let settings = UserSettings()
+
+    // MARK: - Sync State (for import flow UI)
+
+    var syncStatus: String = ""
+    var syncRestoredDrivers: Int = 0
+    var syncRestoredLocations: Int = 0
+    var syncRestoredName: Bool = false
 
     // MARK: - Storage
 
@@ -81,7 +89,7 @@ final class AppState {
         authState = .profileIncomplete
     }
 
-    /// Import an existing key from nsec or hex.
+    /// Import an existing key from nsec or hex. Shows sync screen during restore.
     func importKey(_ input: String) async throws {
         guard let km = keyManager else { return }
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -92,8 +100,16 @@ final class AppState {
             kp = try await km.importHex(trimmed)
         }
         keypair = kp
-        await setupServices(keypair: kp)
-        // Imported keys — check if they already completed setup
+
+        // Show sync screen
+        syncRestoredDrivers = 0
+        syncRestoredLocations = 0
+        syncRestoredName = false
+        authState = .syncing
+
+        await setupServicesWithSync(keypair: kp)
+
+        // After sync, navigate based on whether profile was already completed
         if settings.profileCompleted {
             authState = .ready
         } else {
@@ -323,6 +339,64 @@ final class AppState {
             }
         } catch {
             AppLogger.auth.info("Driver profile fetch failed (non-fatal): \(error)")
+        }
+    }
+
+    /// Setup with sync status updates for the import flow UI.
+    private func setupServicesWithSync(keypair: NostrKeypair) async {
+        let rm = RelayManager(keypair: keypair)
+        self.relayManager = rm
+        let repo = FollowedDriversRepository(persistence: driversPersistence)
+        self.driversRepository = repo
+        self.fareCalculator = FareCalculator()
+        self.remoteConfigManager = RemoteConfigManager(relayManager: rm)
+        bitcoinPrice.start()
+
+        // Connect
+        syncStatus = "Connecting to relays..."
+        do {
+            try await rm.connect(to: DefaultRelays.all)
+        } catch {
+            syncStatus = "Connection failed — continuing..."
+            try? await Task.sleep(for: .seconds(1))
+        }
+
+        // Restore profile
+        syncStatus = "Restoring your profile..."
+        await fetchOwnProfile(rm: rm, keypair: keypair)
+        syncRestoredName = !settings.profileName.isEmpty
+
+        // Restore followed drivers
+        syncStatus = "Restoring your drivers..."
+        await fetchFollowedDrivers(rm: rm, keypair: keypair, repo: repo)
+        syncRestoredDrivers = repo.drivers.count
+
+        // Restore settings & saved locations from backup
+        syncStatus = "Restoring settings..."
+        await fetchProfileBackup(rm: rm, keypair: keypair)
+        syncRestoredLocations = savedLocations.favorites.count
+
+        // Fetch driver profiles
+        syncStatus = "Loading driver info..."
+        await fetchDriverProfiles(relayManager: rm, driversRepository: repo)
+
+        syncStatus = "Done!"
+        try? await Task.sleep(for: .seconds(1))
+
+        // Set up coordinator and subscriptions
+        let coordinator = RideCoordinator(
+            relayManager: rm, keypair: keypair,
+            driversRepository: repo, settings: settings,
+            rideHistory: rideHistory, bitcoinPrice: bitcoinPrice
+        )
+        self.rideCoordinator = coordinator
+        coordinator.startLocationSubscriptions()
+        coordinator.startKeyShareSubscription()
+
+        if repo.hasDrivers {
+            async let _publish: () = coordinator.publishFollowedDriversList()
+            async let _staleCheck: () = coordinator.checkForStaleKeys()
+            _ = await (_publish, _staleCheck)
         }
     }
 
