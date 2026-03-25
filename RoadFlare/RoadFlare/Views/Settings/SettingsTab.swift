@@ -25,9 +25,11 @@ struct SettingsTab: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
-                        // Profile Card (tappable → edit sheet)
+                        // Account (profile + backup + saved locations)
                         VStack(alignment: .leading, spacing: 12) {
-                            SectionLabel("Profile")
+                            SectionLabel("Account")
+
+                            // Profile card
                             Button { showEditProfile = true } label: {
                                 HStack(spacing: 14) {
                                     ZStack {
@@ -38,12 +40,53 @@ struct SettingsTab: View {
                                             .font(.system(size: 20))
                                             .foregroundColor(Color.rfPrimary)
                                     }
-                                    Text(appState.settings.profileName.isEmpty ? "Set your name" : appState.settings.profileName)
-                                        .font(RFFont.title(16))
-                                        .foregroundColor(appState.settings.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(appState.settings.profileName.isEmpty ? "Set your name" : appState.settings.profileName)
+                                            .font(RFFont.title(16))
+                                            .foregroundColor(appState.settings.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
+                                        Text("Edit Profile")
+                                            .font(RFFont.caption(12))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                    }
                                     Spacer()
-                                    Image(systemName: "pencil")
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(Color.rfOffline)
+                                }
+                                .padding(16)
+                                .background(Color.rfSurfaceContainer)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            // Backup & Recovery
+                            VStack(spacing: 0) {
+                                SettingsButton(icon: "key", label: "Backup & Recovery") {
+                                    showKeyBackup = true
+                                }
+                            }
+                            .background(Color.rfSurfaceContainer)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                            // Saved Locations
+                            NavigationLink {
+                                SavedLocationsView()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "mappin.and.ellipse")
+                                        .frame(width: 20)
+                                        .foregroundColor(Color.rfPrimary)
+                                    Text("Saved Locations")
+                                        .font(RFFont.body(15))
+                                        .foregroundColor(Color.rfOnSurface)
+                                    Spacer()
+                                    Text("\(appState.savedLocations.favorites.count) favorites")
+                                        .font(RFFont.caption(12))
                                         .foregroundColor(Color.rfOnSurfaceVariant)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(Color.rfOffline)
                                 }
                                 .padding(16)
                                 .background(Color.rfSurfaceContainer)
@@ -80,45 +123,6 @@ struct SettingsTab: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                        }
-
-                        // Saved Locations
-                        VStack(alignment: .leading, spacing: 12) {
-                            NavigationLink {
-                                SavedLocationsView()
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "mappin.and.ellipse")
-                                        .frame(width: 20)
-                                        .foregroundColor(Color.rfPrimary)
-                                    Text("Saved Locations")
-                                        .font(RFFont.body(15))
-                                        .foregroundColor(Color.rfOnSurface)
-                                    Spacer()
-                                    Text("\(appState.savedLocations.favorites.count) favorites")
-                                        .font(RFFont.caption(12))
-                                        .foregroundColor(Color.rfOnSurfaceVariant)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundColor(Color.rfOffline)
-                                }
-                                .padding(16)
-                                .background(Color.rfSurfaceContainer)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        // Account
-                        VStack(alignment: .leading, spacing: 12) {
-                            SectionLabel("Account")
-                            VStack(spacing: 0) {
-                                SettingsButton(icon: "key", label: "Backup & Recovery") {
-                                    showKeyBackup = true
-                                }
-                            }
-                            .background(Color.rfSurfaceContainer)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
 
                         // Advanced
