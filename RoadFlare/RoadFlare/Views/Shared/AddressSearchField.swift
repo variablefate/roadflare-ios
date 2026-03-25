@@ -16,6 +16,8 @@ struct AddressSearchField: View {
     var onResolvedLocation: ((Double, Double) -> Void)? = nil
     var showCurrentLocation: Bool = false
     var onUseCurrentLocation: (() -> Void)? = nil
+    /// Saved locations (favorites + recents) shown before autocomplete results.
+    var savedLocations: [(name: String, address: String, lat: Double, lon: Double)] = []
 
     @State private var completer = AddressCompleter()
     @State private var showSuggestions = false
@@ -74,6 +76,44 @@ struct AddressSearchField: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+
+                        if !completer.results.isEmpty {
+                            Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1)
+                        }
+                    }
+
+                    // Saved locations (favorites + recents)
+                    if completer.results.isEmpty && !savedLocations.isEmpty {
+                        ForEach(savedLocations.prefix(5), id: \.name) { loc in
+                            Button {
+                                text = loc.address.isEmpty ? loc.name : loc.address
+                                showSuggestions = false
+                                isFocused = false
+                                onResolvedLocation?(loc.lat, loc.lon)
+                                onSelect(text)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "clock.arrow.circlepath")
+                                        .foregroundColor(Color.rfOffline)
+                                        .frame(width: 20)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(loc.name)
+                                            .font(RFFont.body(14))
+                                            .foregroundColor(Color.rfOnSurface)
+                                        if !loc.address.isEmpty && loc.address != loc.name {
+                                            Text(loc.address)
+                                                .font(RFFont.caption(11))
+                                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
 
                         if !completer.results.isEmpty {
                             Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1)

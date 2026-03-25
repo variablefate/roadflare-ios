@@ -169,7 +169,8 @@ struct RideTab: View {
                                             onSelect: { _ in recalculateFare() },
                                             onResolvedLocation: { lat, lon in resolvedPickupCoord = (lat, lon) },
                                             showCurrentLocation: true,
-                                            onUseCurrentLocation: { useCurrentLocation() }
+                                            onUseCurrentLocation: { useCurrentLocation() },
+                                            savedLocations: recentLocationItems
                                         )
 
                                         Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
@@ -180,7 +181,8 @@ struct RideTab: View {
                                             iconColor: .rfPrimary,
                                             text: $destinationAddress,
                                             onSelect: { _ in recalculateFare() },
-                                            onResolvedLocation: { lat, lon in resolvedDestCoord = (lat, lon) }
+                                            onResolvedLocation: { lat, lon in resolvedDestCoord = (lat, lon) },
+                                            savedLocations: recentLocationItems
                                         )
                                     }
 
@@ -278,6 +280,17 @@ struct RideTab: View {
 
     // MARK: - Actions
 
+    /// Saved locations (favorites first, then recents) for address field dropdowns.
+    private var recentLocationItems: [(name: String, address: String, lat: Double, lon: Double)] {
+        let favorites = appState.savedLocations.favorites.map { loc in
+            (name: loc.nickname ?? loc.displayName, address: loc.addressLine, lat: loc.latitude, lon: loc.longitude)
+        }
+        let recents = appState.savedLocations.recents.prefix(5).map { loc in
+            (name: loc.displayName, address: loc.addressLine, lat: loc.latitude, lon: loc.longitude)
+        }
+        return favorites + recents
+    }
+
     /// Use the rider's current GPS location as the pickup address.
     private func useCurrentLocation() {
         locationManager.requestLocation { clLocation in
@@ -336,6 +349,18 @@ struct RideTab: View {
                 coordinator?.currentFareEstimate = fare
                 coordinator?.pickupLocation = pickup
                 coordinator?.destinationLocation = destination
+
+                // Save as recents for quick access next time
+                appState.savedLocations.save(SavedLocation(
+                    id: UUID().uuidString, latitude: pickup.latitude, longitude: pickup.longitude,
+                    displayName: pickupAddress, addressLine: pickup.address ?? pickupAddress,
+                    isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
+                ))
+                appState.savedLocations.save(SavedLocation(
+                    id: UUID().uuidString, latitude: destination.latitude, longitude: destination.longitude,
+                    displayName: destinationAddress, addressLine: destination.address ?? destinationAddress,
+                    isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
+                ))
             } catch {
                 if !Task.isCancelled { fareError = "Route calculation failed. Check addresses." }
             }

@@ -6,10 +6,7 @@ struct SettingsTab: View {
     @Environment(AppState.self) private var appState
     @State private var showKeyBackup = false
     @State private var showLogoutConfirm = false
-    @State private var showShareSheet = false
     @State private var showEditProfile = false
-    @State private var shareText = ""
-    @State private var savedToPasswords = false
 
     var body: some View {
         NavigationStack {
@@ -31,16 +28,9 @@ struct SettingsTab: View {
                                             .font(.system(size: 20))
                                             .foregroundColor(Color.rfPrimary)
                                     }
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(appState.settings.profileName.isEmpty ? "Set your name" : appState.settings.profileName)
-                                            .font(RFFont.title(16))
-                                            .foregroundColor(appState.settings.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
-                                        if let npub = appState.keypair?.npub {
-                                            Text(String(npub.prefix(16)) + "...")
-                                                .font(RFFont.mono(11))
-                                                .foregroundColor(Color.rfOffline)
-                                        }
-                                    }
+                                    Text(appState.settings.profileName.isEmpty ? "Set your name" : appState.settings.profileName)
+                                        .font(RFFont.title(16))
+                                        .foregroundColor(appState.settings.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
                                     Spacer()
                                     Image(systemName: "pencil")
                                         .foregroundColor(Color.rfOnSurfaceVariant)
@@ -90,19 +80,12 @@ struct SettingsTab: View {
                             .buttonStyle(.plain)
                         }
 
-                        // Key Backup
+                        // Account
                         VStack(alignment: .leading, spacing: 12) {
                             SectionLabel("Account")
                             VStack(spacing: 0) {
-                                SettingsButton(icon: "key", label: "View Backup Key") {
+                                SettingsButton(icon: "key", label: "Backup & Recovery") {
                                     showKeyBackup = true
-                                }
-                                SettingsButton(icon: "lock.shield", label: savedToPasswords ? "Saved to Passwords" : "Save to Apple Passwords") {
-                                    saveToPasswords()
-                                }
-                                .disabled(savedToPasswords)
-                                SettingsButton(icon: "square.and.arrow.up", label: "Share Backup Key") {
-                                    shareKey()
                                 }
                             }
                             .background(Color.rfSurfaceContainer)
@@ -146,9 +129,6 @@ struct SettingsTab: View {
             .sheet(isPresented: $showEditProfile) {
                 EditProfileSheet()
             }
-            .sheet(isPresented: $showShareSheet) {
-                if !shareText.isEmpty { ShareSheet(items: [shareText]) }
-            }
             .alert("Log Out?", isPresented: $showLogoutConfirm) {
                 Button("Log Out", role: .destructive) { Task { await appState.logout() } }
                 Button("Cancel", role: .cancel) {}
@@ -158,25 +138,6 @@ struct SettingsTab: View {
         }
     }
 
-    private func saveToPasswords() {
-        Task {
-            guard let nsec = try? await appState.keyManager?.exportNsec(),
-                  let npub = appState.keypair?.npub else { return }
-            SecAddSharedWebCredential("roadflare.app" as CFString, npub as CFString, nsec as CFString) { error in
-                Task { @MainActor in
-                    if error == nil { savedToPasswords = true }
-                }
-            }
-        }
-    }
-
-    private func shareKey() {
-        Task {
-            guard let nsec = try? await appState.keyManager?.exportNsec() else { return }
-            shareText = nsec
-            showShareSheet = true
-        }
-    }
 }
 
 // MARK: - Edit Profile Sheet
@@ -186,6 +147,7 @@ struct EditProfileSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var editedName = ""
     @State private var saveState: SaveState = .idle
+    @State private var copiedAccountId = false
 
     enum SaveState {
         case idle, saving, saved
@@ -226,21 +188,36 @@ struct EditProfileSheet: View {
                     }
                     .padding(.horizontal, 24)
 
-                    // Account ID (read-only)
+                    // Account ID (tap to copy)
                     if let npub = appState.keypair?.npub {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Account ID")
                                 .font(RFFont.caption())
                                 .foregroundColor(Color.rfOnSurfaceVariant)
-                            Text(npub)
-                                .font(RFFont.mono(11))
-                                .foregroundColor(Color.rfOffline)
-                                .lineLimit(2)
-                                .textSelection(.enabled)
+                            Button {
+                                UIPasteboard.general.string = npub
+                                copiedAccountId = true
+                                Task {
+                                    try? await Task.sleep(for: .seconds(2))
+                                    copiedAccountId = false
+                                }
+                            } label: {
+                                HStack {
+                                    Text(npub)
+                                        .font(RFFont.mono(11))
+                                        .foregroundColor(Color.rfOffline)
+                                        .lineLimit(2)
+                                    Spacer()
+                                    Image(systemName: copiedAccountId ? "checkmark" : "doc.on.doc")
+                                        .font(.caption)
+                                        .foregroundColor(copiedAccountId ? Color.rfOnline : Color.rfOffline)
+                                }
                                 .padding(14)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color.rfSurfaceContainerLow)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
+                            .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 24)
                     }
