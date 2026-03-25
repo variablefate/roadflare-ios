@@ -55,14 +55,15 @@ struct WelcomeView: View {
                 }
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+                .padding(.top, -16)
 
                 // Bullet points
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 14) {
                     bulletPoint("NO STRANGERS")
                     bulletPoint("NO PLATFORM FEES")
                     bulletPoint("NO MIDDLEMAN")
                 }
-                .padding(.leading, 36)
+                .padding(.leading, 44)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
