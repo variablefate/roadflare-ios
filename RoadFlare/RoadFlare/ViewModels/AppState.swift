@@ -60,10 +60,20 @@ final class AppState {
 
     init() {}
 
+    private static let hasLaunchedKey = "roadflare_has_launched"
+
     /// Initialize on app launch. Checks for existing keys.
+    /// Handles Keychain persistence across reinstalls by checking UserDefaults.
     func initialize() async {
         let km = KeyManager(storage: keychainStorage)
         self.keyManager = km
+
+        // Keychain survives app deletion but UserDefaults don't.
+        // If UserDefaults are empty but Keychain has a key, this is a reinstall — clear stale key.
+        if !UserDefaults.standard.bool(forKey: Self.hasLaunchedKey) {
+            try? await km.deleteKeys()
+            UserDefaults.standard.set(true, forKey: Self.hasLaunchedKey)
+        }
 
         if let kp = await km.getKeypair() {
             keypair = kp
