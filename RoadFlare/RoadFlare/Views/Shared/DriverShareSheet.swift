@@ -7,8 +7,20 @@ import RidestrSDK
 struct DriverShareSheet: View {
     let driver: FollowedDriver
     let driverName: String?
+    var driverProfile: UserProfileContent? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
+
+    private var driverAvatarPlaceholder: some View {
+        ZStack {
+            Circle()
+                .fill(Color.rfPrimary.opacity(0.1))
+                .frame(width: 72, height: 72)
+            Image(systemName: "person.fill")
+                .font(.system(size: 30))
+                .foregroundColor(Color.rfPrimary)
+        }
+    }
 
     private var deeplink: String {
         guard let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) else {
@@ -38,6 +50,19 @@ struct DriverShareSheet: View {
                     Text(driverName ?? String(driver.pubkey.prefix(8)) + "...")
                         .font(RFFont.headline(20))
                         .foregroundColor(Color.rfOnSurface)
+
+                    // Profile photo
+                    if let pictureURL = driverProfile?.picture, let url = URL(string: pictureURL) {
+                        AsyncImage(url: url) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            driverAvatarPlaceholder
+                        }
+                        .frame(width: 72, height: 72)
+                        .clipShape(Circle())
+                    } else {
+                        driverAvatarPlaceholder
+                    }
 
                     // QR Code (orange on dark gray)
                     if let qrImage = QRCodeImage.generate(from: deeplink) {

@@ -102,7 +102,8 @@ struct DriversTab: View {
             .sheet(item: $sharingDriver) { driver in
                 DriverShareSheet(
                     driver: driver,
-                    driverName: appState.driversRepository?.driverNames[driver.pubkey] ?? driver.name
+                    driverName: appState.driversRepository?.driverNames[driver.pubkey] ?? driver.name,
+                    driverProfile: appState.driversRepository?.driverProfiles[driver.pubkey]
                 )
             }
             .refreshable {
