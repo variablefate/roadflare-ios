@@ -84,6 +84,24 @@ struct RideTab: View {
                     destinationAddress = addr
                 }
             }
+            .onChange(of: pickupAddress) {
+                if pickupAddress.isEmpty {
+                    fareCalcTask?.cancel()
+                    coordinator?.currentFareEstimate = nil
+                    resolvedPickupCoord = nil
+                    isCalculatingFare = false
+                    fareError = nil
+                }
+            }
+            .onChange(of: destinationAddress) {
+                if destinationAddress.isEmpty {
+                    fareCalcTask?.cancel()
+                    coordinator?.currentFareEstimate = nil
+                    resolvedDestCoord = nil
+                    isCalculatingFare = false
+                    fareError = nil
+                }
+            }
             .onChange(of: stage) { oldStage, newStage in
                 switch newStage {
                 case .driverAccepted, .rideConfirmed, .enRoute:
@@ -169,7 +187,7 @@ struct RideTab: View {
 
                         // Ride details
                         if selectedDriverPubkey != nil {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 14) {
                                 SectionLabel("Ride Details")
 
                                 HStack(spacing: 0) {
