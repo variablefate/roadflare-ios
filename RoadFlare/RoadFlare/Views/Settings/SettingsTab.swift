@@ -53,15 +53,33 @@ struct SettingsTab: View {
                             .buttonStyle(.plain)
                         }
 
-                        // Payment Methods
+                        // Payment
                         VStack(alignment: .leading, spacing: 12) {
-                            SectionLabel("Payment Methods")
-                            PaymentMethodPicker(settings: appState.settings)
-                                .onChange(of: appState.settings.paymentMethods) { oldValue, newValue in
-                                    // Only publish if this was a user-initiated change, not a restore
-                                    guard oldValue != newValue, appState.authState == .ready else { return }
-                                    Task { await appState.publishProfileBackup() }
+                            SectionLabel("Payment")
+                            NavigationLink {
+                                PaymentMethodsScreen()
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "creditcard")
+                                        .frame(width: 20)
+                                        .foregroundColor(Color.rfPrimary)
+                                    Text("Preferred Payment Methods")
+                                        .font(RFFont.body(15))
+                                        .foregroundColor(Color.rfOnSurface)
+                                    Spacer()
+                                    Text("\(appState.settings.paymentMethods.count + appState.settings.customPaymentMethods.count)")
+                                        .font(RFFont.caption(12))
+                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(Color.rfOffline)
                                 }
+                                .padding(16)
+                                .background(Color.rfSurfaceContainer)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         // Saved Locations

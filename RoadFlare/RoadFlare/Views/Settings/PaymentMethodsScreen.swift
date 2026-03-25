@@ -1,0 +1,32 @@
+import SwiftUI
+import RidestrSDK
+
+/// Full-screen payment methods management. Navigated from Settings.
+struct PaymentMethodsScreen: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        ZStack {
+            Color.rfSurface.ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 24) {
+                    PaymentMethodPicker(settings: appState.settings)
+                        .onChange(of: appState.settings.paymentMethods) { oldValue, newValue in
+                            guard oldValue != newValue, appState.authState == .ready else { return }
+                            Task { await appState.publishProfileBackup() }
+                        }
+                        .onChange(of: appState.settings.customPaymentMethods) { _, _ in
+                            guard appState.authState == .ready else { return }
+                            Task { await appState.publishProfileBackup() }
+                        }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+            }
+        }
+        .navigationTitle("Payment Methods")
+        .toolbarBackground(Color.rfSurface, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+    }
+}
