@@ -344,6 +344,8 @@ struct RideTab: View {
                                                     Image(systemName: "xmark")
                                                         .font(.system(size: 12))
                                                         .foregroundColor(Color.rfOffline)
+                                                        .frame(width: 36, height: 36)
+                                                        .contentShape(Rectangle())
                                                 }
                                             }
                                             .rfCard(.low)

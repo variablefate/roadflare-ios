@@ -24,6 +24,8 @@ struct AppHeader: View {
                             .font(.system(size: 20))
                             .foregroundColor(Color.rfError)
                             .symbolEffect(.pulse)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }
                 }
 
@@ -32,6 +34,8 @@ struct AppHeader: View {
                     Image(systemName: "person.crop.circle")
                         .font(.system(size: 26))
                         .foregroundColor(Color.rfPrimary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
             }
         }

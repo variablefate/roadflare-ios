@@ -48,6 +48,7 @@ struct SettingsTab: View {
                                 .padding(16)
                                 .background(Color.rfSurfaceContainer)
                                 .clipShape(RoundedRectangle(cornerRadius: 16))
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
@@ -121,6 +122,7 @@ struct SettingsTab: View {
                                 SettingsRow(icon: "info.circle", label: "Version", value: RidestrSDKVersion.version)
                                 Button { appState.selectedTab = 1 } label: {
                                     SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
                             }
