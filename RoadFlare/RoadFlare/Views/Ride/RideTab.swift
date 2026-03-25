@@ -64,6 +64,13 @@ struct RideTab: View {
                 if selectedDriverPubkey == nil, let driverPub = coordinator?.stateMachine.driverPubkey {
                     selectedDriverPubkey = driverPub
                 }
+                // Auto-select first online driver if none selected
+                if selectedDriverPubkey == nil, let repo = appState.driversRepository {
+                    let firstOnline = repo.drivers.first { d in
+                        d.hasKey && repo.driverLocations[d.pubkey]?.status == "online"
+                    }
+                    selectedDriverPubkey = firstOnline?.pubkey
+                }
                 if pickupAddress.isEmpty, let addr = coordinator?.pickupLocation?.address {
                     pickupAddress = addr
                 }
