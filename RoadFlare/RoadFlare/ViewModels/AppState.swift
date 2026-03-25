@@ -119,8 +119,11 @@ final class AppState {
 
         await setupServicesWithSync(keypair: kp)
 
-        // If we restored a name + payment methods, skip profile setup entirely
-        if !settings.profileName.isEmpty && !settings.paymentMethods.isEmpty {
+        // If we restored a name from Nostr, skip profile setup entirely
+        if !settings.profileName.isEmpty {
+            if settings.paymentMethods.isEmpty {
+                settings.paymentMethods = [.cash]  // Default fallback
+            }
             settings.profileCompleted = true
             authState = .ready
         } else if settings.profileCompleted {
