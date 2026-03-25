@@ -13,6 +13,7 @@ public actor RelayManager: RelayManagerProtocol {
     private var connectedRelayURLs: [URL] = []
     private var notificationHandler: NotificationRouter?
     private var notificationTask: Task<Void, Never>?
+    private var _handlerAlive = false  // Explicit liveness flag — Task.isCancelled doesn't detect normal completion
 
     public init(keypair: NostrKeypair) {
         self.keypair = keypair
@@ -41,8 +42,9 @@ public actor RelayManager: RelayManagerProtocol {
         // Start the global notification handler
         let router = NotificationRouter()
         self.notificationHandler = router
+        self._handlerAlive = true
         let clientRef = newClient
-        notificationTask = Task.detached { [weak self, router] in
+        notificationTask = Task.detached { [router] in
             do {
                 try await clientRef.handleNotifications(handler: router)
             } catch {
@@ -52,6 +54,11 @@ public actor RelayManager: RelayManagerProtocol {
             // Finish all continuations so AsyncStream consumers exit their for-await loops.
             router.removeAll()
             RidestrLogger.error("[RelayManager] All subscription streams terminated due to disconnect")
+        }
+        // Monitor handler liveness from a separate task
+        Task { [weak self] in
+            await self?.notificationTask?.value  // Suspends until task completes
+            await self?.markHandlerDead()
         }
     }
 
@@ -73,35 +80,43 @@ public actor RelayManager: RelayManagerProtocol {
         client != nil && !connectedRelayURLs.isEmpty
     }
 
+    private func markHandlerDead() {
+        _handlerAlive = false
+    }
+
     /// Reconnect to relays if disconnected. Call from app foreground handler.
     /// Does NOT restart subscriptions — callers must re-subscribe after this returns.
     public func reconnectIfNeeded() async {
-        guard let client else { return }
+        guard let client, !connectedRelayURLs.isEmpty else { return }
 
-        // Check if notification handler is still alive
-        let handlerDead = notificationTask == nil || notificationTask?.isCancelled == true
+        // Only reconnect if the notification handler has died
+        guard !_handlerAlive else { return }
 
-        if handlerDead && !connectedRelayURLs.isEmpty {
-            RidestrLogger.error("[RelayManager] Reconnecting — notification handler died")
-            await client.connect()
-            try? await Task.sleep(for: .seconds(1))
+        RidestrLogger.error("[RelayManager] Reconnecting — notification handler died")
+        await client.connect()
+        try? await Task.sleep(for: .seconds(1))
 
-            // Restart notification handler
-            let router = NotificationRouter()
-            self.notificationHandler = router
-            let clientRef = client
-            notificationTask = Task.detached { [weak self, router] in
-                do {
-                    try await clientRef.handleNotifications(handler: router)
-                } catch {
-                    RidestrLogger.error("[RelayManager] Notification handler stopped: \(error)")
-                }
-                router.removeAll()
+        // Restart notification handler
+        let router = NotificationRouter()
+        self.notificationHandler = router
+        self._handlerAlive = true
+        let clientRef = client
+        notificationTask = Task.detached { [router] in
+            do {
+                try await clientRef.handleNotifications(handler: router)
+            } catch {
+                RidestrLogger.error("[RelayManager] Notification handler stopped: \(error)")
             }
-
-            // Clear old stream mappings — callers must re-subscribe
-            activeStreams.removeAll()
+            router.removeAll()
         }
+        // Monitor liveness
+        Task { [weak self] in
+            await self?.notificationTask?.value
+            await self?.markHandlerDead()
+        }
+
+        // Clear old stream mappings — callers must re-subscribe
+        activeStreams.removeAll()
     }
 
     // MARK: - Publishing

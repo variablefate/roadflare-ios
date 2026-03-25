@@ -4,6 +4,7 @@ import RidestrSDK
 @main
 struct RoadFlareApp: App {
     @State private var appState = AppState()
+    @State private var isHandlingForeground = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -14,9 +15,14 @@ struct RoadFlareApp: App {
                 .task {
                     await appState.initialize()
                 }
-                .onChange(of: scenePhase) { _, newPhase in
-                    if newPhase == .active {
-                        Task { await appState.handleForeground() }
+                .onChange(of: scenePhase) { oldPhase, newPhase in
+                    // Only handle background → active transitions (not tab switches)
+                    if newPhase == .active && oldPhase == .background && !isHandlingForeground {
+                        isHandlingForeground = true
+                        Task {
+                            await appState.handleForeground()
+                            isHandlingForeground = false
+                        }
                     }
                 }
         }
