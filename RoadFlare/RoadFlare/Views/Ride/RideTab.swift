@@ -276,40 +276,67 @@ struct RideTab: View {
                                     }
                                     .buttonStyle(RFPrimaryButtonStyle())
                                 } else if pickupAddress.isEmpty || destinationAddress.isEmpty {
-                                    // Show saved locations as quick picks when addresses are empty
-                                    if !recentLocationItems.isEmpty {
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            Text("Quick Picks")
-                                                .font(RFFont.caption(12))
-                                                .foregroundColor(Color.rfOnSurfaceVariant)
-                                                .textCase(.uppercase)
-                                                .tracking(1)
-                                            ForEach(recentLocationItems.prefix(4), id: \.name) { loc in
-                                                Button {
-                                                    if pickupAddress.isEmpty {
-                                                        pickupAddress = loc.address.isEmpty ? loc.name : loc.address
-                                                        resolvedPickupCoord = (loc.lat, loc.lon)
-                                                    } else {
-                                                        destinationAddress = loc.address.isEmpty ? loc.name : loc.address
-                                                        resolvedDestCoord = (loc.lat, loc.lon)
-                                                    }
-                                                    recalculateFare()
-                                                } label: {
-                                                    HStack(spacing: 10) {
-                                                        Image(systemName: iconForLocation(loc.name))
-                                                            .foregroundColor(Color.rfPrimary)
-                                                            .frame(width: 20)
-                                                        Text(loc.name)
-                                                            .font(RFFont.body(14))
+                                    // Show saved locations as quick picks (matching saved locations menu style)
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        // Favorites
+                                        ForEach(appState.savedLocations.favorites) { loc in
+                                            Button {
+                                                fillNextAddress(loc)
+                                            } label: {
+                                                HStack(spacing: 12) {
+                                                    Image(systemName: iconForLocation(loc.nickname ?? loc.displayName))
+                                                        .foregroundColor(Color.rfPrimary)
+                                                        .frame(width: 24)
+                                                    VStack(alignment: .leading, spacing: 2) {
+                                                        Text(loc.nickname ?? loc.displayName)
+                                                            .font(RFFont.title(15))
                                                             .foregroundColor(Color.rfOnSurface)
+                                                        Text(loc.addressLine)
+                                                            .font(RFFont.caption(12))
+                                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                                            .lineLimit(1)
+                                                    }
+                                                    Spacer()
+                                                }
+                                                .rfCard()
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+
+                                        // Recents
+                                        ForEach(appState.savedLocations.recents) { loc in
+                                            HStack(spacing: 12) {
+                                                Button {
+                                                    fillNextAddress(loc)
+                                                } label: {
+                                                    HStack(spacing: 12) {
+                                                        Image(systemName: "clock")
+                                                            .foregroundColor(Color.rfOffline)
+                                                            .frame(width: 24)
+                                                        VStack(alignment: .leading, spacing: 2) {
+                                                            Text(loc.displayName)
+                                                                .font(RFFont.body(14))
+                                                                .foregroundColor(Color.rfOnSurface)
+                                                            Text(loc.addressLine)
+                                                                .font(RFFont.caption(12))
+                                                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                                                .lineLimit(1)
+                                                        }
                                                         Spacer()
                                                     }
-                                                    .padding(12)
-                                                    .background(Color.rfSurfaceContainer)
-                                                    .clipShape(RoundedRectangle(cornerRadius: 10))
                                                 }
                                                 .buttonStyle(.plain)
+
+                                                // Delete recent
+                                                Button {
+                                                    withAnimation { appState.savedLocations.remove(id: loc.id) }
+                                                } label: {
+                                                    Image(systemName: "xmark")
+                                                        .font(.system(size: 12))
+                                                        .foregroundColor(Color.rfOffline)
+                                                }
                                             }
+                                            .rfCard(.low)
                                         }
                                     }
                                 }
@@ -341,6 +368,18 @@ struct RideTab: View {
     }
 
     // MARK: - Actions
+
+    private func fillNextAddress(_ loc: SavedLocation) {
+        let address = loc.addressLine.isEmpty ? loc.displayName : loc.addressLine
+        if pickupAddress.isEmpty {
+            pickupAddress = address
+            resolvedPickupCoord = (loc.latitude, loc.longitude)
+        } else {
+            destinationAddress = address
+            resolvedDestCoord = (loc.latitude, loc.longitude)
+        }
+        recalculateFare()
+    }
 
     private func iconForLocation(_ name: String) -> String {
         switch name.lowercased() {

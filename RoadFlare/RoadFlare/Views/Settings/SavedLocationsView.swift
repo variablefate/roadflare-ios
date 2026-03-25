@@ -32,7 +32,7 @@ struct SavedLocationsView: View {
                                 Button { editingLocation = loc } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: iconForNickname(loc.nickname))
-                                            .foregroundColor(Color.rfTertiary)
+                                            .foregroundColor(Color.rfPrimary)
                                             .frame(width: 24)
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(loc.nickname ?? loc.displayName)
@@ -88,6 +88,17 @@ struct SavedLocationsView: View {
                                     // Save as favorite
                                     Button { editingLocation = loc } label: {
                                         Image(systemName: "star")
+                                            .foregroundColor(Color.rfOffline)
+                                    }
+
+                                    // Delete
+                                    Button {
+                                        withAnimation {
+                                            appState.savedLocations.remove(id: loc.id)
+                                        }
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 12))
                                             .foregroundColor(Color.rfOffline)
                                     }
                                 }
