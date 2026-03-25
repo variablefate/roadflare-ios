@@ -34,7 +34,7 @@ public enum RideshareEventParser {
 
     // MARK: - Ride Acceptance (Kind 3174)
 
-    /// Parse and decrypt a ride acceptance event.
+    /// Parse a ride acceptance event (plaintext JSON — not encrypted, matching Android).
     public static func parseAcceptance(
         event: NostrEvent,
         keypair: NostrKeypair
@@ -45,12 +45,8 @@ public enum RideshareEventParser {
         guard !event.isExpired else {
             throw RidestrError.ride(.invalidEvent("Acceptance event has expired"))
         }
-        let decrypted = try NIP44.decrypt(
-            ciphertext: event.content,
-            receiverKeypair: keypair,
-            senderPublicKeyHex: event.pubkey
-        )
-        return try JSONDecoder().decode(RideAcceptanceContent.self, from: Data(decrypted.utf8))
+        // Android sends acceptance as plaintext JSON (not NIP-44 encrypted)
+        return try JSONDecoder().decode(RideAcceptanceContent.self, from: Data(event.content.utf8))
     }
 
     // MARK: - Driver Ride State (Kind 30180)
