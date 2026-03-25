@@ -71,8 +71,8 @@ final class RideCoordinator {
     func startLocationSubscriptions() { location.startLocationSubscriptions() }
     func startKeyShareSubscription() { location.startKeyShareSubscription() }
     func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
-    func fetchKeyShare(driverPubkey: String) async { await location.fetchKeyShare(driverPubkey: driverPubkey) }
     func requestKeyRefresh(driverPubkey: String) async { await location.requestKeyRefresh(driverPubkey: driverPubkey) }
+    func checkForStaleKeys() async { await location.checkForStaleKeys() }
 
     // MARK: - State Persistence
 

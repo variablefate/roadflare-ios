@@ -11,7 +11,6 @@ struct EventKindTests {
         #expect(EventKind.chatMessage.rawValue == 3178)
         #expect(EventKind.cancellation.rawValue == 3179)
         #expect(EventKind.keyShare.rawValue == 3186)
-        #expect(EventKind.replaceableKeyShare.rawValue == 30186)
         #expect(EventKind.keyAcknowledgement.rawValue == 3188)
         #expect(EventKind.followedDriversList.rawValue == 30011)
         #expect(EventKind.driverRoadflareState.rawValue == 30012)
@@ -31,7 +30,6 @@ struct EventKindTests {
         #expect(EventKind.riderRideState.isReplaceable)
         #expect(EventKind.roadflareLocation.isReplaceable)
         #expect(EventKind.remoteConfig.isReplaceable)
-        #expect(EventKind.replaceableKeyShare.isReplaceable)
     }
 
     @Test func regularKindsNotReplaceable() {
@@ -64,7 +62,7 @@ struct EventKindTests {
         #expect(EventKind.chatMessage.defaultExpirationSeconds == TimeInterval(8 * 3600))
         #expect(EventKind.cancellation.defaultExpirationSeconds == TimeInterval(24 * 3600))
         #expect(EventKind.roadflareLocation.defaultExpirationSeconds == TimeInterval(5 * 60))
-        #expect(EventKind.keyShare.defaultExpirationSeconds == TimeInterval(5 * 60))
+        #expect(EventKind.keyShare.defaultExpirationSeconds == TimeInterval(12 * 3600))
         #expect(EventKind.driverAvailability.defaultExpirationSeconds == TimeInterval(30 * 60))
     }
 
@@ -73,11 +71,5 @@ struct EventKindTests {
         #expect(EventKind.rideHistoryBackup.defaultExpirationSeconds == nil)
         #expect(EventKind.unifiedProfile.defaultExpirationSeconds == nil)
         #expect(EventKind.remoteConfig.defaultExpirationSeconds == nil)
-        #expect(EventKind.replaceableKeyShare.defaultExpirationSeconds == nil)
-    }
-
-    @Test func replaceableKeyShareHasDynamicDTag() {
-        // d-tag is the follower's pubkey (dynamic, not static)
-        #expect(EventKind.replaceableKeyShare.dTag == nil)
     }
 }

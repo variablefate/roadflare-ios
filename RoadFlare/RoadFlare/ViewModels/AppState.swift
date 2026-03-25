@@ -308,11 +308,12 @@ final class AppState {
         coordinator.startLocationSubscriptions()
         coordinator.startKeyShareSubscription()
 
-        // Publish followed drivers + fetch driver profiles concurrently (non-blocking)
+        // Publish followed drivers, fetch driver profiles, and check stale keys concurrently
         if repo.hasDrivers {
             async let _publish: () = coordinator.publishFollowedDriversList()
             async let _profiles: () = fetchDriverProfiles(relayManager: rm, driversRepository: repo)
-            _ = await (_publish, _profiles)
+            async let _staleCheck: () = coordinator.checkForStaleKeys()
+            _ = await (_publish, _profiles, _staleCheck)
         }
     }
 }

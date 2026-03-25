@@ -90,10 +90,16 @@ struct NostrFilterTests {
 
     @Test func keySharesConvenience() {
         let filter = NostrFilter.keyShares(myPubkey: "my_pub")
-        // Listens for both Kind 30186 (new) and Kind 3186 (legacy)
-        #expect(filter.kinds?.contains(EventKind.replaceableKeyShare.rawValue) == true)
-        #expect(filter.kinds?.contains(EventKind.keyShare.rawValue) == true)
+        #expect(filter.kinds == [EventKind.keyShare.rawValue])
         #expect(filter.tagFilters["p"] == ["my_pub"])
+    }
+
+    @Test func driverRoadflareStateConvenience() {
+        let filter = NostrFilter.driverRoadflareState(driverPubkey: "driver_pub")
+        #expect(filter.kinds == [EventKind.driverRoadflareState.rawValue])
+        #expect(filter.authors == ["driver_pub"])
+        #expect(filter.tagFilters["d"] == ["roadflare-state"])
+        #expect(filter.limit == 1)
     }
 
     @Test func profileBackupConvenience() {
@@ -116,15 +122,7 @@ struct NostrFilterTests {
         #expect(filter.limit == 1)
     }
 
-    @Test func keyShareOneShotConvenience() {
-        let filter = NostrFilter.keyShare(driverPubkey: "driver_pub", myPubkey: "my_pub")
-        // Listens for both Kind 30186 (new) and Kind 3186 (legacy)
-        #expect(filter.kinds?.contains(EventKind.replaceableKeyShare.rawValue) == true)
-        #expect(filter.kinds?.contains(EventKind.keyShare.rawValue) == true)
-        #expect(filter.authors == ["driver_pub"])
-        #expect(filter.tagFilters["p"] == ["my_pub"])
-        #expect(filter.limit == 1)
-    }
+    // keyShare one-shot filter removed — key persists in Kind 30011 backup
 
     @Test func followedDriversListConvenience() {
         let filter = NostrFilter.followedDriversList(myPubkey: "my_pub")

@@ -13,7 +13,7 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
     case cancellation = 3179
 
     // RoadFlare (regular events)
-    case keyShare = 3186  // DEPRECATED — use replaceableKeyShare (Kind 30186) instead
+    case keyShare = 3186
     case followNotification = 3187  // DEPRECATED — use p-tag queries on Kind 30011
     case keyAcknowledgement = 3188
 
@@ -27,9 +27,6 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
     case driverRoadflareState = 30012
     case shareableDriverList = 30013
     case roadflareLocation = 30014
-
-    // RoadFlare (parameterized replaceable — key share)
-    case replaceableKeyShare = 30186
 
     // Ride state (parameterized replaceable)
     case driverAvailability = 30173
@@ -79,7 +76,7 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
         case .chatMessage: EventExpiration.chatHours * 3600
         case .cancellation: EventExpiration.cancellationHours * 3600
         case .roadflareLocation: EventExpiration.roadflareLocationMinutes * 60
-        case .keyShare: EventExpiration.roadflareKeyShareMinutes * 60
+        case .keyShare: EventExpiration.roadflareKeyShareHours * 3600
         case .keyAcknowledgement: EventExpiration.roadflareKeyAckMinutes * 60
         case .followNotification: EventExpiration.roadflareFollowNotifyMinutes * 60
         case .shareableDriverList: EventExpiration.shareableListDays * 86400
@@ -105,7 +102,7 @@ public enum EventExpiration {
 
     // RoadFlare
     public static let roadflareLocationMinutes: TimeInterval = 5
-    public static let roadflareKeyShareMinutes: TimeInterval = 5
+    public static let roadflareKeyShareHours: TimeInterval = 12
     public static let roadflareKeyAckMinutes: TimeInterval = 5
     public static let roadflareFollowNotifyMinutes: TimeInterval = 5
     public static let shareableListDays: TimeInterval = 30

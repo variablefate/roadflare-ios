@@ -168,22 +168,20 @@ extension NostrFilter {
             .limit(UInt32(driverPubkeys.count))
     }
 
-    /// Filter for RoadFlare key shares addressed to this user.
-    /// Listens for both Kind 30186 (replaceable, preferred) and Kind 3186 (legacy)
-    /// to support drivers on older Android versions that haven't updated yet.
+    /// Filter for RoadFlare key shares addressed to this user (Kind 3186).
     public static func keyShares(myPubkey: String) -> NostrFilter {
         NostrFilter()
-            .kinds([.replaceableKeyShare, .keyShare])
+            .kinds([.keyShare])
             .pTags([myPubkey])
     }
 
-    /// Fetch a specific driver's key share for this user (one-shot).
-    /// Tries Kind 30186 first (by d-tag), falls back to Kind 3186 (by p-tag).
-    public static func keyShare(driverPubkey: String, myPubkey: String) -> NostrFilter {
+    /// Filter for a driver's Kind 30012 state (public key_version/key_updated_at tags).
+    /// Used to detect stale keys without decryption.
+    public static func driverRoadflareState(driverPubkey: String) -> NostrFilter {
         NostrFilter()
-            .kinds([.replaceableKeyShare, .keyShare])
+            .kinds([.driverRoadflareState])
             .authors([driverPubkey])
-            .pTags([myPubkey])
+            .dTags(["roadflare-state"])
             .limit(1)
     }
 
