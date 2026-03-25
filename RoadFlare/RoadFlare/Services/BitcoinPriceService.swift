@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// Fetches and caches the Bitcoin price in USD.
-/// CoinGecko is the primary API, UTXOracle is the fallback (rate-limited to 1 call/hour).
+/// CoinGecko is the primary API, Coinbase is the fallback.
 /// Fetches on app start, then refreshes every hour.
 ///
 /// ## Conversion:
@@ -21,7 +21,6 @@ final class BitcoinPriceService {
         set { btcPriceUsd = newValue }
     }
     private var refreshTask: Task<Void, Never>?
-    private var lastUTXOracleCall: Date?
     private static let refreshInterval: TimeInterval = 3600  // 1 hour
 
     /// Fetch price immediately and start hourly refresh. Retries on failure.
@@ -79,10 +78,10 @@ final class BitcoinPriceService {
             AppLogger.auth.info("BTC price from CoinGecko: $\(price)")
             return
         }
-        // Fallback to UTXOracle (rate-limited to 1 call per hour)
-        if let price = await fetchFromUTXOracle() {
+        // Fallback to Coinbase
+        if let price = await fetchFromCoinbase() {
             btcPriceUsd = price
-            AppLogger.auth.info("BTC price from UTXOracle: $\(price)")
+            AppLogger.auth.info("BTC price from Coinbase: $\(price)")
             return
         }
         AppLogger.auth.info("All BTC price APIs failed")
@@ -108,24 +107,23 @@ final class BitcoinPriceService {
         }
     }
 
-    /// UTXOracle (fallback, max 1 call per hour): `{ "price": 90610 }`
-    private func fetchFromUTXOracle() async -> Int? {
-        if let last = lastUTXOracleCall, Date.now.timeIntervalSince(last) < 3600 {
-            return nil  // Rate limited
-        }
-        guard let url = URL(string: "https://api.utxoracle.io/latest.json") else { return nil }
+    /// Coinbase (fallback): `{ "data": { "amount": "90610.00", ... } }`
+    private func fetchFromCoinbase() async -> Int? {
+        guard let url = URL(string: "https://api.coinbase.com/v2/prices/BTC-USD/spot") else { return nil }
         do {
-            lastUTXOracleCall = .now
             let (data, response) = try await URLSession.shared.data(from: url)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard statusCode == 200 else {
-                AppLogger.auth.info("UTXOracle API returned \(statusCode)")
+                AppLogger.auth.info("Coinbase API returned \(statusCode)")
                 return nil
             }
             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            return json?["price"] as? Int
+            let dataObj = json?["data"] as? [String: Any]
+            let amountStr = dataObj?["amount"] as? String
+            guard let amount = amountStr, let price = Double(amount) else { return nil }
+            return Int(price)
         } catch {
-            AppLogger.auth.info("UTXOracle API error: \(error)")
+            AppLogger.auth.info("Coinbase API error: \(error)")
             return nil
         }
     }
