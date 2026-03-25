@@ -11,7 +11,7 @@ struct AppHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(RFFont.headline(24))
+                .font(.largeTitle.bold())
                 .foregroundColor(Color.rfOnSurface)
 
             Spacer()
@@ -21,7 +21,7 @@ struct AppHeader: View {
                 if isOffline {
                     Button { showConnectivity = true } label: {
                         Image(systemName: "wifi.exclamationmark")
-                            .font(.system(size: 18))
+                            .font(.system(size: 20))
                             .foregroundColor(Color.rfError)
                             .symbolEffect(.pulse)
                     }
@@ -30,13 +30,13 @@ struct AppHeader: View {
                 // Profile icon
                 Button { showProfile = true } label: {
                     Image(systemName: "person.crop.circle")
-                        .font(.system(size: 22))
+                        .font(.system(size: 26))
                         .foregroundColor(Color.rfPrimary)
                 }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
     }
 }
