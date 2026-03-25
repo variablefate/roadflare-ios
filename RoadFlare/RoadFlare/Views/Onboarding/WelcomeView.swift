@@ -16,18 +16,18 @@ struct WelcomeView: View {
             VStack(spacing: 40) {
                 Spacer()
 
-                // Logo
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient.rfFlare)
-                        .frame(width: 100, height: 100)
-                        .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
-                    Image(systemName: "car.fill")
-                        .font(.system(size: 44))
-                        .foregroundStyle(.black)
-                }
-
+                // Logo + title (tight group)
                 VStack(spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient.rfFlare)
+                            .frame(width: 100, height: 100)
+                            .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
+                        Image(systemName: "car.fill")
+                            .font(.system(size: 44))
+                            .foregroundStyle(.black)
+                    }
+
                     HStack(spacing: 0) {
                         Text("Road")
                             .font(.system(size: 38, weight: .bold))
