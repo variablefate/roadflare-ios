@@ -13,27 +13,26 @@ struct FareCalculatorTests {
     }
 
     @Test func basicFareCalculation() {
-        // 10 miles: $2.50 base + (10 × $1.50) = $17.50
+        // 10 miles: $10.00 base + (10 × $1.30) = $23.00
         let fare = calculator.calculateFare(distanceMiles: 10.0)
-        #expect(fare == 17.50)
+        #expect(fare == 23.00)
     }
 
     @Test func minimumFareApplied() {
-        // 0.5 miles: $2.50 + (0.5 × $1.50) = $3.25 → minimum $5.00 kicks in
-        let fare = calculator.calculateFare(distanceMiles: 0.5)
+        // 0 miles: $10.00 base + 0 = $10.00 (equals minimum)
+        let fare = calculator.calculateFare(distanceMiles: 0.0)
         #expect(fare == AdminConstants.roadflareUIMinimumFareUsd)
     }
 
     @Test func zeroDistanceGetsMinimum() {
         let fare = calculator.calculateFare(distanceMiles: 0.0)
-        #expect(fare == AdminConstants.roadflareUIMinimumFareUsd)
+        #expect(fare == 10.00)
     }
 
     @Test func fareFromKm() {
-        // 16.09 km ≈ 10 miles
+        // 16.09 km ≈ 10 miles → $10 + (10 × $1.30) = $23
         let fare = calculator.calculateFareFromKm(distanceKm: 16.09)
-        // Should be close to 10-mile fare (~$17.50)
-        #expect(fare > 17.0 && fare < 18.0)
+        #expect(fare > 22.5 && fare < 23.5)
     }
 
     @Test func fareFromRouteResult() {
@@ -41,7 +40,7 @@ struct FareCalculatorTests {
         let estimate = calculator.estimate(route: route)
         #expect(estimate.distanceMiles > 9.9 && estimate.distanceMiles < 10.1)
         #expect(estimate.durationMinutes == 25.0)
-        #expect(estimate.fareUSD > 17.0 && estimate.fareUSD < 18.0)
+        #expect(estimate.fareUSD > 22.5 && estimate.fareUSD < 23.5)
         #expect(estimate.routeSummary == "via I-95")
     }
 

@@ -79,10 +79,10 @@ public enum AdminConstants {
     public static let defaultRoadflareFareRateUsdPerMile: Decimal = 0.40
     public static let defaultRoadflareMinimumFareUsd: Decimal = 1.00
 
-    /// RoadFlare UI-level fare defaults (DriverNetworkTab).
-    public static let roadflareBaseFareUsd: Decimal = 2.50
-    public static let roadflareUIRateUsdPerMile: Decimal = 1.50
-    public static let roadflareUIMinimumFareUsd: Decimal = 5.00
+    /// RoadFlare iOS fare: $10 base + $1.30/mile. Simple, fair, better than rideshare apps.
+    public static let roadflareBaseFareUsd: Decimal = 10.00
+    public static let roadflareUIRateUsdPerMile: Decimal = 1.30
+    public static let roadflareUIMinimumFareUsd: Decimal = 10.00
 }
 
 // MARK: - Location Constants
