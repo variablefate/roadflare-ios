@@ -5,6 +5,7 @@ struct AppInfoScreen: View {
     @Environment(\.openURL) private var openURL
 
     private let repoURL = "https://github.com/variablefate/roadflare-ios"
+    private let licenseURL = "https://github.com/variablefate/roadflare-ios/blob/main/LICENSE"
 
     var body: some View {
         ZStack {
@@ -49,24 +50,15 @@ struct AppInfoScreen: View {
                         InfoButton(icon: "chevron.left.forwardslash.chevron.right", label: "Source Code") {
                             openURL(URL(string: repoURL)!)
                         }
+                        InfoButton(icon: "doc.text.magnifyingglass", label: "License") {
+                            openURL(URL(string: licenseURL)!)
+                        }
                         InfoButton(icon: "exclamationmark.bubble", label: "Submit Issue") {
                             openURL(URL(string: "\(repoURL)/issues/new")!)
                         }
                     }
                     .background(Color.rfSurfaceContainer)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    // Protocol info
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionLabel("Protocol")
-                        VStack(spacing: 0) {
-                            SettingsRow(icon: "network", label: "Network", value: "Nostr")
-                            SettingsRow(icon: "lock.fill", label: "Encryption", value: "NIP-44")
-                            SettingsRow(icon: "key.fill", label: "Identity", value: "Secp256k1")
-                        }
-                        .background(Color.rfSurfaceContainer)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
 
                     // Open source note
                     Text("RoadFlare is free, open-source software built on the Nostr protocol. No accounts, no middlemen, no platform fees.")
