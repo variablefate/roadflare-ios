@@ -12,7 +12,7 @@ import RidestrSDK
 ///     stage: stateMachine.stage,
 ///     pin: stateMachine.pin,
 ///     fareEstimate: fareEstimate,
-///     paymentMethods: [.zelle, .venmo],
+///     paymentMethods: ["zelle", "venmo"],
 ///     onCancel: { showCancelAlert = true },
 ///     onChat: { showChatSheet = true },
 ///     onCloseRide: { resetRide() }
@@ -23,7 +23,7 @@ public struct RideStatusCard: View {
     public let stage: RiderStage
     public let pin: String?
     public let fareEstimate: FareEstimate?
-    public let paymentMethods: [PaymentMethod]
+    public let paymentMethods: [String]
 
     public var onCancel: (() -> Void)?
     public var onChat: (() -> Void)?
@@ -33,7 +33,7 @@ public struct RideStatusCard: View {
         stage: RiderStage,
         pin: String? = nil,
         fareEstimate: FareEstimate? = nil,
-        paymentMethods: [PaymentMethod] = [],
+        paymentMethods: [String] = [],
         onCancel: (() -> Void)? = nil,
         onChat: (() -> Void)? = nil,
         onCloseRide: (() -> Void)? = nil
@@ -130,17 +130,20 @@ public struct RideStatusCard: View {
             Text("Driver Has Arrived!")
                 .font(theme.headline(24))
                 .foregroundColor(theme.onSurfaceColor)
-            Text("Show this PIN to your driver:")
-                .font(theme.body(14))
-                .foregroundColor(theme.onSurfaceSecondaryColor)
-
             if let pin {
+                Text("Show this PIN to your driver:")
+                    .font(theme.body(14))
+                    .foregroundColor(theme.onSurfaceSecondaryColor)
                 PINDisplayView(pin: pin)
+                Text("The driver enters this to verify your identity")
+                    .font(theme.caption(12))
+                    .foregroundColor(theme.onSurfaceSecondaryColor.opacity(0.6))
+            } else {
+                Text("PIN verified. Waiting for the driver to start the ride.")
+                    .font(theme.body(14))
+                    .foregroundColor(theme.onSurfaceSecondaryColor)
+                    .multilineTextAlignment(.center)
             }
-
-            Text("The driver enters this to verify your identity")
-                .font(theme.caption(12))
-                .foregroundColor(theme.onSurfaceSecondaryColor.opacity(0.6))
             Spacer()
             actionButtons
             Spacer().frame(height: 40)

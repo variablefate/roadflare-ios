@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import RidestrSDK
 
+private let validAcceptanceEventId = String(repeating: "a", count: 64)
+private let validConfirmationEventId = String(repeating: "b", count: 64)
+
 @Suite("RideshareEventBuilder Tests")
 struct RideshareEventBuilderTests {
     @Test func buildRideOffer() async throws {
@@ -73,13 +76,13 @@ struct RideshareEventBuilderTests {
 
         let event = try await RideshareEventBuilder.rideConfirmation(
             driverPubkey: driver.publicKeyHex,
-            acceptanceEventId: "acc_123",
+            acceptanceEventId: validAcceptanceEventId,
             precisePickup: Location(latitude: 40.71234, longitude: -74.00567),
             keypair: rider
         )
 
         #expect(event.kind == EventKind.rideConfirmation.rawValue)
-        #expect(event.referencedEventIds.contains("acc_123"))
+        #expect(event.referencedEventIds.contains(validAcceptanceEventId))
         #expect(EventSigner.verify(event))
 
         // Driver can decrypt and see precise pickup
@@ -89,7 +92,7 @@ struct RideshareEventBuilderTests {
             senderPublicKeyHex: rider.publicKeyHex
         )
         let parsed = try JSONDecoder().decode(RideConfirmationContent.self, from: Data(decrypted.utf8))
-        #expect(parsed.precisePickup?.latitude == 40.71234)
+        #expect(parsed.precisePickup.latitude == 40.71234)
     }
 
     @Test func buildChatMessage() async throws {
@@ -98,13 +101,13 @@ struct RideshareEventBuilderTests {
 
         let event = try await RideshareEventBuilder.chatMessage(
             recipientPubkey: driver.publicKeyHex,
-            confirmationEventId: "conf_123",
+            confirmationEventId: validConfirmationEventId,
             message: "On my way out!",
             keypair: rider
         )
 
         #expect(event.kind == EventKind.chatMessage.rawValue)
-        #expect(event.referencedEventIds.contains("conf_123"))
+        #expect(event.referencedEventIds.contains(validConfirmationEventId))
 
         // Driver decrypts
         let parsed = try RideshareEventParser.parseChatMessage(event: event, keypair: driver)
@@ -117,13 +120,15 @@ struct RideshareEventBuilderTests {
 
         let event = try await RideshareEventBuilder.cancellation(
             counterpartyPubkey: driver.publicKeyHex,
-            confirmationEventId: "conf_123",
+            confirmationEventId: validConfirmationEventId,
             reason: "Changed plans",
             keypair: rider
         )
 
         #expect(event.kind == EventKind.cancellation.rawValue)
-        #expect(event.referencedEventIds.contains("conf_123"))
+        #expect(event.referencedEventIds.contains(validConfirmationEventId))
+        #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
+        #expect(event.content.contains("cancelled"))
 
         let parsed = try RideshareEventParser.parseCancellation(event: event, keypair: driver)
         #expect(parsed.reason == "Changed plans")
@@ -182,16 +187,27 @@ struct RideshareEventBuilderTests {
 
         let event = try await RideshareEventBuilder.riderRideState(
             driverPubkey: driver.publicKeyHex,
-            confirmationEventId: "conf_123",
+            confirmationEventId: validConfirmationEventId,
             phase: "verified",
             history: history,
             keypair: rider
         )
 
         #expect(event.kind == EventKind.riderRideState.rawValue)
-        #expect(event.dTag == "conf_123")
+        #expect(event.dTag == validConfirmationEventId)
+        #expect(event.referencedEventIds.contains(validConfirmationEventId))
         #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
         #expect(EventSigner.verify(event))
+        #expect(!event.content.hasPrefix("#"))
+
+        let parsed = try RideshareEventParser.parseRiderRideState(
+            event: event,
+            keypair: driver,
+            expectedRiderPubkey: rider.publicKeyHex,
+            expectedConfirmationEventId: validConfirmationEventId
+        )
+        #expect(parsed.currentPhase == "verified")
+        #expect(parsed.history.count == 2)
     }
 
     @Test func buildFollowNotification() async throws {
@@ -257,21 +273,21 @@ struct RideshareEventBuilderTests {
 
         // Confirmation
         let confirmation = try await RideshareEventBuilder.rideConfirmation(
-            driverPubkey: driver.publicKeyHex, acceptanceEventId: "acc1",
+            driverPubkey: driver.publicKeyHex, acceptanceEventId: validAcceptanceEventId,
             precisePickup: Location(latitude: 40.0, longitude: -74.0), keypair: rider
         )
         #expect(EventSigner.verify(confirmation))
 
         // Chat
         let chat = try await RideshareEventBuilder.chatMessage(
-            recipientPubkey: driver.publicKeyHex, confirmationEventId: "conf1",
+            recipientPubkey: driver.publicKeyHex, confirmationEventId: validConfirmationEventId,
             message: "test", keypair: rider
         )
         #expect(EventSigner.verify(chat))
 
         // Cancellation
         let cancel = try await RideshareEventBuilder.cancellation(
-            counterpartyPubkey: driver.publicKeyHex, confirmationEventId: "conf1",
+            counterpartyPubkey: driver.publicKeyHex, confirmationEventId: validConfirmationEventId,
             reason: "test", keypair: rider
         )
         #expect(EventSigner.verify(cancel))
@@ -291,9 +307,37 @@ struct RideshareEventBuilderTests {
 
         // Rider ride state
         let riderState = try await RideshareEventBuilder.riderRideState(
-            driverPubkey: driver.publicKeyHex, confirmationEventId: "conf1",
+            driverPubkey: driver.publicKeyHex, confirmationEventId: validConfirmationEventId,
             phase: "verified", history: [], keypair: rider
         )
         #expect(EventSigner.verify(riderState))
+    }
+
+    @Test func confirmationRejectsMalformedAcceptanceEventId() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        await #expect(throws: RidestrError.self) {
+            _ = try await RideshareEventBuilder.rideConfirmation(
+                driverPubkey: driver.publicKeyHex,
+                acceptanceEventId: "short-id",
+                precisePickup: Location(latitude: 40.71234, longitude: -74.00567),
+                keypair: rider
+            )
+        }
+    }
+
+    @Test func cancellationRejectsMalformedConfirmationEventId() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        await #expect(throws: RidestrError.self) {
+            _ = try await RideshareEventBuilder.cancellation(
+                counterpartyPubkey: driver.publicKeyHex,
+                confirmationEventId: "conf1",
+                reason: "test",
+                keypair: rider
+            )
+        }
     }
 }

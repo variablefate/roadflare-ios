@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import RidestrSDK
 
+private let rideFlowAcceptanceEventId = String(repeating: "a", count: 64)
+private let rideFlowConfirmationEventId = String(repeating: "b", count: 64)
+
 /// End-to-end ride flow tests simulating the full iOS rider ↔ Android driver protocol.
 @Suite("Ride Flow Integration Tests")
 struct RideFlowTests {
@@ -34,8 +37,8 @@ struct RideFlowTests {
         try sm.startRide(
             offerEventId: offerEvent.id,
             driverPubkey: driver.publicKeyHex,
-            paymentMethod: .zelle,
-            fiatPaymentMethods: [.zelle, .venmo]
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle", "venmo"]
         )
         #expect(sm.stage == .waitingForAcceptance)
 
@@ -50,14 +53,14 @@ struct RideFlowTests {
         #expect(parsedOffer.fiatPaymentMethods == ["zelle", "venmo"])
 
         // 3. Rider handles acceptance
-        let pin = try sm.handleAcceptance(acceptanceEventId: "acc_1")
+        let pin = try sm.handleAcceptance(acceptanceEventId: rideFlowAcceptanceEventId)
         #expect(sm.stage == .driverAccepted)
         #expect(pin.count == 4)
 
         // 4. Rider auto-confirms (Kind 3175)
         let confirmEvent = try await RideshareEventBuilder.rideConfirmation(
             driverPubkey: driver.publicKeyHex,
-            acceptanceEventId: "acc_1",
+            acceptanceEventId: rideFlowAcceptanceEventId,
             precisePickup: Location(latitude: 40.71234, longitude: -74.00567),
             keypair: rider
         )
@@ -110,25 +113,29 @@ struct RideFlowTests {
         let sm = RideStateMachine()
 
         try sm.startRide(offerEventId: "o1", driverPubkey: driver.publicKeyHex,
-                         paymentMethod: .cash, fiatPaymentMethods: [.cash])
+                         paymentMethod: "cash", fiatPaymentMethods: ["cash"])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
-        try sm.recordConfirmation(confirmationEventId: "conf1")
+        try sm.recordConfirmation(confirmationEventId: rideFlowConfirmationEventId)
 
         // Driver is en route
         let enRoute = DriverRideStateContent(currentStatus: "en_route_pickup", history: [])
-        _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: enRoute)
+        _ = try sm.handleDriverStateUpdate(
+            eventId: "ds1",
+            confirmationId: rideFlowConfirmationEventId,
+            driverState: enRoute
+        )
 
         // Rider cancels
         let cancelEvent = try await RideshareEventBuilder.cancellation(
             counterpartyPubkey: driver.publicKeyHex,
-            confirmationEventId: "conf1",
+            confirmationEventId: rideFlowConfirmationEventId,
             reason: "Changed plans",
             keypair: rider
         )
         #expect(cancelEvent.kind == EventKind.cancellation.rawValue)
         #expect(EventSigner.verify(cancelEvent))
 
-        let processed = sm.handleCancellation(eventId: cancelEvent.id, confirmationId: "conf1")
+        let processed = sm.handleCancellation(eventId: cancelEvent.id, confirmationId: rideFlowConfirmationEventId)
         #expect(processed)
         #expect(sm.stage == .idle)
     }
@@ -143,12 +150,12 @@ struct RideFlowTests {
         try sm.startRide(offerEventId: "o1", driverPubkey: driver.publicKeyHex,
                          paymentMethod: nil, fiatPaymentMethods: [])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
-        try sm.recordConfirmation(confirmationEventId: "conf1")
+        try sm.recordConfirmation(confirmationEventId: rideFlowConfirmationEventId)
 
         // Simulate driver sending cancellation
         let cancelEvent = try await RideshareEventBuilder.cancellation(
             counterpartyPubkey: rider.publicKeyHex,
-            confirmationEventId: "conf1",
+            confirmationEventId: rideFlowConfirmationEventId,
             reason: "Emergency",
             keypair: driver
         )
@@ -157,7 +164,7 @@ struct RideFlowTests {
         let content = try RideshareEventParser.parseCancellation(event: cancelEvent, keypair: rider)
         #expect(content.reason == "Emergency")
 
-        let processed = sm.handleCancellation(eventId: cancelEvent.id, confirmationId: "conf1")
+        let processed = sm.handleCancellation(eventId: cancelEvent.id, confirmationId: rideFlowConfirmationEventId)
         #expect(processed)
         #expect(sm.stage == .idle)
     }
@@ -191,7 +198,7 @@ struct RideFlowTests {
         // Rider sends
         let riderMsg = try await RideshareEventBuilder.chatMessage(
             recipientPubkey: driver.publicKeyHex,
-            confirmationEventId: "conf1",
+            confirmationEventId: rideFlowConfirmationEventId,
             message: "I'm at the corner",
             keypair: rider
         )
@@ -201,7 +208,7 @@ struct RideFlowTests {
         // Driver replies
         let driverMsg = try await RideshareEventBuilder.chatMessage(
             recipientPubkey: rider.publicKeyHex,
-            confirmationEventId: "conf1",
+            confirmationEventId: rideFlowConfirmationEventId,
             message: "Be there in 2 min",
             keypair: driver
         )

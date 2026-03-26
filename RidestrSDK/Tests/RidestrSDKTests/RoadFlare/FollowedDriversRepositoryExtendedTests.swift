@@ -153,6 +153,41 @@ struct FollowedDriversRepositoryExtendedTests {
         #expect(repo.drivers[0].pubkey == "d3")
     }
 
+    @Test func replaceAllRemovesCachesForDroppedDrivers() {
+        let repo = makeRepo()
+        let keepKey = RoadflareKey(privateKeyHex: "keepPriv", publicKeyHex: "keepPub", version: 1, keyUpdatedAt: 100)
+        let dropKey = RoadflareKey(privateKeyHex: "dropPriv", publicKeyHex: "dropPub", version: 1, keyUpdatedAt: 100)
+
+        repo.addDriver(FollowedDriver(pubkey: "keep", name: "Keep", note: "Keep note", roadflareKey: keepKey))
+        repo.cacheDriverName(pubkey: "keep", name: "Keep Display")
+        repo.cacheDriverProfile(pubkey: "keep", profile: UserProfileContent(about: "Keep bio"))
+        repo.updateDriverLocation(pubkey: "keep", latitude: 40.7, longitude: -74.0, status: "online", timestamp: 1000, keyVersion: 1)
+        repo.markKeyStale(pubkey: "keep")
+
+        repo.addDriver(FollowedDriver(pubkey: "drop", name: "Drop", roadflareKey: dropKey))
+        repo.cacheDriverName(pubkey: "drop", name: "Drop Display")
+        repo.cacheDriverProfile(pubkey: "drop", profile: UserProfileContent(about: "Drop bio"))
+        repo.updateDriverLocation(pubkey: "drop", latitude: 41.0, longitude: -73.0, status: "online", timestamp: 1000, keyVersion: 1)
+        repo.markKeyStale(pubkey: "drop")
+
+        repo.replaceAll(drivers: [FollowedDriver(pubkey: "keep", note: "Keep note")])
+
+        #expect(repo.drivers.count == 1)
+        #expect(repo.isFollowing(pubkey: "keep"))
+        #expect(!repo.isFollowing(pubkey: "drop"))
+        #expect(repo.getDriver(pubkey: "keep")?.name == "Keep")
+        #expect(repo.getDriver(pubkey: "keep")?.note == "Keep note")
+        #expect(repo.getDriver(pubkey: "keep")?.roadflareKey?.version == 1)
+        #expect(repo.cachedDriverName(pubkey: "keep") == "Keep Display")
+        #expect(repo.cachedDriverProfile(pubkey: "keep")?.about == "Keep bio")
+        #expect(repo.driverLocations["keep"] != nil)
+        #expect(repo.staleKeyPubkeys.contains("keep"))
+        #expect(repo.cachedDriverName(pubkey: "drop") == nil)
+        #expect(repo.cachedDriverProfile(pubkey: "drop") == nil)
+        #expect(repo.driverLocations["drop"] == nil)
+        #expect(!repo.staleKeyPubkeys.contains("drop"))
+    }
+
     @Test func restoreFromNostr() {
         let repo = makeRepo()
         let content = FollowedDriversContent(
@@ -165,6 +200,22 @@ struct FollowedDriversRepositoryExtendedTests {
         repo.restoreFromNostr(content: content)
         #expect(repo.drivers.count == 2)
         #expect(repo.getDriver(pubkey: "d1")?.note == "Note 1")
+    }
+
+    @Test func restoreFromNostrClearsRemovedNote() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1", addedAt: 10, note: "Local note"))
+
+        let content = FollowedDriversContent(
+            drivers: [
+                FollowedDriverEntry(pubkey: "d1", addedAt: 20, note: nil, roadflareKey: nil),
+            ],
+            updatedAt: 30
+        )
+
+        repo.restoreFromNostr(content: content)
+        #expect(repo.getDriver(pubkey: "d1")?.addedAt == 20)
+        #expect(repo.getDriver(pubkey: "d1")?.note == nil)
     }
 
     // MARK: - Cleanup

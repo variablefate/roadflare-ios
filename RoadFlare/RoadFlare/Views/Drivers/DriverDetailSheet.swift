@@ -34,7 +34,7 @@ struct DriverDetailSheet: View {
                     }
                 }
 
-                if let key = driver.roadflareKey {
+                if let key = currentDriver.roadflareKey {
                     Section("RoadFlare Key") {
                         LabeledContent("Version", value: "\(key.version)")
                         LabeledContent("Key Status", value: "Active")
@@ -57,14 +57,12 @@ struct DriverDetailSheet: View {
                 Section("Personal Note") {
                     TextField("Add a note about this driver", text: $note)
                         .onSubmit {
-                            appState.driversRepository?.updateDriverNote(
-                                driverPubkey: driver.pubkey, note: note
-                            )
+                            persistNoteIfNeeded()
                         }
                 }
 
                 Section {
-                    if driver.hasKey {
+                    if canRequestRide {
                         Button("Request Ride") {
                             appState.requestRideDriverPubkey = driver.pubkey
                             appState.selectedTab = 0  // Switch to RoadFlare tab
@@ -90,25 +88,53 @@ struct DriverDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Done") {
+                        persistNoteIfNeeded()
+                        dismiss()
+                    }
                 }
             }
         }
     }
 
+    private var currentDriver: FollowedDriver {
+        appState.driversRepository?.getDriver(pubkey: driver.pubkey) ?? driver
+    }
+
+    private var currentLocation: CachedDriverLocation? {
+        appState.driversRepository?.driverLocations[driver.pubkey]
+    }
+
+    private var canRequestRide: Bool {
+        currentDriver.hasKey && currentLocation?.status == "online"
+    }
+
     private var displayName: String {
         appState.driversRepository?.driverNames[driver.pubkey]
-            ?? driver.name
+            ?? currentDriver.name
             ?? String(driver.pubkey.prefix(8)) + "..."
     }
 
     private var statusText: String {
-        guard driver.hasKey else { return "Pending approval" }
-        guard let loc = appState.driversRepository?.driverLocations[driver.pubkey] else { return "Offline" }
+        guard currentDriver.hasKey else { return "Pending approval" }
+        guard let loc = currentLocation else { return "Offline" }
         switch loc.status {
         case "online": return "Available"
         case "on_ride": return "On a ride"
         default: return "Offline"
+        }
+    }
+
+    private func persistNoteIfNeeded() {
+        guard let repo = appState.driversRepository else { return }
+        let normalized = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = repo.getDriver(pubkey: driver.pubkey)?.note?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard normalized != existing else { return }
+
+        repo.updateDriverNote(driverPubkey: driver.pubkey, note: normalized)
+        Task {
+            await appState.rideCoordinator?.publishFollowedDriversList()
         }
     }
 

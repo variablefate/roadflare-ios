@@ -47,11 +47,11 @@ struct TransitionTableTests {
     }
 
     @Test func verifyPinHasThreeTransitions() {
-        // success → inProgress, bruteForce → idle, failed → driverArrived (stay)
+        // success → driverArrived (pin verified, waiting for driver ack),
+        // bruteForce → idle, failed → driverArrived (stay)
         let transitions = RideTransitions.findTransition(from: .driverArrived, eventType: "VERIFY_PIN")
         #expect(transitions.count == 3)
         let destinations = Set(transitions.map(\.to))
-        #expect(destinations.contains(.inProgress))
         #expect(destinations.contains(.idle))
         #expect(destinations.contains(.driverArrived))
     }

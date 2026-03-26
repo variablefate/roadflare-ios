@@ -42,10 +42,10 @@ public struct RideContext: Sendable {
     // MARK: - Payment (Fiat v1)
 
     /// Selected payment method for this ride.
-    public let paymentMethod: PaymentMethod?
+    public let paymentMethod: String?
 
     /// Rider's accepted fiat payment methods.
-    public let fiatPaymentMethods: [PaymentMethod]
+    public let fiatPaymentMethods: [String]
 
     // MARK: - Location Sharing
 
@@ -62,6 +62,9 @@ public struct RideContext: Sendable {
 
     /// Timestamp of last processed driver state event (for ordering).
     public let lastDriverStateTimestamp: Int
+
+    /// Number of actions in the last processed driver state snapshot.
+    public let lastDriverActionCount: Int
 
     // MARK: - History
 
@@ -80,12 +83,13 @@ public struct RideContext: Sendable {
         pinAttempts: Int = 0,
         pinVerified: Bool = false,
         maxPinAttempts: Int = RideConstants.maxPinAttempts,
-        paymentMethod: PaymentMethod? = nil,
-        fiatPaymentMethods: [PaymentMethod] = [],
+        paymentMethod: String? = nil,
+        fiatPaymentMethods: [String] = [],
         precisePickupShared: Bool = false,
         preciseDestinationShared: Bool = false,
         lastDriverStatus: String? = nil,
         lastDriverStateTimestamp: Int = 0,
+        lastDriverActionCount: Int = 0,
         riderStateHistory: [RiderRideAction] = []
     ) {
         self.riderPubkey = riderPubkey
@@ -98,11 +102,12 @@ public struct RideContext: Sendable {
         self.pinVerified = pinVerified
         self.maxPinAttempts = maxPinAttempts
         self.paymentMethod = paymentMethod
-        self.fiatPaymentMethods = fiatPaymentMethods
+        self.fiatPaymentMethods = RoadflarePaymentPreferences(methods: fiatPaymentMethods).methods
         self.precisePickupShared = precisePickupShared
         self.preciseDestinationShared = preciseDestinationShared
         self.lastDriverStatus = lastDriverStatus
         self.lastDriverStateTimestamp = lastDriverStateTimestamp
+        self.lastDriverActionCount = lastDriverActionCount
         self.riderStateHistory = riderStateHistory
     }
 
@@ -120,7 +125,9 @@ public struct RideContext: Sendable {
             pinAttempts: pinAttempts, pinVerified: pinVerified, maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: precisePickupShared, preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
     }
@@ -134,7 +141,9 @@ public struct RideContext: Sendable {
             pinAttempts: pinAttempts, pinVerified: pinVerified, maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: precisePickupShared, preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
     }
@@ -144,12 +153,14 @@ public struct RideContext: Sendable {
         RideContext(
             riderPubkey: riderPubkey, driverPubkey: driverPubkey,
             offerEventId: offerEventId, acceptanceEventId: acceptanceEventId,
-            confirmationEventId: confirmationEventId, pin: pin,
+            confirmationEventId: confirmationEventId, pin: verified ? nil : pin,
             pinAttempts: pinAttempts + 1, pinVerified: verified || pinVerified,
             maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: precisePickupShared, preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
     }
@@ -163,7 +174,9 @@ public struct RideContext: Sendable {
             pinAttempts: pinAttempts, pinVerified: pinVerified, maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: precisePickupShared, preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
     }
@@ -179,7 +192,9 @@ public struct RideContext: Sendable {
             pinAttempts: pinAttempts, pinVerified: pinVerified, maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: shared, preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
     }
@@ -193,7 +208,9 @@ public struct RideContext: Sendable {
             pinAttempts: pinAttempts, pinVerified: pinVerified, maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: precisePickupShared, preciseDestinationShared: shared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
     }
@@ -207,7 +224,9 @@ public struct RideContext: Sendable {
             pinAttempts: pinAttempts, pinVerified: pinVerified, maxPinAttempts: maxPinAttempts,
             paymentMethod: paymentMethod, fiatPaymentMethods: fiatPaymentMethods,
             precisePickupShared: precisePickupShared, preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus, lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory + [action]
         )
     }

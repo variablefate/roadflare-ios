@@ -4,6 +4,7 @@ import Foundation
 public enum EventKind: UInt16, Sendable, CaseIterable {
     // Standard Nostr
     case metadata = 0
+    case deletion = 5
 
     // Ride lifecycle (regular events)
     case rideOffer = 3173

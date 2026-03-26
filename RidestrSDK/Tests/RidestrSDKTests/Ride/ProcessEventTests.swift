@@ -11,7 +11,7 @@ struct ProcessEventTests {
         let sm = RideStateMachine(riderPubkey: "rider1")
         let result = sm.processEvent(.sendOffer(
             offerEventId: "o1", driverPubkey: "driver1",
-            paymentMethod: .zelle, fiatPaymentMethods: [.zelle, .venmo]
+            paymentMethod: "zelle", fiatPaymentMethods: ["zelle", "venmo"]
         ))
 
         if case .success(let from, let to, let ctx) = result {
@@ -19,7 +19,7 @@ struct ProcessEventTests {
             #expect(to == .waitingForAcceptance)
             #expect(ctx.offerEventId == "o1")
             #expect(ctx.driverPubkey == "driver1")
-            #expect(ctx.paymentMethod == .zelle)
+            #expect(ctx.paymentMethod == "zelle")
             #expect(sm.stage == .waitingForAcceptance)
         } else {
             Issue.record("Expected success, got \(result)")
@@ -108,12 +108,13 @@ struct ProcessEventTests {
 
     // MARK: - PIN Verification via processEvent()
 
-    @Test func pinVerifiedTransitionsToInProgress() {
+    @Test func pinVerifiedStaysAtDriverArrivedUntilDriverStartsRide() {
         let sm = setupAtDriverArrived()
         let result = sm.processEvent(.verifyPin(verified: true, attempt: 1))
 
         if case .success(_, let to, let ctx) = result {
-            #expect(to == .inProgress)
+            #expect(to == .driverArrived)
+            #expect(ctx.pin == nil)
             #expect(ctx.pinVerified)
             #expect(ctx.pinAttempts == 1)
         } else {
@@ -186,27 +187,92 @@ struct ProcessEventTests {
         #expect(sm.stage == .driverArrived)
     }
 
+    @Test func receiveDriverStateAcceptsSameTimestampWhenHistoryExtends() throws {
+        let sm = RideStateMachine(riderPubkey: "rider1")
+        sm.processEvent(.sendOffer(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: []))
+        sm.processEvent(.acceptanceReceived(acceptanceEventId: "a1"))
+        sm.processEvent(.confirm(confirmationEventId: "c1"))
+
+        let firstState = DriverRideStateContent(
+            currentStatus: "arrived",
+            history: [
+                DriverRideAction(
+                    type: "status",
+                    at: 1000,
+                    status: "arrived",
+                    approxLocation: nil,
+                    finalFare: nil,
+                    invoice: nil,
+                    pinEncrypted: nil
+                )
+            ]
+        )
+        let firstResult = sm.receiveDriverStateEvent(
+            eventId: "e1",
+            confirmationId: "c1",
+            driverState: firstState,
+            createdAt: 1000
+        )
+        #expect(firstResult == "arrived")
+        #expect(sm.lastDriverActionCount == 1)
+
+        let secondState = DriverRideStateContent(
+            currentStatus: "arrived",
+            history: [
+                DriverRideAction(
+                    type: "status",
+                    at: 1000,
+                    status: "arrived",
+                    approxLocation: nil,
+                    finalFare: nil,
+                    invoice: nil,
+                    pinEncrypted: nil
+                ),
+                DriverRideAction(
+                    type: "pin_submit",
+                    at: 1000,
+                    status: nil,
+                    approxLocation: nil,
+                    finalFare: nil,
+                    invoice: nil,
+                    pinEncrypted: "ciphertext"
+                )
+            ]
+        )
+        let secondResult = sm.receiveDriverStateEvent(
+            eventId: "e2",
+            confirmationId: "c1",
+            driverState: secondState,
+            createdAt: 1000
+        )
+        #expect(secondResult == "arrived")
+        #expect(sm.stage == .driverArrived)
+        #expect(sm.lastDriverActionCount == 2)
+    }
+
     // MARK: - RideContext Copy Methods
 
     @Test func rideContextWithDriverPreservesFields() {
-        let ctx = RideContext(riderPubkey: "r1", offerEventId: "o1", paymentMethod: .zelle, fiatPaymentMethods: [.zelle])
+        let ctx = RideContext(riderPubkey: "r1", offerEventId: "o1", paymentMethod: "zelle", fiatPaymentMethods: ["zelle"])
         let ctx2 = ctx.withDriver(driverPubkey: "d1", acceptanceEventId: "a1")
 
         #expect(ctx2.driverPubkey == "d1")
         #expect(ctx2.acceptanceEventId == "a1")
         #expect(ctx2.offerEventId == "o1")
-        #expect(ctx2.paymentMethod == .zelle)
+        #expect(ctx2.paymentMethod == "zelle")
         #expect(ctx2.riderPubkey == "r1")
     }
 
     @Test func rideContextWithPinAttemptIncrements() {
-        let ctx = RideContext(riderPubkey: "r1", pinAttempts: 1, pinVerified: false)
+        let ctx = RideContext(riderPubkey: "r1", pin: "1234", pinAttempts: 1, pinVerified: false)
         let ctx2 = ctx.withPinAttempt(verified: false)
         #expect(ctx2.pinAttempts == 2)
+        #expect(ctx2.pin == "1234")
         #expect(!ctx2.pinVerified)
 
         let ctx3 = ctx2.withPinAttempt(verified: true)
         #expect(ctx3.pinAttempts == 3)
+        #expect(ctx3.pin == nil)
         #expect(ctx3.pinVerified)
     }
 
@@ -263,7 +329,7 @@ struct ProcessEventTests {
 
     @Test func contextAndStageStaySynced() {
         let sm = RideStateMachine(riderPubkey: "rider1")
-        sm.processEvent(.sendOffer(offerEventId: "o1", driverPubkey: "d1", paymentMethod: .cash, fiatPaymentMethods: [.cash]))
+        sm.processEvent(.sendOffer(offerEventId: "o1", driverPubkey: "d1", paymentMethod: "cash", fiatPaymentMethods: ["cash"]))
 
         // All computed properties should reflect context
         #expect(sm.offerEventId == sm.context.offerEventId)

@@ -6,8 +6,11 @@ import RidestrSDK
 final class SavedLocationsStore {
     private static let key = "roadflare_saved_locations"
     private let defaults: UserDefaults
+    private var suppressChangeNotifications = false
 
     var locations: [SavedLocation] = []
+    var onChange: (@MainActor () -> Void)?
+    var onFavoritesChanged: (@MainActor () -> Void)?
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -33,8 +36,17 @@ final class SavedLocationsStore {
         .sorted { $0.timestampMs > $1.timestampMs }
     }
 
+    func performWithoutChangeTracking(_ updates: () -> Void) {
+        let previous = suppressChangeNotifications
+        suppressChangeNotifications = true
+        updates()
+        suppressChangeNotifications = previous
+    }
+
     /// Add or update a saved location.
     func save(_ location: SavedLocation) {
+        let previousFavorites = favoriteSignatures()
+
         // Check for duplicate within 50m
         if let existingIndex = locations.firstIndex(where: { existing in
             let dist = sqrt(
@@ -61,6 +73,8 @@ final class SavedLocationsStore {
         }
 
         persist()
+        notifyChanged()
+        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     /// Add a recent location (convenience for ride completions).
@@ -75,30 +89,42 @@ final class SavedLocationsStore {
 
     /// Pin a location as a favorite with a nickname.
     func pin(id: String, nickname: String) {
+        let previousFavorites = favoriteSignatures()
         guard let index = locations.firstIndex(where: { $0.id == id }) else { return }
         locations[index].isPinned = true
         locations[index].nickname = nickname
         persist()
+        notifyChanged()
+        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     /// Unpin a favorite back to recents.
     func unpin(id: String) {
+        let previousFavorites = favoriteSignatures()
         guard let index = locations.firstIndex(where: { $0.id == id }) else { return }
         locations[index].isPinned = false
         locations[index].nickname = nil
         persist()
+        notifyChanged()
+        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     /// Remove a location.
     func remove(id: String) {
+        let previousFavorites = favoriteSignatures()
         locations.removeAll { $0.id == id }
         persist()
+        notifyChanged()
+        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     /// Clear all locations.
     func clearAll() {
+        let previousFavorites = favoriteSignatures()
         locations = []
         defaults.removeObject(forKey: Self.key)
+        notifyChanged()
+        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     private func persist() {
@@ -111,4 +137,42 @@ final class SavedLocationsStore {
         guard let data = defaults.data(forKey: key) else { return [] }
         return (try? JSONDecoder().decode([SavedLocation].self, from: data)) ?? []
     }
+
+    private func notifyChanged() {
+        guard !suppressChangeNotifications else { return }
+        onChange?()
+    }
+
+    private func notifyFavoritesChangedIfNeeded(_ previousFavorites: [FavoriteSignature]) {
+        guard !suppressChangeNotifications else { return }
+        guard previousFavorites != favoriteSignatures() else { return }
+        onFavoritesChanged?()
+    }
+
+    private func favoriteSignatures() -> [FavoriteSignature] {
+        locations
+            .filter(\.isPinned)
+            .map {
+                FavoriteSignature(
+                    id: $0.id,
+                    latitude: $0.latitude,
+                    longitude: $0.longitude,
+                    displayName: $0.displayName,
+                    addressLine: $0.addressLine,
+                    nickname: $0.nickname,
+                    timestampMs: $0.timestampMs
+                )
+            }
+            .sorted { $0.id < $1.id }
+    }
+}
+
+private struct FavoriteSignature: Equatable {
+    let id: String
+    let latitude: Double
+    let longitude: Double
+    let displayName: String
+    let addressLine: String
+    let nickname: String?
+    let timestampMs: Int
 }

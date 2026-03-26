@@ -52,7 +52,7 @@ struct SyncScreen: View {
 
                     restoredRow(icon: "creditcard",
                                 text: "Payment methods restored",
-                                visible: appState.settings.paymentMethods.count > 1)
+                                visible: !appState.settings.roadflarePaymentMethods.isEmpty)
                 }
                 .padding(.horizontal, 32)
 

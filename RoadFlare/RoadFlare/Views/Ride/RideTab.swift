@@ -23,6 +23,22 @@ struct RideTab: View {
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }
+    private var onlineDrivers: [FollowedDriver] {
+        guard let repo = appState.driversRepository else { return [] }
+        return repo.drivers.filter { driver in
+            driver.hasKey && repo.driverLocations[driver.pubkey]?.status == "online"
+        }
+    }
+    private var onlineDriverPubkeys: [String] { onlineDrivers.map(\.pubkey) }
+    private var hasValidSelectedDriver: Bool {
+        guard let selectedDriverPubkey else { return false }
+        return onlineDriverPubkeys.contains(selectedDriverPubkey)
+    }
+    private func displayName(for driver: FollowedDriver) -> String {
+        appState.driversRepository?.driverNames[driver.pubkey]
+            ?? driver.name
+            ?? String(driver.pubkey.prefix(8)) + "..."
+    }
 
     var body: some View {
         NavigationStack {
@@ -40,11 +56,12 @@ struct RideTab: View {
                         stage: stage,
                         pin: coordinator?.stateMachine.pin,
                         fareEstimate: coordinator?.currentFareEstimate,
-                        paymentMethods: appState.settings.paymentMethods,
+                        paymentMethods: coordinator?.activeRidePaymentMethods
+                            ?? appState.settings.roadflarePaymentMethods,
                         onCancel: { showCancelWarning = true },
                         onChat: { showChat = true },
                         onCloseRide: {
-                            Task { await coordinator?.cancelRide() }
+                            Task { await coordinator?.closeCompletedRide() }
                             selectedDriverPubkey = nil
                             pickupAddress = ""
                             destinationAddress = ""
@@ -61,28 +78,19 @@ struct RideTab: View {
             .sheet(isPresented: $showChat) { WiredChatView() }
             .task { await monitorConnection() }
             .onAppear {
-                // Pick up driver selection from DriverDetailSheet navigation
-                if let pubkey = appState.requestRideDriverPubkey {
-                    selectedDriverPubkey = pubkey
-                    appState.requestRideDriverPubkey = nil
-                }
-                // Restore ride state from persistence after app kill
-                if selectedDriverPubkey == nil, let driverPub = coordinator?.stateMachine.driverPubkey {
-                    selectedDriverPubkey = driverPub
-                }
-                // Auto-select first online driver if none selected
-                if selectedDriverPubkey == nil, let repo = appState.driversRepository {
-                    let firstOnline = repo.drivers.first { d in
-                        d.hasKey && repo.driverLocations[d.pubkey]?.status == "online"
-                    }
-                    selectedDriverPubkey = firstOnline?.pubkey
-                }
+                refreshSelectedDriverSelection()
                 if pickupAddress.isEmpty, let addr = coordinator?.pickupLocation?.address {
                     pickupAddress = addr
                 }
                 if destinationAddress.isEmpty, let addr = coordinator?.destinationLocation?.address {
                     destinationAddress = addr
                 }
+            }
+            .onChange(of: appState.requestRideDriverPubkey) {
+                refreshSelectedDriverSelection()
+            }
+            .onChange(of: onlineDriverPubkeys) {
+                refreshSelectedDriverSelection()
             }
             .onChange(of: pickupAddress) {
                 if pickupAddress.isEmpty {
@@ -138,11 +146,7 @@ struct RideTab: View {
     private var idleView: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if let repo = appState.driversRepository {
-                    let onlineDrivers = repo.drivers.filter { d in
-                        d.hasKey && (repo.driverLocations[d.pubkey]?.status == "online")
-                    }
-
+                if appState.driversRepository != nil {
                     if onlineDrivers.isEmpty {
                         VStack(spacing: 24) {
                             Spacer().frame(height: 80)
@@ -166,7 +170,7 @@ struct RideTab: View {
                                         FlareIndicator(color: selectedDriverPubkey == driver.pubkey ? .rfPrimary : .rfOnline)
                                             .frame(height: 36)
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(repo.driverNames[driver.pubkey] ?? driver.name ?? String(driver.pubkey.prefix(8)) + "...")
+                                            Text(displayName(for: driver))
                                                 .font(RFFont.title(15))
                                                 .foregroundColor(Color.rfOnSurface)
                                             Text("Available")
@@ -186,7 +190,7 @@ struct RideTab: View {
                         }
 
                         // Ride details
-                        if selectedDriverPubkey != nil {
+                        if hasValidSelectedDriver {
                             VStack(alignment: .leading, spacing: 14) {
                                 SectionLabel("Ride Details")
 
@@ -269,7 +273,7 @@ struct RideTab: View {
                                 HStack {
                                     Image(systemName: "creditcard")
                                         .foregroundColor(Color.rfPrimary)
-                                    Text(appState.settings.paymentMethods.map(\.displayName).joined(separator: ", "))
+                                    Text(appState.settings.allPaymentMethodNames.joined(separator: ", "))
                                         .font(RFFont.caption(12))
                                         .foregroundColor(Color.rfOnSurfaceVariant)
                                 }
@@ -410,6 +414,7 @@ struct RideTab: View {
     @State private var isLocating = false
 
     private func useCurrentLocation() {
+        let previousPickupAddress = pickupAddress
         isLocating = true
         pickupAddress = "Finding your location..."
         locationManager.requestLocation { clLocation in
@@ -425,6 +430,14 @@ struct RideTab: View {
                 }
                 isLocating = false
                 recalculateFare()
+            }
+        } onFailure: {
+            Task { @MainActor in
+                isLocating = false
+                pickupAddress = previousPickupAddress
+                fareError = locationManager.permissionDenied
+                    ? "Location access is disabled. Enable it in Settings to use your current location."
+                    : "Couldn’t get your current location. Try again."
             }
         }
     }
@@ -482,8 +495,6 @@ struct RideTab: View {
                     displayName: destinationAddress, addressLine: destination.address ?? destinationAddress,
                     isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
                 ))
-                // Backup saved locations to Nostr
-                await appState.publishProfileBackup()
             } catch {
                 if !Task.isCancelled { fareError = "Route calculation failed. Check addresses." }
             }
@@ -494,6 +505,7 @@ struct RideTab: View {
     /// Send ride offer using the pre-calculated fare.
     private func sendOffer() {
         guard let driverPubkey = selectedDriverPubkey,
+              onlineDriverPubkeys.contains(driverPubkey),
               let fare = coordinator?.currentFareEstimate,
               let pickup = coordinator?.pickupLocation,
               let destination = coordinator?.destinationLocation else { return }
@@ -509,6 +521,38 @@ struct RideTab: View {
         while !Task.isCancelled {
             if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
             try? await Task.sleep(for: .seconds(10))
+        }
+    }
+
+    private func refreshSelectedDriverSelection() {
+        var appliedExplicitSelection = false
+        if let requestedPubkey = appState.requestRideDriverPubkey {
+            selectedDriverPubkey = requestedPubkey
+            appState.requestRideDriverPubkey = nil
+            appliedExplicitSelection = true
+        }
+
+        if selectedDriverPubkey == nil, let activeRideDriver = coordinator?.stateMachine.driverPubkey {
+            selectedDriverPubkey = activeRideDriver
+        }
+
+        guard stage == .idle else { return }
+        guard !onlineDriverPubkeys.isEmpty else {
+            self.selectedDriverPubkey = nil
+            return
+        }
+
+        if let selectedDriverPubkey {
+            guard onlineDriverPubkeys.contains(selectedDriverPubkey) else {
+                // Never silently retarget a ride request to a different driver.
+                self.selectedDriverPubkey = nil
+                return
+            }
+            return
+        }
+
+        if !appliedExplicitSelection {
+            self.selectedDriverPubkey = onlineDrivers.first?.pubkey
         }
     }
 }

@@ -16,6 +16,8 @@ enum AuthState {
 @Observable
 @MainActor
 final class AppState {
+    private static let connectionWatchdogInterval: Duration = .seconds(10)
+
     // MARK: - Auth
 
     var authState: AuthState = .loading
@@ -31,6 +33,7 @@ final class AppState {
 
     private(set) var keyManager: KeyManager?
     private(set) var relayManager: RelayManager?
+    private(set) var roadflareDomainService: RoadflareDomainService?
     private(set) var driversRepository: FollowedDriversRepository?
     private(set) var rideCoordinator: RideCoordinator?
     private(set) var fareCalculator: FareCalculator?
@@ -55,10 +58,26 @@ final class AppState {
 
     private let keychainStorage = KeychainStorage(service: "com.roadflare.keys")
     private let driversPersistence = UserDefaultsDriversPersistence()
+    private var roadflareSyncStore: RoadflareSyncStateStore?
+    private var connectionWatchdogTask: Task<Void, Never>?
+    private var isAutoReconnecting = false
+    private var isPublishingProfileBackup = false
+    private var profileBackupRepublishRequested = false
+    private var profileBackupSettingsTemplate = SettingsBackupContent()
 
     // MARK: - Init
 
-    init() {}
+    init() {
+        settings.onProfileChanged = { [weak self] in
+            self?.roadflareSyncStore?.markDirty(.profile)
+        }
+        settings.onProfileBackupChanged = { [weak self] in
+            self?.roadflareSyncStore?.markDirty(.profileBackup)
+        }
+        savedLocations.onChange = { [weak self] in
+            self?.roadflareSyncStore?.markDirty(.profileBackup)
+        }
+    }
 
     private static let hasLaunchedKey = "roadflare_has_launched"
 
@@ -78,11 +97,7 @@ final class AppState {
         if let kp = await km.getKeypair() {
             keypair = kp
             await setupServices(keypair: kp)
-            if settings.profileCompleted {
-                authState = .ready
-            } else {
-                authState = .profileIncomplete
-            }
+            authState = resolveLocalAuthState()
         } else {
             authState = .loggedOut
         }
@@ -94,6 +109,7 @@ final class AppState {
     func generateNewKey() async throws {
         guard let km = keyManager else { return }
         let kp = try await km.generate()
+        await prepareForIdentityReplacement(clearPersistedSyncState: false)
         keypair = kp
         await setupServices(keypair: kp)
         authState = .profileIncomplete
@@ -109,6 +125,7 @@ final class AppState {
         } else {
             kp = try await km.importHex(trimmed)
         }
+        await prepareForIdentityReplacement(clearPersistedSyncState: false)
         keypair = kp
 
         // Show sync screen
@@ -123,7 +140,7 @@ final class AppState {
         if settings.profileName.isEmpty {
             // No name → go to profile setup
             authState = .profileIncomplete
-        } else if settings.paymentMethods.isEmpty {
+        } else if settings.roadflarePaymentMethods.isEmpty {
             // Have name but no payment methods → go to payment setup
             authState = .paymentSetup
         } else {
@@ -137,6 +154,7 @@ final class AppState {
     /// Does NOT publish Kind 30177 yet — payment methods aren't set until next step.
     func completeProfileSetup(name: String) async {
         settings.profileName = name
+        roadflareSyncStore?.markDirty(.profile)
         await publishProfile()
         authState = .paymentSetup
     }
@@ -144,20 +162,21 @@ final class AppState {
     /// Mark payment setup as done, finish onboarding. Publishes profile + settings backup.
     func completePaymentSetup() async {
         settings.profileCompleted = true
+        roadflareSyncStore?.markDirty(.profileBackup)
         await saveAndPublishSettings()
         authState = .ready
     }
 
     /// Publish Kind 0 metadata to Nostr.
     func publishProfile() async {
-        guard let kp = keypair, let rm = relayManager else { return }
+        guard let service = roadflareDomainService else { return }
         let profile = UserProfileContent(
             name: settings.profileName,
             displayName: settings.profileName
         )
         do {
-            let event = try await RideshareEventBuilder.metadata(profile: profile, keypair: kp)
-            _ = try await rm.publish(event)
+            let event = try await service.publishProfile(profile)
+            roadflareSyncStore?.markPublished(.profile, at: event.createdAt)
             AppLogger.auth.info("Published profile to Nostr")
         } catch {
             AppLogger.auth.info("Failed to publish profile: \(error)")
@@ -166,26 +185,48 @@ final class AppState {
 
     /// Publish Kind 30177 encrypted profile backup (settings + saved locations) to Nostr.
     func publishProfileBackup() async {
-        guard let kp = keypair, let rm = relayManager else { return }
-        let backup = ProfileBackupContent(
-            savedLocations: savedLocations.favorites.map { loc in
+        guard let service = roadflareDomainService else { return }
+        if isPublishingProfileBackup {
+            profileBackupRepublishRequested = true
+            return
+        }
+
+        isPublishingProfileBackup = true
+        defer { isPublishingProfileBackup = false }
+
+        repeat {
+            profileBackupRepublishRequested = false
+            let backup = buildProfileBackupContent()
+            do {
+                let event = try await service.publishProfileBackup(backup)
+                roadflareSyncStore?.markPublished(.profileBackup, at: event.createdAt)
+                AppLogger.auth.info("Published profile backup to Nostr")
+            } catch {
+                AppLogger.auth.info("Failed to publish profile backup: \(error)")
+            }
+        } while profileBackupRepublishRequested
+    }
+
+    func buildProfileBackupContent() -> ProfileBackupContent {
+        var settingsBackup = profileBackupSettingsTemplate
+        settingsBackup.roadflarePaymentMethods = settings.roadflarePaymentMethods
+
+        return ProfileBackupContent(
+            savedLocations: savedLocations.locations.map { loc in
                 SavedLocationBackup(
                     displayName: loc.displayName, lat: loc.latitude, lon: loc.longitude,
-                    addressLine: loc.addressLine, isPinned: true
+                    addressLine: loc.addressLine,
+                    isPinned: loc.isPinned,
+                    nickname: loc.nickname,
+                    timestampMs: loc.timestampMs
                 )
             },
-            settings: SettingsBackupContent(
-                roadflarePaymentMethods: settings.paymentMethods.map(\.rawValue),
-                customPaymentMethods: settings.customPaymentMethods
-            )
+            settings: settingsBackup
         )
-        do {
-            let event = try await RideshareEventBuilder.profileBackup(content: backup, keypair: kp)
-            _ = try await rm.publish(event)
-            AppLogger.auth.info("Published profile backup to Nostr")
-        } catch {
-            AppLogger.auth.info("Failed to publish profile backup: \(error)")
-        }
+    }
+
+    func preserveProfileBackupSettingsTemplate(_ settings: SettingsBackupContent) {
+        profileBackupSettingsTemplate = settings
     }
 
     /// Publish both Kind 0 (public profile) and Kind 30177 (encrypted backup) to Nostr.
@@ -197,20 +238,28 @@ final class AppState {
     /// Try to restore a specific driver's key from our Kind 30011 backup on the relay.
     /// Used during mid-session re-add when the key was lost locally but exists in the backup.
     func restoreKeyFromBackup(driverPubkey: String) async {
-        guard let kp = keypair, let rm = relayManager, let repo = driversRepository else { return }
-        do {
-            let filter = NostrFilter.followedDriversList(myPubkey: kp.publicKeyHex)
-            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
-            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
-                let content = try RideshareEventParser.parseFollowedDriversList(event: event, keypair: kp)
-                if let entry = content.drivers.first(where: { $0.pubkey == driverPubkey }),
-                   let key = entry.roadflareKey {
-                    repo.updateDriverKey(driverPubkey: driverPubkey, roadflareKey: key)
-                    AppLogger.auth.info("Restored key for \(driverPubkey.prefix(8)) from Kind 30011 backup")
-                }
-            }
-        } catch {
-            // Non-fatal — will fall through to stale ack
+        guard let service = roadflareDomainService,
+              let repo = driversRepository else { return }
+        let remote = await service.fetchLatestFollowedDriversState()
+        guard let snapshot = remote.snapshot else { return }
+
+        if let latestSeenCreatedAt = remote.latestSeenCreatedAt,
+           snapshot.createdAt != latestSeenCreatedAt {
+            AppLogger.auth.warning(
+                "Skipping key restore for \(driverPubkey.prefix(8)) because the latest followed-drivers backup is not decodable"
+            )
+            return
+        }
+
+        if let entry = snapshot.value.drivers.first(where: { $0.pubkey == driverPubkey }),
+           let key = entry.roadflareKey {
+            _ = repo.updateDriverKey(
+                driverPubkey: driverPubkey,
+                roadflareKey: key,
+                source: .sync
+            )
+            rideCoordinator?.startLocationSubscriptions()
+            AppLogger.auth.info("Restored key for \(driverPubkey.prefix(8)) from Kind 30011 backup")
         }
     }
 
@@ -234,151 +283,206 @@ final class AppState {
 
     /// Called when app returns to foreground. Reconnects relays and restarts subscriptions if needed.
     func handleForeground() async {
-        guard authState == .ready, let rm = relayManager, let coordinator = rideCoordinator else { return }
-        await rm.reconnectIfNeeded()
-        // Restart subscriptions (they terminate when relay disconnects)
-        coordinator.startLocationSubscriptions()
-        coordinator.startKeyShareSubscription()
+        guard authState == .ready else { return }
+        await reconnectAndRestoreSession()
+    }
+
+    func resolveLocalAuthState() -> AuthState {
+        if settings.profileName.isEmpty {
+            return .profileIncomplete
+        }
+        if settings.roadflarePaymentMethods.isEmpty {
+            return .paymentSetup
+        }
+        return settings.profileCompleted ? .ready : .paymentSetup
     }
 
     /// Log out: clear all data.
     func logout() async {
-        await rideCoordinator?.stopAll()
-        await relayManager?.disconnect()
+        await prepareForIdentityReplacement(clearPersistedSyncState: true)
         try? await keyManager?.deleteKeys()
-        driversRepository?.clearAll()
-        rideHistory.clearAll()
-        savedLocations.clearAll()
-        settings.clearAll()
-        RideStatePersistence.clear()
         keypair = nil
-        rideCoordinator = nil
-        relayManager = nil
-        driversRepository = nil
-        fareCalculator = nil
-        remoteConfigManager = nil
-        bitcoinPrice.stop()
         authState = .loggedOut
     }
 
     // MARK: - Private
 
-    /// Fetch profile (Kind 0) and followed drivers (Kind 30011) from Nostr.
-    private func syncFromNostr(
-        relayManager rm: RelayManager,
-        keypair: NostrKeypair,
-        driversRepository repo: FollowedDriversRepository
-    ) async {
-        // Fetch profile, followed drivers, and profile backup concurrently
-        async let profileResult = fetchOwnProfile(rm: rm, keypair: keypair)
-        async let driversResult = fetchFollowedDrivers(rm: rm, keypair: keypair, repo: repo)
-        async let backupResult = fetchProfileBackup(rm: rm, keypair: keypair)
-        _ = await (profileResult, driversResult, backupResult)
-    }
+    /// Fetch, resolve, and apply RoadFlare startup state using SDK-owned helpers.
+    private func performStartupSync(repo: FollowedDriversRepository, importFlow: Bool) async {
+        guard let service = roadflareDomainService else { return }
 
-    private func fetchOwnProfile(rm: RelayManager, keypair: NostrKeypair) async {
-        do {
-            let filter = NostrFilter.metadata(pubkeys: [keypair.publicKeyHex])
-            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
-            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first,
-               let profile = RideshareEventParser.parseMetadata(event: event) {
-                let name = profile.displayName ?? profile.name
-                if let name, !name.isEmpty, settings.profileName.isEmpty {
-                    settings.profileName = name
-                    AppLogger.auth.info("Restored profile name from Nostr: \(name)")
-                }
-            }
-        } catch {
-            AppLogger.auth.info("Profile fetch failed (non-fatal): \(error)")
+        let remote = await service.fetchStartupRemoteState()
+
+        if importFlow { syncStatus = "Restoring your profile..." }
+        await applyProfileResolution(remote: remote.profile)
+        if importFlow { syncRestoredName = !settings.profileName.isEmpty }
+
+        if importFlow { syncStatus = "Restoring your drivers..." }
+        await applyFollowedDriversResolution(repo: repo, remote: remote.followedDrivers)
+        if importFlow { syncRestoredDrivers = repo.drivers.count }
+
+        if importFlow { syncStatus = "Restoring settings..." }
+        await applyProfileBackupResolution(remote: remote.profileBackup)
+        if importFlow { syncRestoredLocations = savedLocations.locations.count }
+
+        if importFlow { syncStatus = "Loading driver info..." }
+        let driverProfiles = await service.fetchDriverProfiles(pubkeys: repo.allPubkeys)
+        for (pubkey, snapshot) in driverProfiles {
+            repo.cacheDriverProfile(pubkey: pubkey, profile: snapshot.value)
+        }
+        if !driverProfiles.isEmpty {
+            AppLogger.auth.info("Fetched profiles for \(driverProfiles.count) driver(s)")
+        }
+
+        if importFlow {
+            syncStatus = "Done!"
+            try? await Task.sleep(for: .seconds(1))
         }
     }
 
-    private func fetchFollowedDrivers(
-        rm: RelayManager, keypair: NostrKeypair, repo: FollowedDriversRepository
+    private func applyProfileResolution(
+        remote: RoadflareDomainService.StartupRemoteDomain<UserProfileContent>
     ) async {
-        do {
-            let filter = NostrFilter.followedDriversList(myPubkey: keypair.publicKeyHex)
-            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
-            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
-                let content = try RideshareEventParser.parseFollowedDriversList(
-                    event: event, keypair: keypair
-                )
-                if repo.drivers.isEmpty && !content.drivers.isEmpty {
-                    repo.restoreFromNostr(content: content)
-                    AppLogger.auth.info("Restored \(content.drivers.count) drivers from Nostr")
-                }
+        guard let syncStore = roadflareSyncStore else { return }
+        let metadata = syncStore.metadata(for: .profile)
+        let resolution = RoadflareDomainService.resolve(
+            domain: .profile,
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt
+        )
+        let shouldSeedLegacyLocal = RoadflareDomainService.shouldSeedLegacyLocalState(
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt,
+            hasLocalState: !settings.profileName.isEmpty
+        )
+
+        if resolution.source == .remote,
+           let snapshot = remote.snapshot,
+           snapshot.createdAt == remote.latestSeenCreatedAt {
+            let name = snapshot.value.displayName ?? snapshot.value.name ?? ""
+            settings.performWithoutChangeTracking {
+                settings.profileName = name
             }
-        } catch {
-            AppLogger.auth.info("Followed drivers fetch failed (non-fatal): \(error)")
+            if !name.isEmpty {
+                AppLogger.auth.info("Restored profile name from Nostr: \(name)")
+            }
+            syncStore.markPublished(.profile, at: snapshot.createdAt)
+        } else if resolution.source == .remote, remote.latestSeenCreatedAt != nil {
+            AppLogger.auth.warning("Latest profile metadata is not decodable; preserving local profile state")
+        } else if resolution.shouldPublishLocal || shouldSeedLegacyLocal {
+            if shouldSeedLegacyLocal {
+                syncStore.markDirty(.profile)
+            }
+            await publishProfile()
         }
     }
 
-    private func fetchProfileBackup(rm: RelayManager, keypair: NostrKeypair) async {
-        do {
-            let filter = NostrFilter.profileBackup(myPubkey: keypair.publicKeyHex)
-            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
-            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first {
-                let backup = try RideshareEventParser.parseProfileBackup(event: event, keypair: keypair)
+    private func applyFollowedDriversResolution(
+        repo: FollowedDriversRepository,
+        remote: RoadflareDomainService.StartupRemoteDomain<FollowedDriversContent>
+    ) async {
+        guard let service = roadflareDomainService else { return }
+        guard let syncStore = roadflareSyncStore else { return }
+        let metadata = syncStore.metadata(for: .followedDrivers)
+        let resolution = RoadflareDomainService.resolve(
+            domain: .followedDrivers,
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt
+        )
+        let shouldSeedLegacyLocal = RoadflareDomainService.shouldSeedLegacyLocalState(
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt,
+            hasLocalState: repo.hasDrivers
+        )
 
-                // Restore payment methods (if local is empty/default)
-                let remotePaymentMethods = backup.settings.roadflarePaymentMethods
-                    .compactMap { PaymentMethod(rawValue: $0) }
-                if !remotePaymentMethods.isEmpty &&
-                    (settings.paymentMethods.isEmpty || settings.paymentMethods == [.cash]) {
-                    settings.paymentMethods = remotePaymentMethods
-                    AppLogger.auth.info("Restored \(remotePaymentMethods.count) payment methods")
-                }
-
-                // Restore custom payment methods
-                if settings.customPaymentMethods.isEmpty && !backup.settings.customPaymentMethods.isEmpty {
-                    settings.customPaymentMethods = backup.settings.customPaymentMethods
-                    AppLogger.auth.info("Restored \(backup.settings.customPaymentMethods.count) custom payment methods")
-                }
-
-                // Restore saved locations (favorites)
-                if savedLocations.favorites.isEmpty && !backup.savedLocations.isEmpty {
-                    for loc in backup.savedLocations where loc.isPinned {
-                        savedLocations.save(SavedLocation(
-                            id: UUID().uuidString,
-                            latitude: loc.lat, longitude: loc.lon,
-                            displayName: loc.displayName,
-                            addressLine: loc.addressLine ?? loc.displayName,
-                            isPinned: true, nickname: loc.nickname,
-                            timestampMs: loc.timestampMs ?? Int(Date.now.timeIntervalSince1970 * 1000)
-                        ))
-                    }
-                    AppLogger.auth.info("Restored \(backup.savedLocations.count) saved locations")
-                }
+        if resolution.source == .remote,
+           let snapshot = remote.snapshot,
+           snapshot.createdAt == remote.latestSeenCreatedAt {
+            repo.restoreFromNostr(content: snapshot.value)
+            syncStore.markPublished(.followedDrivers, at: snapshot.createdAt)
+            if !snapshot.value.drivers.isEmpty {
+                AppLogger.auth.info("Restored \(snapshot.value.drivers.count) drivers from Nostr")
             }
-        } catch {
-            AppLogger.auth.info("Profile backup fetch failed (non-fatal): \(error)")
+        } else if resolution.source == .remote, remote.latestSeenCreatedAt != nil {
+            AppLogger.auth.warning("Latest followed-drivers snapshot is not decodable; preserving local driver state")
+        } else if resolution.shouldPublishLocal || shouldSeedLegacyLocal {
+            if shouldSeedLegacyLocal {
+                syncStore.markDirty(.followedDrivers)
+            }
+            do {
+                let event = try await service.publishFollowedDriversList(repo.drivers)
+                syncStore.markPublished(.followedDrivers, at: event.createdAt)
+                AppLogger.auth.info("Published followed drivers list to Nostr")
+            } catch {
+                AppLogger.auth.info("Failed to publish followed drivers list: \(error)")
+            }
         }
     }
 
-    /// Fetch Kind 0 profiles for all followed drivers to get display names and vehicle info.
-    private func fetchDriverProfiles(
-        relayManager rm: RelayManager,
-        driversRepository repo: FollowedDriversRepository
+    private func applyProfileBackupResolution(
+        remote: RoadflareDomainService.StartupRemoteDomain<ProfileBackupContent>
     ) async {
-        let pubkeys = repo.allPubkeys
-        guard !pubkeys.isEmpty else { return }
+        guard roadflareDomainService != nil else { return }
+        guard let syncStore = roadflareSyncStore else { return }
+        if let snapshot = remote.snapshot {
+            preserveProfileBackupSettingsTemplate(snapshot.value.settings)
+        }
+        let metadata = syncStore.metadata(for: .profileBackup)
+        let resolution = RoadflareDomainService.resolve(
+            domain: .profileBackup,
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt
+        )
+        let shouldSeedLegacyLocal = RoadflareDomainService.shouldSeedLegacyLocalState(
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt,
+            hasLocalState: !settings.roadflarePaymentMethods.isEmpty
+                || !savedLocations.locations.isEmpty
+        )
 
-        do {
-            let filter = NostrFilter.metadata(pubkeys: pubkeys)
-            let events = try await rm.fetchEvents(filter: filter, timeout: 8)
-            // Dedup: group by pubkey, take latest by createdAt
-            let grouped = Dictionary(grouping: events, by: \.pubkey)
-            for (pubkey, driverEvents) in grouped {
-                if let latest = driverEvents.max(by: { $0.createdAt < $1.createdAt }),
-                   let profile = RideshareEventParser.parseMetadata(event: latest) {
-                    repo.cacheDriverProfile(pubkey: pubkey, profile: profile)
-                }
+        if resolution.source == .remote,
+           let snapshot = remote.snapshot,
+           snapshot.createdAt == remote.latestSeenCreatedAt {
+            applyRemoteProfileBackup(snapshot.value)
+            syncStore.markPublished(.profileBackup, at: snapshot.createdAt)
+        } else if resolution.source == .remote, remote.latestSeenCreatedAt != nil {
+            AppLogger.auth.warning("Latest profile backup is not decodable; preserving local backup state")
+        } else if resolution.shouldPublishLocal || shouldSeedLegacyLocal {
+            if shouldSeedLegacyLocal {
+                syncStore.markDirty(.profileBackup)
             }
-            if !grouped.isEmpty {
-                AppLogger.auth.info("Fetched profiles for \(grouped.count) driver(s)")
+            await publishProfileBackup()
+        }
+    }
+
+    private func applyRemoteProfileBackup(_ backup: ProfileBackupContent) {
+        preserveProfileBackupSettingsTemplate(backup.settings)
+        settings.performWithoutChangeTracking {
+            settings.setRoadflarePaymentMethods(backup.settings.roadflarePaymentMethods)
+        }
+
+        savedLocations.performWithoutChangeTracking {
+            let currentLocations = savedLocations.locations
+            for location in currentLocations {
+                savedLocations.remove(id: location.id)
             }
-        } catch {
-            AppLogger.auth.info("Driver profile fetch failed (non-fatal): \(error)")
+
+            for loc in backup.savedLocations {
+                savedLocations.save(SavedLocation(
+                    id: UUID().uuidString,
+                    latitude: loc.lat,
+                    longitude: loc.lon,
+                    displayName: loc.displayName,
+                    addressLine: loc.addressLine ?? loc.displayName,
+                    isPinned: loc.isPinned,
+                    nickname: loc.nickname,
+                    timestampMs: loc.timestampMs ?? Int(Date.now.timeIntervalSince1970 * 1000)
+                ))
+            }
+        }
+
+        if !backup.savedLocations.isEmpty {
+            AppLogger.auth.info("Restored \(backup.savedLocations.count) saved locations")
         }
     }
 
@@ -386,13 +490,17 @@ final class AppState {
     private func setupServicesWithSync(keypair: NostrKeypair) async {
         let rm = RelayManager(keypair: keypair)
         self.relayManager = rm
+        let syncStore = RoadflareSyncStateStore(namespace: keypair.publicKeyHex)
+        self.roadflareSyncStore = syncStore
         let repo = FollowedDriversRepository(persistence: driversPersistence)
         self.driversRepository = repo
+        configureDriversRepositoryTracking(repo, syncStore: syncStore)
+        let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
+        self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
         self.remoteConfigManager = RemoteConfigManager(relayManager: rm)
         bitcoinPrice.start()
 
-        // Connect
         syncStatus = "Connecting to relays..."
         do {
             try await rm.connect(to: DefaultRelays.all)
@@ -401,50 +509,30 @@ final class AppState {
             try? await Task.sleep(for: .seconds(1))
         }
 
-        // Restore profile
-        syncStatus = "Restoring your profile..."
-        await fetchOwnProfile(rm: rm, keypair: keypair)
-        syncRestoredName = !settings.profileName.isEmpty
+        await performStartupSync(repo: repo, importFlow: true)
 
-        // Restore followed drivers
-        syncStatus = "Restoring your drivers..."
-        await fetchFollowedDrivers(rm: rm, keypair: keypair, repo: repo)
-        syncRestoredDrivers = repo.drivers.count
-
-        // Restore settings & saved locations from backup
-        syncStatus = "Restoring settings..."
-        await fetchProfileBackup(rm: rm, keypair: keypair)
-        syncRestoredLocations = savedLocations.favorites.count
-
-        // Fetch driver profiles
-        syncStatus = "Loading driver info..."
-        await fetchDriverProfiles(relayManager: rm, driversRepository: repo)
-
-        syncStatus = "Done!"
-        try? await Task.sleep(for: .seconds(1))
-
-        // Set up coordinator and subscriptions
         let coordinator = RideCoordinator(
             relayManager: rm, keypair: keypair,
             driversRepository: repo, settings: settings,
-            rideHistory: rideHistory, bitcoinPrice: bitcoinPrice
+            rideHistory: rideHistory, bitcoinPrice: bitcoinPrice,
+            roadflareDomainService: service,
+            roadflareSyncStore: syncStore
         )
         self.rideCoordinator = coordinator
-        coordinator.startLocationSubscriptions()
-        coordinator.startKeyShareSubscription()
-
-        if repo.hasDrivers {
-            async let _publish: () = coordinator.publishFollowedDriversList()
-            async let _staleCheck: () = coordinator.checkForStaleKeys()
-            _ = await (_publish, _staleCheck)
-        }
+        await coordinator.restoreLiveSubscriptions()
+        restartConnectionWatchdog()
     }
 
     private func setupServices(keypair: NostrKeypair) async {
         let rm = RelayManager(keypair: keypair)
         self.relayManager = rm
+        let syncStore = RoadflareSyncStateStore(namespace: keypair.publicKeyHex)
+        self.roadflareSyncStore = syncStore
         let repo = FollowedDriversRepository(persistence: driversPersistence)
         self.driversRepository = repo
+        configureDriversRepositoryTracking(repo, syncStore: syncStore)
+        let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
+        self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
         self.remoteConfigManager = RemoteConfigManager(relayManager: rm)
         bitcoinPrice.start()
@@ -458,26 +546,114 @@ final class AppState {
             AppLogger.auth.info(" Relay connection FAILED: \(error)")
         }
 
-        // Sync profile and followed drivers from Nostr (on import or app restart)
-        await syncFromNostr(relayManager: rm, keypair: keypair, driversRepository: repo)
+        await performStartupSync(repo: repo, importFlow: false)
 
-        // Set up ride coordinator and start background subscriptions
         let coordinator = RideCoordinator(
             relayManager: rm, keypair: keypair,
             driversRepository: repo, settings: settings,
-            rideHistory: rideHistory, bitcoinPrice: bitcoinPrice
+            rideHistory: rideHistory, bitcoinPrice: bitcoinPrice,
+            roadflareDomainService: service,
+            roadflareSyncStore: syncStore
         )
         self.rideCoordinator = coordinator
         AppLogger.auth.info("Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
-        coordinator.startLocationSubscriptions()
-        coordinator.startKeyShareSubscription()
+        await coordinator.restoreLiveSubscriptions()
+        restartConnectionWatchdog()
+    }
 
-        // Publish followed drivers, fetch driver profiles, and check stale keys concurrently
-        if repo.hasDrivers {
-            async let _publish: () = coordinator.publishFollowedDriversList()
-            async let _profiles: () = fetchDriverProfiles(relayManager: rm, driversRepository: repo)
-            async let _staleCheck: () = coordinator.checkForStaleKeys()
-            _ = await (_publish, _profiles, _staleCheck)
+    private func configureDriversRepositoryTracking(
+        _ repo: FollowedDriversRepository,
+        syncStore: RoadflareSyncStateStore?
+    ) {
+        repo.onDriversChanged = { source in
+            guard source == .local else { return }
+            syncStore?.markDirty(.followedDrivers)
         }
+    }
+
+    func reconnectAndRestoreSession() async {
+        guard let rm = relayManager else { return }
+        await rm.reconnectIfNeeded()
+        guard await rm.isConnected else { return }
+        await flushPendingSyncPublishes()
+        await rideCoordinator?.restoreLiveSubscriptions()
+    }
+
+    private func flushPendingSyncPublishes() async {
+        guard let rm = relayManager,
+              let syncStore = roadflareSyncStore,
+              await rm.isConnected else { return }
+
+        if syncStore.metadata(for: .profile).isDirty {
+            await publishProfile()
+        }
+        if syncStore.metadata(for: .followedDrivers).isDirty {
+            await rideCoordinator?.publishFollowedDriversList()
+        }
+        if syncStore.metadata(for: .profileBackup).isDirty {
+            await publishProfileBackup()
+        }
+    }
+
+    private func prepareForIdentityReplacement(clearPersistedSyncState: Bool) async {
+        stopConnectionWatchdog()
+        await rideCoordinator?.stopAll()
+        await relayManager?.disconnect()
+
+        let syncStore = roadflareSyncStore
+        roadflareSyncStore = nil
+        if clearPersistedSyncState {
+            syncStore?.clearAll()
+        }
+
+        driversRepository?.onDriversChanged = nil
+        driversRepository?.clearAll()
+        if driversRepository == nil {
+            driversPersistence.saveDrivers([])
+            driversPersistence.saveDriverNames([:])
+        }
+        rideHistory.clearAll()
+        savedLocations.clearAll()
+        settings.clearAll()
+        profileBackupSettingsTemplate = SettingsBackupContent()
+        RideStatePersistence.clear()
+        requestRideDriverPubkey = nil
+        selectedTab = 0
+
+        rideCoordinator = nil
+        relayManager = nil
+        roadflareDomainService = nil
+        driversRepository = nil
+        fareCalculator = nil
+        remoteConfigManager = nil
+        bitcoinPrice.stop()
+    }
+
+    private func restartConnectionWatchdog() {
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.connectionWatchdogInterval)
+                guard let self else { return }
+                await self.autoReconnectIfNeeded()
+            }
+        }
+    }
+
+    private func stopConnectionWatchdog() {
+        connectionWatchdogTask?.cancel()
+        connectionWatchdogTask = nil
+        isAutoReconnecting = false
+    }
+
+    private func autoReconnectIfNeeded() async {
+        guard authState == .ready,
+              !isAutoReconnecting,
+              let rm = relayManager,
+              !(await rm.isConnected) else { return }
+
+        isAutoReconnecting = true
+        defer { isAutoReconnecting = false }
+        await reconnectAndRestoreSession()
     }
 }

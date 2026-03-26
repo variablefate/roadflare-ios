@@ -275,7 +275,7 @@ struct RoadflareModelsTests {
         {
             "vehicles": [{"id":"v1","make":"Toyota","model":"Camry","year":2022,"color":"Blue","licensePlate":"ABC123","isPrimary":true}],
             "savedLocations": [{"displayName":"Work","lat":37.78,"lon":-122.41,"addressLine":"456 Market St","isPinned":true,"locality":"SF"}],
-            "settings": {"roadflarePaymentMethods":["cash_app","venmo"],"displayCurrency":"USD","distanceUnit":"MILES","notificationSoundEnabled":true},
+            "settings": {"roadflarePaymentMethods":["cash_app","venmo"],"displayCurrency":"USD","distanceUnit":"MILES","notificationSoundEnabled":true,"paymentMethods":["cashu","lightning"],"defaultPaymentMethod":"cashu","mintUrl":"https://mint.example"},
             "updated_at": 1700000000
         }
         """
@@ -287,7 +287,98 @@ struct RoadflareModelsTests {
         #expect(decoded.savedLocations[0].displayName == "Work")
         #expect(decoded.savedLocations[0].locality == "SF")
         #expect(decoded.settings.roadflarePaymentMethods == ["cash_app", "venmo"])
+        #expect(decoded.settings.notificationSoundEnabled == true)
+        #expect(decoded.settings.paymentMethods == ["cashu", "lightning"])
+        #expect(decoded.settings.defaultPaymentMethod == "cashu")
+        #expect(decoded.settings.mintUrl == "https://mint.example")
         #expect(decoded.updatedAt == 1700000000)
+    }
+
+    @Test func profileBackupDecodesWithoutCustomPaymentMethods() throws {
+        let androidJSON = """
+        {
+            "vehicles": [],
+            "savedLocations": [],
+            "settings": {"roadflarePaymentMethods":["cash_app"],"displayCurrency":"USD","distanceUnit":"MILES"},
+            "updated_at": 1700000000
+        }
+        """
+        let decoded = try JSONDecoder().decode(ProfileBackupContent.self, from: androidJSON.data(using: .utf8)!)
+        #expect(decoded.settings.roadflarePaymentMethods == ["cash_app"])
+        #expect(decoded.settings.customPaymentMethods.isEmpty)
+    }
+
+    @Test func settingsBackupMergesLegacyCustomPaymentMethodsIntoOrderedList() throws {
+        let legacyJSON = """
+        {
+            "roadflarePaymentMethods":["zelle","cash"],
+            "customPaymentMethods":["venmo-business","sat transfer"],
+            "displayCurrency":"USD",
+            "distanceUnit":"MILES"
+        }
+        """
+        let decoded = try JSONDecoder().decode(
+            SettingsBackupContent.self,
+            from: Data(legacyJSON.utf8)
+        )
+
+        #expect(decoded.roadflarePaymentMethods == ["zelle", "cash", "venmo-business", "sat transfer"])
+        #expect(decoded.customPaymentMethods == ["venmo-business", "sat transfer"])
+    }
+
+    @Test func settingsBackupEncodesSingleOrderedRoadflareList() throws {
+        let settings = SettingsBackupContent(
+            roadflarePaymentMethods: ["venmo-business", "zelle", "cash"]
+        )
+
+        let object = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(settings)
+        ) as? [String: Any]
+
+        #expect(object?["customPaymentMethods"] == nil)
+        #expect(object?["roadflarePaymentMethods"] as? [String] == ["venmo-business", "zelle", "cash"])
+    }
+
+    @Test func settingsBackupPreservesAndroidPaymentFieldsOnReencode() throws {
+        let androidJSON = """
+        {
+            "roadflarePaymentMethods":["venmo-business","cash"],
+            "displayCurrency":"USD",
+            "distanceUnit":"MILES",
+            "notificationSoundEnabled":false,
+            "notificationVibrationEnabled":true,
+            "autoOpenNavigation":false,
+            "alwaysAskVehicle":false,
+            "customRelays":["wss://relay.example"],
+            "paymentMethods":["cashu","lightning"],
+            "defaultPaymentMethod":"cashu",
+            "mintUrl":"https://mint.example"
+        }
+        """
+        let decoded = try JSONDecoder().decode(
+            SettingsBackupContent.self,
+            from: Data(androidJSON.utf8)
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(decoded)
+        ) as? [String: Any]
+
+        #expect(object?["notificationSoundEnabled"] as? Bool == false)
+        #expect(object?["notificationVibrationEnabled"] as? Bool == true)
+        #expect(object?["autoOpenNavigation"] as? Bool == false)
+        #expect(object?["alwaysAskVehicle"] as? Bool == false)
+        #expect(object?["customRelays"] as? [String] == ["wss://relay.example"])
+        #expect(object?["paymentMethods"] as? [String] == ["cashu", "lightning"])
+        #expect(object?["defaultPaymentMethod"] as? String == "cashu")
+        #expect(object?["mintUrl"] as? String == "https://mint.example")
+    }
+
+    @Test func settingsBackupPreservesBitcoinInRoadflareMethods() {
+        let settings = SettingsBackupContent(
+            roadflarePaymentMethods: ["bitcoin", "zelle", "cash"]
+        )
+
+        #expect(settings.roadflarePaymentMethods == ["bitcoin", "zelle", "cash"])
     }
 
     @Test func profileBackupEmptyArrays() throws {
@@ -303,8 +394,11 @@ struct RoadflareModelsTests {
     @Test func settingsBackupContentDefaults() {
         let settings = SettingsBackupContent()
         #expect(settings.roadflarePaymentMethods.isEmpty)
+        #expect(settings.customPaymentMethods.isEmpty)
         #expect(settings.displayCurrency == "USD")
         #expect(settings.distanceUnit == "MILES")
+        #expect(settings.paymentMethods == ["cashu"])
+        #expect(settings.defaultPaymentMethod == "cashu")
     }
 
     // MARK: - RideHistoryEntry

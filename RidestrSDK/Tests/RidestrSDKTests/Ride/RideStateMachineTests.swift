@@ -19,19 +19,19 @@ struct RideStateMachineTests {
         try sm.startRide(
             offerEventId: "offer1",
             driverPubkey: "driver_pub",
-            paymentMethod: .zelle,
-            fiatPaymentMethods: [.zelle, .venmo]
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle", "venmo"]
         )
         #expect(sm.stage == .waitingForAcceptance)
         #expect(sm.offerEventId == "offer1")
         #expect(sm.driverPubkey == "driver_pub")
-        #expect(sm.paymentMethod == .zelle)
-        #expect(sm.fiatPaymentMethods == [.zelle, .venmo])
+        #expect(sm.paymentMethod == "zelle")
+        #expect(sm.fiatPaymentMethods == ["zelle", "venmo"])
     }
 
     @Test func handleAcceptanceGeneratesPin() throws {
         let sm = RideStateMachine()
-        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: .cash, fiatPaymentMethods: [])
+        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: "cash", fiatPaymentMethods: [])
         let pin = try sm.handleAcceptance(acceptanceEventId: "acc1")
         #expect(sm.stage == .driverAccepted)
         #expect(pin.count == RideConstants.pinDigits)
@@ -50,7 +50,7 @@ struct RideStateMachineTests {
 
     @Test func fullHappyPathTransitions() throws {
         let sm = RideStateMachine()
-        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: .venmo, fiatPaymentMethods: [.venmo])
+        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: "venmo", fiatPaymentMethods: ["venmo"])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
 
@@ -103,6 +103,15 @@ struct RideStateMachineTests {
         #expect(sm.stage == .idle)
     }
 
+    @Test func preConfirmationCancellationRequiresCurrentConfirmation() throws {
+        let sm = RideStateMachine()
+        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: [])
+
+        let processed = sm.handleCancellation(eventId: "cancel1", confirmationId: "wrong-conf")
+        #expect(!processed)
+        #expect(sm.stage == .waitingForAcceptance)
+    }
+
     @Test func deduplicateDriverStateEvents() throws {
         let sm = RideStateMachine()
         try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: [])
@@ -114,6 +123,24 @@ struct RideStateMachineTests {
         #expect(first == "arrived")
         let second = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: state)
         #expect(second == nil)  // Deduplicated
+    }
+
+    @Test func cancelledDriverStateResetsRide() throws {
+        let sm = RideStateMachine()
+        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: nil, fiatPaymentMethods: [])
+        _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
+        try sm.recordConfirmation(confirmationEventId: "conf1")
+
+        let cancelled = DriverRideStateContent(currentStatus: "cancelled", history: [])
+        let result = try sm.handleDriverStateUpdate(
+            eventId: "ds-cancel",
+            confirmationId: "conf1",
+            driverState: cancelled
+        )
+
+        #expect(result == "cancelled")
+        #expect(sm.stage == .idle)
+        #expect(sm.confirmationEventId == nil)
     }
 
     @Test func wrongConfirmationIdIgnored() throws {
@@ -157,8 +184,10 @@ struct RideStateMachineTests {
         #expect(sm.pinAttempts == 1)
 
         sm.recordPinVerification(verified: true)
+        #expect(sm.pin == nil)
         #expect(sm.pinVerified)
         #expect(sm.pinAttempts == 2)
+        #expect(sm.stage == .driverArrived)
     }
 
     @Test func maxPinAttemptsReached() throws {
@@ -190,7 +219,7 @@ struct RideStateMachineTests {
 
     @Test func reset() throws {
         let sm = RideStateMachine()
-        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: .zelle, fiatPaymentMethods: [.zelle])
+        try sm.startRide(offerEventId: "o1", driverPubkey: "d1", paymentMethod: "zelle", fiatPaymentMethods: ["zelle"])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
         sm.recordPinVerification(verified: true)
@@ -264,9 +293,10 @@ struct RideStateMachineTests {
             confirmationEventId: "conf1",
             driverPubkey: "driver_pub",
             pin: "4321",
+            pinAttempts: 2,
             pinVerified: false,
-            paymentMethod: .zelle,
-            fiatPaymentMethods: [.zelle, .venmo]
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle", "venmo"]
         )
 
         #expect(sm.stage == .driverArrived)
@@ -274,8 +304,9 @@ struct RideStateMachineTests {
         #expect(sm.confirmationEventId == "conf1")
         #expect(sm.driverPubkey == "driver_pub")
         #expect(!sm.pinVerified)
-        #expect(sm.paymentMethod == .zelle)
-        #expect(sm.fiatPaymentMethods == [.zelle, .venmo])
+        #expect(sm.pinAttempts == 2)
+        #expect(sm.paymentMethod == "zelle")
+        #expect(sm.fiatPaymentMethods == ["zelle", "venmo"])
 
         // Should be able to process driver state events after restore
         let state = DriverRideStateContent(currentStatus: "in_progress", history: [])
@@ -290,7 +321,7 @@ struct RideStateMachineTests {
             stage: .driverArrived,
             offerEventId: "o1", acceptanceEventId: "a1",
             confirmationEventId: "c1", driverPubkey: "d1",
-            pin: "5678", pinVerified: false,
+            pin: "5678", pinAttempts: 1, pinVerified: false,
             paymentMethod: nil, fiatPaymentMethods: []
         )
 
@@ -298,7 +329,8 @@ struct RideStateMachineTests {
         #expect(sm.pin == "5678")
         sm.recordPinVerification(verified: true)
         #expect(sm.pinVerified)
-        #expect(sm.pinAttempts == 1)
+        #expect(sm.pinAttempts == 2)
+        #expect(sm.stage == .driverArrived)
     }
 
     @Test func rapidDriverStateTransitions() throws {
@@ -336,5 +368,24 @@ struct RideStateMachineTests {
         let state = DriverRideStateContent(currentStatus: "arrived", history: [])
         _ = try sm.handleDriverStateUpdate(eventId: "ds1", confirmationId: "conf1", driverState: state)
         #expect(sm.stage == .driverArrived)
+    }
+
+    @Test func restoreRejectsActiveRideWithoutDriverPubkey() {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .driverAccepted,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: nil,
+            driverPubkey: nil,
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: nil,
+            fiatPaymentMethods: []
+        )
+
+        #expect(sm.stage == .idle)
+        #expect(sm.driverPubkey == nil)
+        #expect(sm.acceptanceEventId == nil)
     }
 }

@@ -55,9 +55,7 @@ struct ConnectivitySheet: View {
                         Button {
                             isReconnecting = true
                             Task {
-                                await appState.relayManager?.reconnectIfNeeded()
-                                appState.rideCoordinator?.startLocationSubscriptions()
-                                appState.rideCoordinator?.startKeyShareSubscription()
+                                await appState.reconnectAndRestoreSession()
                                 try? await Task.sleep(for: .seconds(2))
                                 await checkConnection()
                                 isReconnecting = false

@@ -277,20 +277,136 @@ private extension String {
 /// Encrypted to self in Kind 30177.
 public struct SettingsBackupContent: Codable, Sendable {
     public var roadflarePaymentMethods: [String]
-    public var customPaymentMethods: [String]
     public var displayCurrency: String
     public var distanceUnit: String
+    public var notificationSoundEnabled: Bool
+    public var notificationVibrationEnabled: Bool
+    public var autoOpenNavigation: Bool
+    public var alwaysAskVehicle: Bool
+    public var customRelays: [String]
+    public var paymentMethods: [String]
+    public var defaultPaymentMethod: String
+    public var mintUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case roadflarePaymentMethods
+        case customPaymentMethods
+        case displayCurrency
+        case distanceUnit
+        case notificationSoundEnabled
+        case notificationVibrationEnabled
+        case autoOpenNavigation
+        case alwaysAskVehicle
+        case customRelays
+        case paymentMethods
+        case defaultPaymentMethod
+        case mintUrl
+    }
 
     public init(
         roadflarePaymentMethods: [String] = [],
         customPaymentMethods: [String] = [],
         displayCurrency: String = "USD",
-        distanceUnit: String = "MILES"
+        distanceUnit: String = "MILES",
+        notificationSoundEnabled: Bool = true,
+        notificationVibrationEnabled: Bool = true,
+        autoOpenNavigation: Bool = true,
+        alwaysAskVehicle: Bool = true,
+        customRelays: [String] = [],
+        paymentMethods: [String] = ["cashu"],
+        defaultPaymentMethod: String = "cashu",
+        mintUrl: String? = nil
     ) {
-        self.roadflarePaymentMethods = roadflarePaymentMethods
-        self.customPaymentMethods = customPaymentMethods
+        self.roadflarePaymentMethods = RoadflarePaymentPreferences(
+            methods: roadflarePaymentMethods + customPaymentMethods
+        ).methods
         self.displayCurrency = displayCurrency
         self.distanceUnit = distanceUnit
+        self.notificationSoundEnabled = notificationSoundEnabled
+        self.notificationVibrationEnabled = notificationVibrationEnabled
+        self.autoOpenNavigation = autoOpenNavigation
+        self.alwaysAskVehicle = alwaysAskVehicle
+        self.customRelays = customRelays.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        self.paymentMethods = paymentMethods.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        self.defaultPaymentMethod = defaultPaymentMethod
+        self.mintUrl = mintUrl
+    }
+
+    public var customPaymentMethods: [String] {
+        roadflarePaymentMethods.filter { PaymentMethod(rawValue: $0) == nil }
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let roadflarePaymentMethods = try container.decodeIfPresent(
+            [String].self,
+            forKey: .roadflarePaymentMethods
+        ) ?? []
+        let legacyCustomPaymentMethods = try container.decodeIfPresent(
+            [String].self,
+            forKey: .customPaymentMethods
+        ) ?? []
+        self.roadflarePaymentMethods = RoadflarePaymentPreferences(
+            methods: roadflarePaymentMethods + legacyCustomPaymentMethods
+        ).methods
+        displayCurrency = try container.decodeIfPresent(
+            String.self,
+            forKey: .displayCurrency
+        ) ?? "USD"
+        distanceUnit = try container.decodeIfPresent(
+            String.self,
+            forKey: .distanceUnit
+        ) ?? "MILES"
+        notificationSoundEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .notificationSoundEnabled
+        ) ?? true
+        notificationVibrationEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .notificationVibrationEnabled
+        ) ?? true
+        autoOpenNavigation = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .autoOpenNavigation
+        ) ?? true
+        alwaysAskVehicle = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .alwaysAskVehicle
+        ) ?? true
+        customRelays = try container.decodeIfPresent(
+            [String].self,
+            forKey: .customRelays
+        ) ?? []
+        self.paymentMethods = (try container.decodeIfPresent(
+            [String].self,
+            forKey: .paymentMethods
+        ) ?? ["cashu"]).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        defaultPaymentMethod = try container.decodeIfPresent(
+            String.self,
+            forKey: .defaultPaymentMethod
+        ) ?? "cashu"
+        mintUrl = try container.decodeIfPresent(
+            String.self,
+            forKey: .mintUrl
+        )
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(
+            RoadflarePaymentPreferences(methods: roadflarePaymentMethods).methods,
+            forKey: .roadflarePaymentMethods
+        )
+        try container.encode(displayCurrency, forKey: .displayCurrency)
+        try container.encode(distanceUnit, forKey: .distanceUnit)
+        try container.encode(notificationSoundEnabled, forKey: .notificationSoundEnabled)
+        try container.encode(notificationVibrationEnabled, forKey: .notificationVibrationEnabled)
+        try container.encode(autoOpenNavigation, forKey: .autoOpenNavigation)
+        try container.encode(alwaysAskVehicle, forKey: .alwaysAskVehicle)
+        try container.encode(customRelays, forKey: .customRelays)
+        try container.encode(paymentMethods, forKey: .paymentMethods)
+        try container.encode(defaultPaymentMethod, forKey: .defaultPaymentMethod)
+        try container.encodeIfPresent(mintUrl, forKey: .mintUrl)
     }
 }
 

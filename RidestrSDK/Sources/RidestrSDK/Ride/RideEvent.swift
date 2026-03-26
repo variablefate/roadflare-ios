@@ -11,8 +11,8 @@ public enum RideEvent: Sendable {
     case sendOffer(
         offerEventId: EventID,
         driverPubkey: PublicKeyHex,
-        paymentMethod: PaymentMethod?,
-        fiatPaymentMethods: [PaymentMethod]
+        paymentMethod: String?,
+        fiatPaymentMethods: [String]
     )
 
     /// Driver's acceptance received (Kind 3174).
@@ -24,7 +24,7 @@ public enum RideEvent: Sendable {
     case confirm(confirmationEventId: ConfirmationEventID)
 
     /// PIN verification result from driver's submission.
-    /// Transition: driverArrived → inProgress (if verified)
+    /// Transition: driverArrived → driverArrived (if verified, awaiting driver ack)
     ///           : driverArrived → idle (if brute force limit reached)
     case verifyPin(verified: Bool, attempt: Int)
 

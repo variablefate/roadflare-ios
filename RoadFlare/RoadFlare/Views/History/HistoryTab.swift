@@ -98,7 +98,7 @@ struct RideHistoryCard: View {
                     if let dur = ride.duration {
                         Text("\(dur) min")
                     }
-                    Text(ride.paymentMethod.capitalized)
+                    Text(PaymentMethod.displayName(for: ride.paymentMethod))
                 }
                 .font(RFFont.caption(11))
                 .foregroundColor(Color.rfOffline)

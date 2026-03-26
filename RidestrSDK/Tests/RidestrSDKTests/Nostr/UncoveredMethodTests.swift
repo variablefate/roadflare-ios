@@ -118,17 +118,12 @@ struct UncoveredMethodTests {
         let json = """
         {"status":"accepted","wallet_pubkey":"wallet_hex","payment_method":"venmo","mint_url":null}
         """
-        let encrypted = try NIP44.encrypt(
-            plaintext: json,
-            senderPrivateKeyHex: driver.privateKeyHex,
-            recipientPublicKeyHex: rider.publicKeyHex
-        )
         let event = NostrEvent(
             id: "acc1", pubkey: driver.publicKeyHex,
             createdAt: Int(Date.now.timeIntervalSince1970),
             kind: EventKind.rideAcceptance.rawValue,
             tags: [["e", "offer1"], ["p", rider.publicKeyHex]],
-            content: encrypted, sig: "sig"
+            content: json, sig: "sig"
         )
 
         let parsed = try RideshareEventParser.parseAcceptance(event: event, keypair: rider)
@@ -144,17 +139,12 @@ struct UncoveredMethodTests {
         let json = """
         {"current_status":"in_progress","history":[{"action":"status","at":100,"status":"in_progress","approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null}]}
         """
-        let encrypted = try NIP44.encrypt(
-            plaintext: json,
-            senderPrivateKeyHex: driver.privateKeyHex,
-            recipientPublicKeyHex: rider.publicKeyHex
-        )
         let event = NostrEvent(
             id: "ds1", pubkey: driver.publicKeyHex,
             createdAt: Int(Date.now.timeIntervalSince1970),
             kind: EventKind.driverRideState.rawValue,
-            tags: [["d", "conf1"]],
-            content: encrypted, sig: "sig"
+            tags: [["d", "conf1"], ["e", "conf1"], ["p", rider.publicKeyHex]],
+            content: json, sig: "sig"
         )
 
         let parsed = try RideshareEventParser.parseDriverRideState(event: event, keypair: rider)

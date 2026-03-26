@@ -31,13 +31,18 @@ final class ChatCoordinator {
             do {
                 let filter = NostrFilter.chatMessages(
                     counterpartyPubkey: driverPubkey,
-                    myPubkey: keypair.publicKeyHex
+                    myPubkey: keypair.publicKeyHex,
+                    confirmationEventId: confirmationEventId
                 )
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
 
                 for await event in stream {
                     guard !Task.isCancelled else { break }
-                    await handleChatEvent(event)
+                    await handleChatEvent(
+                        event,
+                        expectedConfirmationEventId: confirmationEventId,
+                        expectedSenderPubkey: driverPubkey
+                    )
                 }
             } catch {
                 // Chat subscription failure is non-fatal
@@ -47,9 +52,18 @@ final class ChatCoordinator {
 
     // MARK: - Handle Incoming
 
-    func handleChatEvent(_ event: NostrEvent) async {
+    func handleChatEvent(
+        _ event: NostrEvent,
+        expectedConfirmationEventId: String? = nil,
+        expectedSenderPubkey: String? = nil
+    ) async {
         do {
-            let content = try RideshareEventParser.parseChatMessage(event: event, keypair: keypair)
+            let content = try RideshareEventParser.parseChatMessage(
+                event: event,
+                keypair: keypair,
+                expectedSenderPubkey: expectedSenderPubkey,
+                expectedConfirmationEventId: expectedConfirmationEventId
+            )
             let isMine = event.pubkey == keypair.publicKeyHex
             guard !chatMessageIds.contains(event.id) else { return }
             chatMessageIds.insert(event.id)

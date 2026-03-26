@@ -38,7 +38,8 @@ public struct RideTransition: Sendable {
 ///                                                                      │
 ///     ┌────────────────────────────────────────────────────────────────┘
 ///     │
-///     └──VERIFY_PIN(true)──► inProgress ──(AtoB)──► completed
+///     └──VERIFY_PIN(true)──► driverArrived (pin verified, waiting for driver ack)
+///                                         └──(AtoB: in_progress)──► inProgress ──(AtoB)──► completed
 ///
 /// Any cancellable stage can transition to idle via CANCEL.
 /// ```
@@ -92,9 +93,9 @@ public enum RideTransitions {
 
         // driverArrived
         RideTransition(
-            from: .driverArrived, eventType: "VERIFY_PIN", to: .inProgress,
+            from: .driverArrived, eventType: "VERIFY_PIN", to: .driverArrived,
             guard_: "isPinVerified",
-            description: "PIN verified, ride begins"
+            description: "PIN verified, waiting for driver to acknowledge ride start"
         ),
         RideTransition(
             from: .driverArrived, eventType: "VERIFY_PIN", to: .idle,

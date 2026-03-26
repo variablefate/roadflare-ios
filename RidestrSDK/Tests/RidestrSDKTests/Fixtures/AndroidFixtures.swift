@@ -21,6 +21,12 @@ enum AndroidFixtures {
     {"status":"accepted","wallet_pubkey":null,"mint_url":null,"payment_method":"venmo"}
     """
 
+    // MARK: - Kind 3175: Ride Confirmation content (decrypted, from Android rider)
+
+    static let rideConfirmationContent = """
+    {"precise_pickup":{"lat":40.7128,"lon":-74.006},"payment_hash":"abc123hash","escrow_token":"cashu_token_blob"}
+    """
+
     // MARK: - Kind 30180: Driver Ride State (from Android driver)
 
     static let driverStateEnRoute = """
@@ -39,10 +45,18 @@ enum AndroidFixtures {
     {"current_status":"completed","history":[{"action":"status","status":"en_route_pickup","at":1700000000,"approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null},{"action":"status","status":"arrived","at":1700000100,"approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null},{"action":"status","status":"in_progress","at":1700000200,"approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null},{"action":"status","status":"completed","at":1700000300,"approx_location":null,"final_fare":12.50,"invoice":null,"pin_encrypted":null}]}
     """
 
+    static let driverStateWithSettlement = """
+    {"current_status":"completed","history":[{"action":"status","status":"completed","at":1700000300,"approx_location":null,"final_fare":12.50,"invoice":null,"pin_encrypted":null},{"action":"settlement","status":null,"at":1700000301,"approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null,"settlement_proof":"proof123","settled_amount":25000}]}
+    """
+
     // MARK: - Kind 30181: Rider Ride State (from iOS rider, verified by Android)
 
     static let riderStateWithLocationRevealAndPinVerify = """
     {"current_phase":"verified","history":[{"action":"location_reveal","at":1700000000,"location_type":"pickup","location_encrypted":"nip44_encrypted_location","status":null,"attempt":null},{"action":"pin_verify","at":1700000100,"location_type":null,"location_encrypted":null,"status":"verified","attempt":1},{"action":"location_reveal","at":1700000200,"location_type":"destination","location_encrypted":"nip44_encrypted_destination","status":null,"attempt":null}]}
+    """
+
+    static let riderStateWithPreimageShare = """
+    {"current_phase":"verified","history":[{"action":"pin_verify","at":1700000100,"location_type":null,"location_encrypted":null,"status":"verified","attempt":1},{"action":"preimage_share","at":1700000101,"location_type":null,"location_encrypted":null,"status":null,"attempt":null,"preimage_encrypted":"preimage_cipher","escrow_token_encrypted":"token_cipher"}]}
     """
 
     // MARK: - Kind 3178: Chat Message

@@ -16,7 +16,7 @@ struct StateConsistencyTests {
             offerEventId: "o1", acceptanceEventId: "a1",
             confirmationEventId: "conf1", driverPubkey: "d1",
             pin: "1234", pinVerified: false,
-            paymentMethod: .zelle, fiatPaymentMethods: [.zelle]
+            paymentMethod: "zelle", fiatPaymentMethods: ["zelle"]
         )
 
         // Driver state event should be processable after restore
@@ -133,17 +133,12 @@ struct StateConsistencyTests {
         let acceptanceJSON = """
         {"status":"accepted","wallet_pubkey":null,"payment_method":"zelle","mint_url":null}
         """
-        let encrypted = try NIP44.encrypt(
-            plaintext: acceptanceJSON,
-            senderPrivateKeyHex: driver.privateKeyHex,
-            recipientPublicKeyHex: rider.publicKeyHex
-        )
         let event = NostrEvent(
             id: "acc1", pubkey: driver.publicKeyHex,
             createdAt: Int(Date.now.timeIntervalSince1970),
             kind: EventKind.rideAcceptance.rawValue,
             tags: [["e", "offer1"], ["p", rider.publicKeyHex]],
-            content: encrypted, sig: "sig"
+            content: acceptanceJSON, sig: "sig"
         )
 
         let parsed = try RideshareEventParser.parseAcceptance(event: event, keypair: rider)
@@ -159,17 +154,12 @@ struct StateConsistencyTests {
         let stateJSON = """
         {"current_status":"arrived","history":[{"action":"status","at":1700000000,"status":"arrived","approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null}]}
         """
-        let encrypted = try NIP44.encrypt(
-            plaintext: stateJSON,
-            senderPrivateKeyHex: driver.privateKeyHex,
-            recipientPublicKeyHex: rider.publicKeyHex
-        )
         let event = NostrEvent(
             id: "ds1", pubkey: driver.publicKeyHex,
             createdAt: Int(Date.now.timeIntervalSince1970),
             kind: EventKind.driverRideState.rawValue,
-            tags: [["d", "conf1"]],
-            content: encrypted, sig: "sig"
+            tags: [["d", "conf1"], ["e", "conf1"], ["p", rider.publicKeyHex]],
+            content: stateJSON, sig: "sig"
         )
 
         let parsed = try RideshareEventParser.parseDriverRideState(event: event, keypair: rider)

@@ -16,6 +16,7 @@ struct RideModelsTests {
             rideRouteKm: 8.3,
             rideRouteMin: 18.0,
             destinationGeohash: "dr5ru",
+            mintUrl: "https://mint.example.com",
             paymentMethod: "zelle",
             fiatPaymentMethods: ["zelle", "venmo", "cash"]
         )
@@ -26,6 +27,7 @@ struct RideModelsTests {
         #expect(decoded.destination.longitude == -73.985)
         #expect(decoded.pickupRouteKm == 2.5)
         #expect(decoded.rideRouteKm == 8.3)
+        #expect(decoded.mintUrl == "https://mint.example.com")
         #expect(decoded.paymentMethod == "zelle")
         #expect(decoded.fiatPaymentMethods == ["zelle", "venmo", "cash"])
     }
@@ -44,11 +46,14 @@ struct RideModelsTests {
 
     @Test func rideAcceptanceCodable() throws {
         let json = """
-        {"status":"accepted","wallet_pubkey":"abc123","payment_method":"venmo","mint_url":null}
+        {"status":"accepted","wallet_pubkey":"abc123","escrow_type":"cashu_nut14","escrow_invoice":"inv123","escrow_expiry":1700000300,"payment_method":"venmo","mint_url":null}
         """.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(RideAcceptanceContent.self, from: json)
         #expect(decoded.status == "accepted")
         #expect(decoded.walletPubkey == "abc123")
+        #expect(decoded.escrowType == "cashu_nut14")
+        #expect(decoded.escrowInvoice == "inv123")
+        #expect(decoded.escrowExpiry == 1700000300)
         #expect(decoded.paymentMethod == "venmo")
         #expect(decoded.mintUrl == nil)
     }
@@ -57,18 +62,15 @@ struct RideModelsTests {
 
     @Test func rideConfirmationCodable() throws {
         let content = RideConfirmationContent(
-            precisePickup: Location(latitude: 40.71234, longitude: -74.00567)
+            precisePickup: Location(latitude: 40.71234, longitude: -74.00567),
+            paymentHash: "hash123",
+            escrowToken: "token123"
         )
         let data = try JSONEncoder().encode(content)
         let decoded = try JSONDecoder().decode(RideConfirmationContent.self, from: data)
-        #expect(decoded.precisePickup?.latitude == 40.71234)
-    }
-
-    @Test func rideConfirmationNullPickup() throws {
-        let content = RideConfirmationContent(precisePickup: nil)
-        let data = try JSONEncoder().encode(content)
-        let decoded = try JSONDecoder().decode(RideConfirmationContent.self, from: data)
-        #expect(decoded.precisePickup == nil)
+        #expect(decoded.precisePickup.latitude == 40.71234)
+        #expect(decoded.paymentHash == "hash123")
+        #expect(decoded.escrowToken == "token123")
     }
 
     // MARK: - DriverRideStateContent
@@ -98,6 +100,16 @@ struct RideModelsTests {
         #expect(action.pinEncrypted == "encrypted_pin_data")
     }
 
+    @Test func driverRideActionSettlement() throws {
+        let json = """
+        {"action":"settlement","at":1700000001,"status":null,"approx_location":null,"final_fare":null,"invoice":null,"pin_encrypted":null,"settlement_proof":"proof123","settled_amount":25000}
+        """.data(using: .utf8)!
+        let action = try JSONDecoder().decode(DriverRideAction.self, from: json)
+        #expect(action.isSettlementAction)
+        #expect(action.settlementProof == "proof123")
+        #expect(action.settledAmount == 25000)
+    }
+
     // MARK: - RiderRideStateContent
 
     @Test func riderRideStateCodable() throws {
@@ -124,6 +136,16 @@ struct RideModelsTests {
         #expect(action.isPinVerify)
         #expect(!action.isPinVerified)
         #expect(action.attempt == 2)
+    }
+
+    @Test func riderRideActionPreimageShare() throws {
+        let json = """
+        {"action":"preimage_share","at":1700000002,"location_type":null,"location_encrypted":null,"status":null,"attempt":null,"preimage_encrypted":"pre123","escrow_token_encrypted":"token456"}
+        """.data(using: .utf8)!
+        let action = try JSONDecoder().decode(RiderRideAction.self, from: json)
+        #expect(action.isPreimageShare)
+        #expect(action.preimageEncrypted == "pre123")
+        #expect(action.escrowTokenEncrypted == "token456")
     }
 
     // MARK: - ChatMessageContent

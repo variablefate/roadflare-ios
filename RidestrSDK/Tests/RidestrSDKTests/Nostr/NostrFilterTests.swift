@@ -52,6 +52,18 @@ struct NostrFilterTests {
         #expect(filter.tagFilters["e"] == ["offer123"])
     }
 
+    @Test func rideAcceptancesConvenienceSupportsIdentityNarrowing() {
+        let filter = NostrFilter.rideAcceptances(
+            offerEventId: "offer123",
+            riderPubkey: "rider_pub",
+            driverPubkey: "driver_pub"
+        )
+        #expect(filter.kinds == [EventKind.rideAcceptance.rawValue])
+        #expect(filter.tagFilters["e"] == ["offer123"])
+        #expect(filter.tagFilters["p"] == ["rider_pub"])
+        #expect(filter.authors == ["driver_pub"])
+    }
+
     @Test func driverRideStateConvenience() {
         let filter = NostrFilter.driverRideState(driverPubkey: "driver_pub", confirmationEventId: "conf123")
         #expect(filter.kinds == [EventKind.driverRideState.rawValue])
@@ -83,9 +95,14 @@ struct NostrFilterTests {
     }
 
     @Test func chatMessagesConvenience() {
-        let filter = NostrFilter.chatMessages(counterpartyPubkey: "driver1", myPubkey: "me")
+        let filter = NostrFilter.chatMessages(
+            counterpartyPubkey: "driver1",
+            myPubkey: "me",
+            confirmationEventId: "conf1"
+        )
         #expect(filter.kinds == [EventKind.chatMessage.rawValue])
         #expect(filter.tagFilters["p"] == ["me"])
+        #expect(filter.tagFilters["e"] == ["conf1"])
     }
 
     @Test func keySharesConvenience() {
@@ -114,7 +131,7 @@ struct NostrFilterTests {
         let filter = NostrFilter.metadata(pubkeys: ["pub1", "pub2"])
         #expect(filter.kinds == [EventKind.metadata.rawValue])
         #expect(filter.authors == ["pub1", "pub2"])
-        #expect(filter.limit == 2)
+        #expect(filter.limit == nil)
     }
 
     @Test func metadataSinglePubkey() {

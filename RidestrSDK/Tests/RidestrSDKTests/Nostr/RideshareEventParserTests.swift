@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import RidestrSDK
 
+private let parserAcceptanceEventId = String(repeating: "a", count: 64)
+private let parserConfirmationEventId = String(repeating: "b", count: 64)
+
 @Suite("RideshareEventParser Tests")
 struct RideshareEventParserTests {
 
@@ -248,12 +251,17 @@ struct RideshareEventParserTests {
 
         let event = try await RideshareEventBuilder.chatMessage(
             recipientPubkey: receiver.publicKeyHex,
-            confirmationEventId: "conf1",
+            confirmationEventId: parserConfirmationEventId,
             message: "Hello!",
             keypair: sender
         )
 
-        let parsed = try RideshareEventParser.parseChatMessage(event: event, keypair: receiver)
+        let parsed = try RideshareEventParser.parseChatMessage(
+            event: event,
+            keypair: receiver,
+            expectedSenderPubkey: sender.publicKeyHex,
+            expectedConfirmationEventId: parserConfirmationEventId
+        )
         #expect(parsed.message == "Hello!")
     }
 
@@ -263,13 +271,75 @@ struct RideshareEventParserTests {
 
         let event = try await RideshareEventBuilder.cancellation(
             counterpartyPubkey: receiver.publicKeyHex,
-            confirmationEventId: "conf1",
+            confirmationEventId: parserConfirmationEventId,
             reason: "Taking too long",
             keypair: sender
         )
 
         let parsed = try RideshareEventParser.parseCancellation(event: event, keypair: receiver)
         #expect(parsed.reason == "Taking too long")
+    }
+
+    @Test func parseConfirmationEnvelopeRoundtrip() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.rideConfirmation(
+            driverPubkey: driver.publicKeyHex,
+            acceptanceEventId: parserAcceptanceEventId,
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            keypair: rider
+        )
+
+        let parsed = try RideshareEventParser.parseConfirmationEnvelope(
+            event: event,
+            expectedRiderPubkey: rider.publicKeyHex,
+            expectedDriverPubkey: driver.publicKeyHex,
+            expectedAcceptanceEventId: parserAcceptanceEventId
+        )
+        #expect(parsed.eventId == event.id)
+        #expect(parsed.acceptanceEventId == parserAcceptanceEventId)
+        #expect(parsed.driverPubkey == driver.publicKeyHex)
+    }
+
+    @Test func parseConfirmationEnvelopeRejectsWrongDriver() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let otherDriver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.rideConfirmation(
+            driverPubkey: driver.publicKeyHex,
+            acceptanceEventId: parserAcceptanceEventId,
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            keypair: rider
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseConfirmationEnvelope(
+                event: event,
+                expectedRiderPubkey: rider.publicKeyHex,
+                expectedDriverPubkey: otherDriver.publicKeyHex,
+                expectedAcceptanceEventId: parserAcceptanceEventId
+            )
+        }
+    }
+
+    @Test func parseCancellationRejectsUnexpectedStatus() throws {
+        let sender = try NostrKeypair.generate()
+        let receiver = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "cancel-invalid-status",
+            pubkey: sender.publicKeyHex,
+            createdAt: Int(Date.now.timeIntervalSince1970),
+            kind: EventKind.cancellation.rawValue,
+            tags: [["p", receiver.publicKeyHex], ["e", "conf1"]],
+            content: #"{"status":"paused","reason":"not real"}"#,
+            sig: "sig"
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseCancellation(event: event, keypair: receiver)
+        }
     }
 
     @Test func wrongEventKindThrows() throws {
@@ -287,6 +357,169 @@ struct RideshareEventParserTests {
         }
         #expect(throws: RidestrError.self) {
             try RideshareEventParser.parseChatMessage(event: event, keypair: keypair)
+        }
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseRiderRideState(event: event, keypair: keypair)
+        }
+    }
+
+    @Test func parseDriverRideStateValidatesRecipientAndConfirmation() throws {
+        let driver = try NostrKeypair.generate()
+        let rider = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "state-valid",
+            pubkey: driver.publicKeyHex,
+            createdAt: 1700000000,
+            kind: EventKind.driverRideState.rawValue,
+            tags: [["d", "conf1"], ["e", "conf1"], ["p", rider.publicKeyHex]],
+            content: #"{"current_status":"arrived","history":[]}"#,
+            sig: "sig"
+        )
+
+        let parsed = try RideshareEventParser.parseDriverRideState(
+            event: event,
+            keypair: rider,
+            expectedDriverPubkey: driver.publicKeyHex,
+            expectedConfirmationEventId: "conf1"
+        )
+        #expect(parsed.currentStatus == "arrived")
+    }
+
+    @Test func parseRiderRideStateValidatesRecipientAndConfirmation() throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "rider-state-valid",
+            pubkey: rider.publicKeyHex,
+            createdAt: 1700000000,
+            kind: EventKind.riderRideState.rawValue,
+            tags: [["d", "conf1"], ["e", "conf1"], ["p", driver.publicKeyHex]],
+            content: #"{"current_phase":"verified","history":[]}"#,
+            sig: "sig"
+        )
+
+        let parsed = try RideshareEventParser.parseRiderRideState(
+            event: event,
+            keypair: driver,
+            expectedRiderPubkey: rider.publicKeyHex,
+            expectedConfirmationEventId: "conf1"
+        )
+        #expect(parsed.currentPhase == "verified")
+    }
+
+    @Test func parseChatMessageRejectsWrongConfirmation() async throws {
+        let sender = try NostrKeypair.generate()
+        let receiver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.chatMessage(
+            recipientPubkey: receiver.publicKeyHex,
+            confirmationEventId: parserConfirmationEventId,
+            message: "Hello!",
+            keypair: sender
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseChatMessage(
+                event: event,
+                keypair: receiver,
+                expectedSenderPubkey: sender.publicKeyHex,
+                expectedConfirmationEventId: "wrong-conf"
+            )
+        }
+    }
+
+    @Test func parseAcceptanceEnvelopeValidatesRecipientAndOffer() throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "accept-1",
+            pubkey: driver.publicKeyHex,
+            createdAt: 1700000000,
+            kind: EventKind.rideAcceptance.rawValue,
+            tags: [["e", "offer-1"], ["p", rider.publicKeyHex]],
+            content: #"{"status":"accepted"}"#,
+            sig: "sig"
+        )
+
+        let envelope = try RideshareEventParser.parseAcceptanceEnvelope(
+            event: event,
+            keypair: rider,
+            expectedDriverPubkey: driver.publicKeyHex,
+            expectedOfferEventId: "offer-1"
+        )
+
+        #expect(envelope.driverPubkey == driver.publicKeyHex)
+        #expect(envelope.offerEventId == "offer-1")
+        #expect(envelope.riderPubkey == rider.publicKeyHex)
+    }
+
+    @Test func parseAcceptanceRejectsWrongRecipient() throws {
+        let rider = try NostrKeypair.generate()
+        let otherRider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "accept-wrong-rider",
+            pubkey: driver.publicKeyHex,
+            createdAt: 1700000000,
+            kind: EventKind.rideAcceptance.rawValue,
+            tags: [["e", "offer-1"], ["p", otherRider.publicKeyHex]],
+            content: #"{"status":"accepted"}"#,
+            sig: "sig"
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseAcceptance(
+                event: event,
+                keypair: rider,
+                expectedDriverPubkey: driver.publicKeyHex,
+                expectedOfferEventId: "offer-1"
+            )
+        }
+    }
+
+    @Test func parseAcceptanceRejectsWrongOfferReference() throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "accept-wrong-offer",
+            pubkey: driver.publicKeyHex,
+            createdAt: 1700000000,
+            kind: EventKind.rideAcceptance.rawValue,
+            tags: [["e", "offer-2"], ["p", rider.publicKeyHex]],
+            content: #"{"status":"accepted"}"#,
+            sig: "sig"
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseAcceptance(
+                event: event,
+                keypair: rider,
+                expectedDriverPubkey: driver.publicKeyHex,
+                expectedOfferEventId: "offer-1"
+            )
+        }
+    }
+
+    @Test func parseAcceptanceRejectsUnexpectedStatus() throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let event = NostrEvent(
+            id: "accept-rejected",
+            pubkey: driver.publicKeyHex,
+            createdAt: 1700000000,
+            kind: EventKind.rideAcceptance.rawValue,
+            tags: [["e", "offer-1"], ["p", rider.publicKeyHex]],
+            content: #"{"status":"rejected"}"#,
+            sig: "sig"
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseAcceptance(
+                event: event,
+                keypair: rider,
+                expectedDriverPubkey: driver.publicKeyHex,
+                expectedOfferEventId: "offer-1"
+            )
         }
     }
 
@@ -325,7 +558,7 @@ struct RideshareEventParserTests {
         let event = NostrEvent(
             id: "e1", pubkey: alice.publicKeyHex, createdAt: 1700000000,
             kind: EventKind.chatMessage.rawValue,
-            tags: [["p", bob.publicKeyHex]],
+            tags: [["p", bob.publicKeyHex], ["e", "conf1"]],
             content: encrypted, sig: "sig"
         )
 

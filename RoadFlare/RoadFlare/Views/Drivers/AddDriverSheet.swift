@@ -337,17 +337,9 @@ struct AddDriverSheet: View {
     }
 
     private func fetchDriverProfile(_ hexPubkey: String) async {
-        guard let rm = appState.relayManager else { return }
-        do {
-            let filter = NostrFilter.metadata(pubkeys: [hexPubkey])
-            let events = try await rm.fetchEvents(filter: filter, timeout: 5)
-            if let event = events.sorted(by: { $0.createdAt > $1.createdAt }).first,
-               let profile = RideshareEventParser.parseMetadata(event: event) {
-                resolvedProfile = profile
-            }
-        } catch {
-            // Non-fatal — show card without profile info
-        }
+        guard let service = appState.roadflareDomainService else { return }
+        let profiles = await service.fetchDriverProfiles(pubkeys: [hexPubkey])
+        resolvedProfile = profiles[hexPubkey]?.value
     }
 
     // MARK: - Add Driver

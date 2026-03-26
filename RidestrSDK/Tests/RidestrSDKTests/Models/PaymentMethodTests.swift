@@ -10,12 +10,22 @@ struct PaymentMethodTests {
         #expect(PaymentMethod.cashApp.rawValue == "cash_app")
         #expect(PaymentMethod.venmo.rawValue == "venmo")
         #expect(PaymentMethod.strike.rawValue == "strike")
+        #expect(PaymentMethod.bitcoin.rawValue == "bitcoin")
         #expect(PaymentMethod.cash.rawValue == "cash")
     }
 
     @Test func displayNames() {
         #expect(PaymentMethod.zelle.displayName == "Zelle")
         #expect(PaymentMethod.cashApp.displayName == "Cash App")
+        #expect(PaymentMethod.displayName(for: "bitcoin") == "Bitcoin")
+    }
+
+    @Test func roadflareAlternatesKeepBitcoinAboveCash() {
+        #expect(PaymentMethod.roadflareAlternates == [
+            .zelle, .paypal, .cashApp, .venmo, .strike, .bitcoin, .cash,
+        ])
+        #expect(PaymentMethod.canonicalRoadflareRawValue(for: "Bitcoin") == "bitcoin")
+        #expect(PaymentMethod.canonicalRoadflareRawValue(for: "Cash App") == "cash_app")
     }
 
     @Test func findCommonFirstMatch() {

@@ -359,7 +359,7 @@ struct AdversarialEventTests {
     }
 
     @Test func paymentMethodFromInvalidRawValue() {
-        let invalid = PaymentMethod(rawValue: "bitcoin")  // Not in v1
-        #expect(invalid == nil)
+        let parsed = PaymentMethod(rawValue: "bitcoin")
+        #expect(parsed == .bitcoin)
     }
 }

@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import RidestrSDK
 
+private let multiStepAcceptanceEventId = String(repeating: "a", count: 64)
+
 /// Multi-step flow tests that exercise complex ride scenarios.
 @Suite("Multi-Step Flow Tests")
 struct MultiStepFlowTests {
@@ -11,7 +13,7 @@ struct MultiStepFlowTests {
     @Test func pinFailThenRetrySucceed() throws {
         let sm = RideStateMachine()
         try sm.startRide(offerEventId: "o1", driverPubkey: "d1",
-                         paymentMethod: .zelle, fiatPaymentMethods: [.zelle])
+                         paymentMethod: "zelle", fiatPaymentMethods: ["zelle"])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
 
@@ -90,7 +92,7 @@ struct MultiStepFlowTests {
 
         // Ride 1
         try sm.startRide(offerEventId: "o1", driverPubkey: "d1",
-                         paymentMethod: .zelle, fiatPaymentMethods: [.zelle])
+                         paymentMethod: "zelle", fiatPaymentMethods: ["zelle"])
         _ = try sm.handleAcceptance(acceptanceEventId: "acc1")
         try sm.recordConfirmation(confirmationEventId: "conf1")
 
@@ -102,7 +104,7 @@ struct MultiStepFlowTests {
 
         // Ride 2
         try sm.startRide(offerEventId: "o2", driverPubkey: "d2",
-                         paymentMethod: .venmo, fiatPaymentMethods: [.venmo])
+                         paymentMethod: "venmo", fiatPaymentMethods: ["venmo"])
         #expect(sm.offerEventId == "o2")
         #expect(sm.driverPubkey == "d2")
 
@@ -177,7 +179,7 @@ struct MultiStepFlowTests {
             keypair: rider
         )
         try sm.startRide(offerEventId: offerEvent.id, driverPubkey: driver.publicKeyHex,
-                         paymentMethod: .zelle, fiatPaymentMethods: [.zelle, .venmo])
+                         paymentMethod: "zelle", fiatPaymentMethods: ["zelle", "venmo"])
 
         // 2. Driver decrypts and accepts
         let decryptedOffer = try NIP44.decrypt(
@@ -189,12 +191,12 @@ struct MultiStepFlowTests {
         #expect(parsedOffer.fareEstimate == 15.00)
 
         // 3. Handle acceptance
-        let pin = try sm.handleAcceptance(acceptanceEventId: "acc1")
+        let pin = try sm.handleAcceptance(acceptanceEventId: multiStepAcceptanceEventId)
 
         // 4. Confirm with precise pickup
         let confirmEvent = try await RideshareEventBuilder.rideConfirmation(
             driverPubkey: driver.publicKeyHex,
-            acceptanceEventId: "acc1",
+            acceptanceEventId: multiStepAcceptanceEventId,
             precisePickup: Location(latitude: 40.71234, longitude: -74.00567),
             keypair: rider
         )

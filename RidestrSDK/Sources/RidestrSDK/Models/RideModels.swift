@@ -51,6 +51,7 @@ public struct RideOfferContent: Codable, Sendable {
     public let rideRouteKm: Double?
     public let rideRouteMin: Double?
     public let destinationGeohash: String?
+    public let mintUrl: String?
     public let paymentMethod: String
     public let fiatPaymentMethods: [String]
 
@@ -63,6 +64,7 @@ public struct RideOfferContent: Codable, Sendable {
         case rideRouteKm = "ride_route_km"
         case rideRouteMin = "ride_route_min"
         case destinationGeohash = "destination_geohash"
+        case mintUrl = "mint_url"
         case paymentMethod = "payment_method"
         case fiatPaymentMethods = "fiat_payment_methods"
     }
@@ -76,6 +78,7 @@ public struct RideOfferContent: Codable, Sendable {
         rideRouteKm: Double? = nil,
         rideRouteMin: Double? = nil,
         destinationGeohash: String? = nil,
+        mintUrl: String? = nil,
         paymentMethod: String = "zelle",
         fiatPaymentMethods: [String] = []
     ) {
@@ -87,6 +90,7 @@ public struct RideOfferContent: Codable, Sendable {
         self.rideRouteKm = rideRouteKm
         self.rideRouteMin = rideRouteMin
         self.destinationGeohash = destinationGeohash
+        self.mintUrl = mintUrl
         self.paymentMethod = paymentMethod
         self.fiatPaymentMethods = fiatPaymentMethods
     }
@@ -96,24 +100,113 @@ public struct RideOfferContent: Codable, Sendable {
 public struct RideAcceptanceContent: Codable, Sendable {
     public let status: String
     public let walletPubkey: String?
+    public let escrowType: String?
+    public let escrowInvoice: String?
+    public let escrowExpiry: Int?
     public let paymentMethod: String?
     public let mintUrl: String?
 
     enum CodingKeys: String, CodingKey {
         case status
         case walletPubkey = "wallet_pubkey"
+        case escrowType = "escrow_type"
+        case escrowInvoice = "escrow_invoice"
+        case escrowExpiry = "escrow_expiry"
         case paymentMethod = "payment_method"
         case mintUrl = "mint_url"
+    }
+
+    public init(
+        status: String,
+        walletPubkey: String? = nil,
+        escrowType: String? = nil,
+        escrowInvoice: String? = nil,
+        escrowExpiry: Int? = nil,
+        paymentMethod: String? = nil,
+        mintUrl: String? = nil
+    ) {
+        self.status = status
+        self.walletPubkey = walletPubkey
+        self.escrowType = escrowType
+        self.escrowInvoice = escrowInvoice
+        self.escrowExpiry = escrowExpiry
+        self.paymentMethod = paymentMethod
+        self.mintUrl = mintUrl
+    }
+}
+
+/// Parsed acceptance envelope metadata from Kind 3174.
+///
+/// This lets SDK consumers validate who sent the acceptance and which rider/offer
+/// it targets without re-parsing raw tags in app code.
+public struct RideAcceptanceEnvelope: Sendable, Equatable {
+    public let eventId: String
+    public let driverPubkey: String
+    public let offerEventId: String
+    public let riderPubkey: String
+    public let createdAt: Int
+
+    public init(
+        eventId: String,
+        driverPubkey: String,
+        offerEventId: String,
+        riderPubkey: String,
+        createdAt: Int
+    ) {
+        self.eventId = eventId
+        self.driverPubkey = driverPubkey
+        self.offerEventId = offerEventId
+        self.riderPubkey = riderPubkey
+        self.createdAt = createdAt
     }
 }
 
 /// Content of a ride confirmation (Kind 3175, NIP-44 encrypted to driver).
 public struct RideConfirmationContent: Codable, Sendable {
-    public let precisePickup: Location?
+    public let precisePickup: Location
+    public let paymentHash: String?
+    public let escrowToken: String?
 
     enum CodingKeys: String, CodingKey {
         case precisePickup = "precise_pickup"
-        // Future Cashu fields: payment_hash, escrow_token
+        case paymentHash = "payment_hash"
+        case escrowToken = "escrow_token"
+    }
+
+    public init(
+        precisePickup: Location,
+        paymentHash: String? = nil,
+        escrowToken: String? = nil
+    ) {
+        self.precisePickup = precisePickup
+        self.paymentHash = paymentHash
+        self.escrowToken = escrowToken
+    }
+}
+
+/// Parsed confirmation envelope metadata from Kind 3175.
+///
+/// This is useful when the caller needs to validate identity and linkage without
+/// decrypting the confirmation body.
+public struct RideConfirmationEnvelope: Sendable, Equatable {
+    public let eventId: String
+    public let riderPubkey: String
+    public let acceptanceEventId: String
+    public let driverPubkey: String
+    public let createdAt: Int
+
+    public init(
+        eventId: String,
+        riderPubkey: String,
+        acceptanceEventId: String,
+        driverPubkey: String,
+        createdAt: Int
+    ) {
+        self.eventId = eventId
+        self.riderPubkey = riderPubkey
+        self.acceptanceEventId = acceptanceEventId
+        self.driverPubkey = driverPubkey
+        self.createdAt = createdAt
     }
 }
 
@@ -144,16 +237,52 @@ public struct DriverRideAction: Codable, Sendable {
     // PinSubmit action fields
     public let pinEncrypted: String?
 
+    // Settlement action fields
+    public let settlementProof: String?
+    public let settledAmount: Decimal?
+
+    // Cross-mint deposit-invoice-share action fields
+    public let amount: Decimal?
+
     enum CodingKeys: String, CodingKey {
         case type = "action"
         case at, status, invoice
         case approxLocation = "approx_location"
         case finalFare = "final_fare"
         case pinEncrypted = "pin_encrypted"
+        case settlementProof = "settlement_proof"
+        case settledAmount = "settled_amount"
+        case amount
+    }
+
+    public init(
+        type: String,
+        at: Int,
+        status: String?,
+        approxLocation: Location?,
+        finalFare: Decimal?,
+        invoice: String?,
+        pinEncrypted: String?,
+        settlementProof: String? = nil,
+        settledAmount: Decimal? = nil,
+        amount: Decimal? = nil
+    ) {
+        self.type = type
+        self.at = at
+        self.status = status
+        self.approxLocation = approxLocation
+        self.finalFare = finalFare
+        self.invoice = invoice
+        self.pinEncrypted = pinEncrypted
+        self.settlementProof = settlementProof
+        self.settledAmount = settledAmount
+        self.amount = amount
     }
 
     public var isStatusAction: Bool { type == "status" }
     public var isPinSubmitAction: Bool { type == "pin_submit" }
+    public var isSettlementAction: Bool { type == "settlement" }
+    public var isDepositInvoiceShareAction: Bool { type == "deposit_invoice_share" }
 }
 
 // MARK: - Rider Ride State (Kind 30181)
@@ -182,22 +311,47 @@ public struct RiderRideAction: Codable, Sendable {
     public let status: String?
     public let attempt: Int?
 
+    // PreimageShare / BridgeComplete fields
+    public let preimageEncrypted: String?
+    public let escrowTokenEncrypted: String?
+    public let preimage: String?
+    public let amount: Decimal?
+    public let fees: Decimal?
+
     enum CodingKeys: String, CodingKey {
         case type = "action"
         case at, status, attempt
         case locationType = "location_type"
         case locationEncrypted = "location_encrypted"
+        case preimageEncrypted = "preimage_encrypted"
+        case escrowTokenEncrypted = "escrow_token_encrypted"
+        case preimage
+        case amount
+        case fees
     }
 
     public init(type: String, at: Int, locationType: String?, locationEncrypted: String?,
-                status: String?, attempt: Int?) {
-        self.type = type; self.at = at; self.locationType = locationType
-        self.locationEncrypted = locationEncrypted; self.status = status; self.attempt = attempt
+                status: String?, attempt: Int?, preimageEncrypted: String? = nil,
+                escrowTokenEncrypted: String? = nil, preimage: String? = nil,
+                amount: Decimal? = nil, fees: Decimal? = nil) {
+        self.type = type
+        self.at = at
+        self.locationType = locationType
+        self.locationEncrypted = locationEncrypted
+        self.status = status
+        self.attempt = attempt
+        self.preimageEncrypted = preimageEncrypted
+        self.escrowTokenEncrypted = escrowTokenEncrypted
+        self.preimage = preimage
+        self.amount = amount
+        self.fees = fees
     }
 
     public var isLocationReveal: Bool { type == "location_reveal" }
     public var isPinVerify: Bool { type == "pin_verify" }
     public var isPinVerified: Bool { isPinVerify && status == "verified" }
+    public var isPreimageShare: Bool { type == "preimage_share" }
+    public var isBridgeComplete: Bool { type == "bridge_complete" }
 }
 
 // MARK: - Chat

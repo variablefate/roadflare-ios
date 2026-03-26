@@ -15,6 +15,7 @@ struct AndroidFixtureTests {
         let parsed = try JSONDecoder().decode(RideAcceptanceContent.self, from: data)
         #expect(parsed.status == "accepted")
         #expect(parsed.walletPubkey == "abc123def456")
+        #expect(parsed.escrowType == "cashu_nut14")
         #expect(parsed.paymentMethod == "zelle")
         #expect(parsed.mintUrl == "https://mint.example.com")
     }
@@ -24,8 +25,17 @@ struct AndroidFixtureTests {
         let parsed = try JSONDecoder().decode(RideAcceptanceContent.self, from: data)
         #expect(parsed.status == "accepted")
         #expect(parsed.walletPubkey == nil)
+        #expect(parsed.escrowType == nil)
         #expect(parsed.paymentMethod == "venmo")
         #expect(parsed.mintUrl == nil)
+    }
+
+    @Test func parseAndroidConfirmationContent() throws {
+        let data = AndroidFixtures.rideConfirmationContent.data(using: .utf8)!
+        let parsed = try JSONDecoder().decode(RideConfirmationContent.self, from: data)
+        #expect(parsed.precisePickup.latitude == 40.7128)
+        #expect(parsed.paymentHash == "abc123hash")
+        #expect(parsed.escrowToken == "cashu_token_blob")
     }
 
     // MARK: - Kind 30180: Driver Ride State
@@ -55,6 +65,16 @@ struct AndroidFixtureTests {
         #expect(parsed.history[1].pinEncrypted == "nip44_encrypted_pin_data")
     }
 
+    @Test func parseAndroidDriverStateWithSettlement() throws {
+        let data = AndroidFixtures.driverStateWithSettlement.data(using: .utf8)!
+        let parsed = try JSONDecoder().decode(DriverRideStateContent.self, from: data)
+        #expect(parsed.currentStatus == "completed")
+        #expect(parsed.history.count == 2)
+        #expect(parsed.history[1].isSettlementAction)
+        #expect(parsed.history[1].settlementProof == "proof123")
+        #expect(parsed.history[1].settledAmount == 25000)
+    }
+
     @Test func parseAndroidDriverStateCompleted() throws {
         let data = AndroidFixtures.driverStateCompleted.data(using: .utf8)!
         let parsed = try JSONDecoder().decode(DriverRideStateContent.self, from: data)
@@ -77,6 +97,16 @@ struct AndroidFixtureTests {
         #expect(parsed.history[1].isPinVerified)
         #expect(parsed.history[1].attempt == 1)
         #expect(parsed.history[2].locationType == "destination")
+    }
+
+    @Test func parseAndroidRiderStateWithPreimageShare() throws {
+        let data = AndroidFixtures.riderStateWithPreimageShare.data(using: .utf8)!
+        let parsed = try JSONDecoder().decode(RiderRideStateContent.self, from: data)
+        #expect(parsed.currentPhase == "verified")
+        #expect(parsed.history.count == 2)
+        #expect(parsed.history[1].isPreimageShare)
+        #expect(parsed.history[1].preimageEncrypted == "preimage_cipher")
+        #expect(parsed.history[1].escrowTokenEncrypted == "token_cipher")
     }
 
     // MARK: - Kind 3178: Chat

@@ -20,6 +20,8 @@ import RidestrSDK
 final class LocationCoordinator {
     let relayManager: any RelayManagerProtocol
     private let keypair: NostrKeypair
+    private let roadflareDomainService: RoadflareDomainService?
+    private let roadflareSyncStore: RoadflareSyncStateStore?
     let driversRepository: FollowedDriversRepository
 
     private var locationSubscriptionId: SubscriptionID?
@@ -30,9 +32,13 @@ final class LocationCoordinator {
     var lastError: String?
 
     init(relayManager: any RelayManagerProtocol, keypair: NostrKeypair,
-         driversRepository: FollowedDriversRepository) {
+         driversRepository: FollowedDriversRepository,
+         roadflareDomainService: RoadflareDomainService? = nil,
+         roadflareSyncStore: RoadflareSyncStateStore? = nil) {
         self.relayManager = relayManager
         self.keypair = keypair
+        self.roadflareDomainService = roadflareDomainService
+        self.roadflareSyncStore = roadflareSyncStore
         self.driversRepository = driversRepository
     }
 
@@ -40,10 +46,18 @@ final class LocationCoordinator {
 
     func startLocationSubscriptions() {
         let pubkeys = driversRepository.allPubkeys
-        guard !pubkeys.isEmpty else { return }
-
         locationTask?.cancel()
         let oldId = locationSubscriptionId
+        locationSubscriptionId = nil
+
+        guard !pubkeys.isEmpty else {
+            if let oldId {
+                locationTask = Task {
+                    await relayManager.unsubscribe(oldId)
+                }
+            }
+            return
+        }
 
         let subId = SubscriptionID("roadflare-locations")
         locationSubscriptionId = subId
@@ -121,12 +135,20 @@ final class LocationCoordinator {
     func handleKeyShareEvent(_ event: NostrEvent) async {
         do {
             let keyShare = try RideshareEventParser.parseKeyShare(event: event, keypair: keypair)
+            guard driversRepository.isFollowing(pubkey: keyShare.driverPubkey) else {
+                AppLogger.location.info("Ignoring key share from unknown driver \(keyShare.driverPubkey.prefix(8))")
+                return
+            }
             AppLogger.location.info("Key share received: driver=\(keyShare.driverPubkey.prefix(8)), version=\(keyShare.roadflareKey.version)")
 
-            driversRepository.updateDriverKey(
+            let updateOutcome = driversRepository.updateDriverKey(
                 driverPubkey: keyShare.driverPubkey,
                 roadflareKey: keyShare.roadflareKey
             )
+            guard updateOutcome != .ignoredOlder else {
+                AppLogger.location.info("Ignoring older key share for \(keyShare.driverPubkey.prefix(8))")
+                return
+            }
             driversRepository.clearKeyStale(pubkey: keyShare.driverPubkey)
 
             // Send acknowledgement (Kind 3188)
@@ -139,11 +161,13 @@ final class LocationCoordinator {
             )
             _ = try await relayManager.publish(ackEvent)
 
-            // Republish Kind 30011 so the key is backed up to Nostr
-            await publishFollowedDriversList()
+            if updateOutcome == .appliedNewer {
+                // Republish Kind 30011 so the key is backed up to Nostr
+                await publishFollowedDriversList()
 
-            // Restart location subscriptions to include newly-keyed driver
-            startLocationSubscriptions()
+                // Restart location subscriptions to include newly-keyed driver
+                startLocationSubscriptions()
+            }
         } catch {
             AppLogger.location.info("Key share handling failed: \(error)")
         }
@@ -169,7 +193,7 @@ final class LocationCoordinator {
             do {
                 let filter = NostrFilter.driverRoadflareState(driverPubkey: driver.pubkey)
                 let events = try await relayManager.fetchEvents(filter: filter, timeout: 5)
-                guard let event = events.first else { continue }
+                guard let event = events.max(by: { $0.createdAt < $1.createdAt }) else { continue }
 
                 let keyUpdatedAtTag = event.tags.first { $0.count >= 2 && $0[0] == "key_updated_at" }
                 guard let remoteTimestamp = keyUpdatedAtTag.flatMap({ Int($0[1]) }) else { continue }
@@ -190,12 +214,21 @@ final class LocationCoordinator {
     // MARK: - Publish Followed Drivers (Kind 30011)
 
     func publishFollowedDriversList() async {
+        roadflareSyncStore?.markDirty(.followedDrivers)
         do {
-            let event = try await RideshareEventBuilder.followedDriversList(
-                drivers: driversRepository.drivers,
-                keypair: keypair
-            )
-            _ = try await relayManager.publish(event)
+            let event: NostrEvent
+            if let roadflareDomainService {
+                event = try await roadflareDomainService.publishFollowedDriversList(
+                    driversRepository.drivers
+                )
+            } else {
+                event = try await RideshareEventBuilder.followedDriversList(
+                    drivers: driversRepository.drivers,
+                    keypair: keypair
+                )
+                _ = try await relayManager.publish(event)
+            }
+            roadflareSyncStore?.markPublished(.followedDrivers, at: event.createdAt)
         } catch {
             lastError = "Failed to publish driver list: \(error.localizedDescription)"
         }

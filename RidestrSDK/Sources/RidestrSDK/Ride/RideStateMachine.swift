@@ -74,16 +74,19 @@ public final class RideStateMachine: @unchecked Sendable {
     public var preciseDestinationShared: Bool { context.preciseDestinationShared }
 
     /// Payment method for this ride.
-    public var paymentMethod: PaymentMethod? { context.paymentMethod }
+    public var paymentMethod: String? { context.paymentMethod }
 
     /// Rider's fiat payment methods included in the offer.
-    public var fiatPaymentMethods: [PaymentMethod] { context.fiatPaymentMethods }
+    public var fiatPaymentMethods: [String] { context.fiatPaymentMethods }
 
     /// Rider ride state history (actions published in Kind 30181).
     public var riderStateHistory: [RiderRideAction] { context.riderStateHistory }
 
     /// Driver's last known status from Kind 30180.
     public var lastDriverStatus: String? { context.lastDriverStatus }
+
+    /// Number of actions in the last processed driver state snapshot.
+    public var lastDriverActionCount: Int { context.lastDriverActionCount }
 
     /// Delegate for observing transitions.
     public weak var delegate: (any StateMachineDelegate)?
@@ -157,10 +160,25 @@ public final class RideStateMachine: @unchecked Sendable {
 
         case .acceptanceReceived(let acceptanceEventId):
             let pin = Self.generatePin()
-            return current.withDriver(
-                driverPubkey: current.driverPubkey ?? "",
-                acceptanceEventId: acceptanceEventId
-            ).withPin(pin)
+            return RideContext(
+                riderPubkey: current.riderPubkey,
+                driverPubkey: current.driverPubkey,
+                offerEventId: current.offerEventId,
+                acceptanceEventId: acceptanceEventId,
+                confirmationEventId: current.confirmationEventId,
+                pin: pin,
+                pinAttempts: current.pinAttempts,
+                pinVerified: current.pinVerified,
+                maxPinAttempts: current.maxPinAttempts,
+                paymentMethod: current.paymentMethod,
+                fiatPaymentMethods: current.fiatPaymentMethods,
+                precisePickupShared: current.precisePickupShared,
+                preciseDestinationShared: current.preciseDestinationShared,
+                lastDriverStatus: current.lastDriverStatus,
+                lastDriverStateTimestamp: current.lastDriverStateTimestamp,
+                lastDriverActionCount: current.lastDriverActionCount,
+                riderStateHistory: current.riderStateHistory
+            )
 
         case .confirm(let confirmationEventId):
             return current.withConfirmation(confirmationEventId: confirmationEventId)
@@ -197,10 +215,24 @@ public final class RideStateMachine: @unchecked Sendable {
         guard !processedDriverStateEventIds.contains(eventId) else { return nil }
         // Confirmation must match current ride
         guard confirmationId == confirmationEventId else { return nil }
-        // Timestamp ordering — prevent state regression from late events
-        if createdAt > 0 && createdAt <= context.lastDriverStateTimestamp { return nil }
+        let actionCount = driverState.history.count
+        // Timestamp ordering — prevent state regression from late events.
+        // Android driver updates are second-granularity, so same-second snapshots must
+        // be ordered by append-only history length rather than dropped outright.
+        if createdAt > 0 {
+            if createdAt < context.lastDriverStateTimestamp { return nil }
+            if createdAt == context.lastDriverStateTimestamp &&
+                actionCount <= context.lastDriverActionCount {
+                return nil
+            }
+        }
 
         processedDriverStateEventIds.insert(eventId)
+
+        if driverState.currentStatus == "cancelled" {
+            processEvent(.cancel(eventId: eventId, confirmationId: confirmationId))
+            return driverState.currentStatus
+        }
 
         // Update context with driver status
         let newTimestamp = createdAt > 0 ? createdAt : context.lastDriverStateTimestamp
@@ -215,6 +247,7 @@ public final class RideStateMachine: @unchecked Sendable {
             preciseDestinationShared: context.preciseDestinationShared,
             lastDriverStatus: driverState.currentStatus,
             lastDriverStateTimestamp: newTimestamp,
+            lastDriverActionCount: actionCount,
             riderStateHistory: context.riderStateHistory
         )
 
@@ -270,10 +303,30 @@ public final class RideStateMachine: @unchecked Sendable {
         confirmationEventId: String?,
         driverPubkey: String?,
         pin: String?,
+        pinAttempts: Int = 0,
         pinVerified: Bool,
-        paymentMethod: PaymentMethod?,
-        fiatPaymentMethods: [PaymentMethod]
+        paymentMethod: String?,
+        fiatPaymentMethods: [String],
+        precisePickupShared: Bool = false,
+        preciseDestinationShared: Bool = false,
+        lastDriverStatus: String? = nil,
+        lastDriverStateTimestamp: Int = 0,
+        lastDriverActionCount: Int = 0,
+        riderStateHistory: [RiderRideAction] = []
     ) {
+        let requiresDriverPubkey: Bool = {
+            switch stage {
+            case .idle, .completed:
+                false
+            default:
+                true
+            }
+        }()
+        guard !requiresDriverPubkey || (driverPubkey?.isEmpty == false) else {
+            reset()
+            return
+        }
+
         self.stage = stage
         self.context = RideContext(
             riderPubkey: context.riderPubkey,
@@ -282,9 +335,16 @@ public final class RideStateMachine: @unchecked Sendable {
             acceptanceEventId: acceptanceEventId,
             confirmationEventId: confirmationEventId,
             pin: pin,
+            pinAttempts: pinAttempts,
             pinVerified: pinVerified,
             paymentMethod: paymentMethod,
-            fiatPaymentMethods: fiatPaymentMethods
+            fiatPaymentMethods: fiatPaymentMethods,
+            precisePickupShared: precisePickupShared,
+            preciseDestinationShared: preciseDestinationShared,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount,
+            riderStateHistory: riderStateHistory
         )
     }
 
@@ -310,8 +370,8 @@ public final class RideStateMachine: @unchecked Sendable {
     public func startRide(
         offerEventId: String,
         driverPubkey: String,
-        paymentMethod: PaymentMethod?,
-        fiatPaymentMethods: [PaymentMethod]
+        paymentMethod: String?,
+        fiatPaymentMethods: [String]
     ) throws {
         let result = processEvent(.sendOffer(
             offerEventId: offerEventId, driverPubkey: driverPubkey,
@@ -369,8 +429,7 @@ public final class RideStateMachine: @unchecked Sendable {
     @available(*, deprecated, message: "Use processEvent(.cancel(...))")
     public func handleCancellation(eventId: String, confirmationId: String) -> Bool {
         guard !processedCancellationEventIds.contains(eventId) else { return false }
-        let preConfirmation = (stage == .waitingForAcceptance || stage == .driverAccepted)
-        guard confirmationId == confirmationEventId || preConfirmation else { return false }
+        guard confirmationId == confirmationEventId else { return false }
         processedCancellationEventIds.insert(eventId)
 
         processEvent(.cancel(eventId: eventId, confirmationId: confirmationId))

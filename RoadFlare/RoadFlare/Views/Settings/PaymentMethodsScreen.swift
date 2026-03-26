@@ -12,12 +12,8 @@ struct PaymentMethodsScreen: View {
             ScrollView {
                 VStack(spacing: 24) {
                     PaymentMethodPicker(settings: appState.settings)
-                        .onChange(of: appState.settings.paymentMethods) { oldValue, newValue in
+                        .onChange(of: appState.settings.roadflarePaymentMethods) { oldValue, newValue in
                             guard oldValue != newValue, appState.authState == .ready else { return }
-                            Task { await appState.publishProfileBackup() }
-                        }
-                        .onChange(of: appState.settings.customPaymentMethods) { _, _ in
-                            guard appState.authState == .ready else { return }
                             Task { await appState.publishProfileBackup() }
                         }
                 }

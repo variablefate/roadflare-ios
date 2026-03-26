@@ -2,6 +2,9 @@ import Foundation
 import Testing
 @testable import RidestrSDK
 
+private let errorPathConfirmationEventId = String(repeating: "b", count: 64)
+private let errorPathWrongConfirmationEventId = String(repeating: "c", count: 64)
+
 /// Tests for error paths, edge cases, and negative scenarios across the SDK.
 @Suite("Error Path Tests")
 struct ErrorPathTests {
@@ -23,16 +26,11 @@ struct ErrorPathTests {
     @Test func parseDriverRideStateWithBrokenJson() throws {
         let sender = try NostrKeypair.generate()
         let receiver = try NostrKeypair.generate()
-
-        let encrypted = try NIP44.encrypt(
-            plaintext: "{ not valid json at all }",
-            senderPrivateKeyHex: sender.privateKeyHex,
-            recipientPublicKeyHex: receiver.publicKeyHex
-        )
         let event = NostrEvent(
             id: "e1", pubkey: sender.publicKeyHex, createdAt: 1700000000,
             kind: EventKind.driverRideState.rawValue,
-            tags: [], content: encrypted, sig: "sig"
+            tags: [["d", "conf1"], ["e", "conf1"], ["p", receiver.publicKeyHex]],
+            content: "{ not valid json at all }", sig: "sig"
         )
         #expect(throws: Error.self) {
             try RideshareEventParser.parseDriverRideState(event: event, keypair: receiver)
@@ -48,6 +46,49 @@ struct ErrorPathTests {
         )
         #expect(throws: RidestrError.self) {
             try RideshareEventParser.parseCancellation(event: event, keypair: keypair)
+        }
+    }
+
+    @Test func parseCancellationWrongSenderFails() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let attacker = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.cancellation(
+            counterpartyPubkey: rider.publicKeyHex,
+            confirmationEventId: errorPathConfirmationEventId,
+            reason: "spoof",
+            keypair: attacker
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseCancellation(
+                event: event,
+                keypair: rider,
+                expectedDriverPubkey: driver.publicKeyHex,
+                expectedConfirmationEventId: errorPathConfirmationEventId
+            )
+        }
+    }
+
+    @Test func parseCancellationWrongConfirmationFails() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.cancellation(
+            counterpartyPubkey: rider.publicKeyHex,
+            confirmationEventId: errorPathConfirmationEventId,
+            reason: "spoof",
+            keypair: driver
+        )
+
+        #expect(throws: RidestrError.self) {
+            try RideshareEventParser.parseCancellation(
+                event: event,
+                keypair: rider,
+                expectedDriverPubkey: driver.publicKeyHex,
+                expectedConfirmationEventId: errorPathWrongConfirmationEventId
+            )
         }
     }
 

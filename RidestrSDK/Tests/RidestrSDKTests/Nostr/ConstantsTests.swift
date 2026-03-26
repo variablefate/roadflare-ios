@@ -15,6 +15,7 @@ struct ConstantsTests {
     @Test func rideConstants() {
         #expect(RideConstants.pinDigits == 4)
         #expect(RideConstants.maxPinAttempts == 3)
+        #expect(RideConstants.confirmationTimeoutSeconds == 30)
         #expect(RideConstants.batchSize == 3)
         #expect(RideConstants.batchDelaySeconds == 15)
         #expect(RideConstants.acceptanceTimeoutSeconds == 15)
@@ -47,7 +48,7 @@ struct ConstantsTests {
     }
 
     @Test func storageConstants() {
-        #expect(StorageConstants.maxRecentLocations == 15)
+        #expect(StorageConstants.maxRecentLocations == 3)
         #expect(StorageConstants.maxRideHistory == 500)
         #expect(StorageConstants.duplicateLocationThresholdMeters == 50.0)
     }

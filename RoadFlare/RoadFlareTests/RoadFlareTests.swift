@@ -50,6 +50,62 @@ struct UserSettingsTests {
     }
 
     @MainActor
+    @Test func legacyPaymentSettingsMigrateIntoUnifiedRoadflareOrder() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        defaults.set(["zelle", "cash"], forKey: "user_payment_methods")
+        defaults.set(["venmo-business"], forKey: "user_custom_payment_methods")
+
+        let settings = UserSettings(defaults: defaults)
+
+        #expect(settings.roadflarePaymentMethods == ["zelle", "cash", "venmo-business"])
+        #expect(settings.customPaymentMethods == ["venmo-business"])
+    }
+
+    @MainActor
+    @Test func roadflareSettingsPreserveBitcoinDuringMigration() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        defaults.set(["bitcoin", "cash"], forKey: "user_payment_methods")
+
+        let settings = UserSettings(defaults: defaults)
+
+        #expect(settings.roadflarePaymentMethods == ["bitcoin", "cash"])
+    }
+
+    @MainActor
+    @Test func roadflareSettingsKeepStoredBitcoinUnifiedMethods() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        defaults.set(["bitcoin"], forKey: "user_roadflare_payment_methods")
+
+        let settings = UserSettings(defaults: defaults)
+
+        #expect(settings.roadflarePaymentMethods == ["bitcoin"])
+        #expect(defaults.stringArray(forKey: "user_roadflare_payment_methods") == ["bitcoin"])
+    }
+
+    @MainActor
+    @Test func addCustomPaymentMethodCanonicalizesKnownBitcoinLabel() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let settings = UserSettings(defaults: defaults)
+
+        let result = settings.addCustomPaymentMethod("Bitcoin")
+
+        #expect(result == .added)
+        #expect(settings.roadflarePaymentMethods == ["bitcoin"])
+    }
+
+    @MainActor
+    @Test func addCustomPaymentMethodRejectsDuplicateKnownLabel() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let settings = UserSettings(defaults: defaults)
+        settings.setRoadflarePaymentMethods(["bitcoin"])
+
+        let result = settings.addCustomPaymentMethod("Bitcoin")
+
+        #expect(result == .duplicate)
+        #expect(settings.roadflarePaymentMethods == ["bitcoin"])
+    }
+
+    @MainActor
     @Test func profileNamePersists() {
         let suiteName = "test_\(UUID().uuidString)"
         let s1 = UserSettings(defaults: UserDefaults(suiteName: suiteName)!)
@@ -148,6 +204,139 @@ struct RideHistoryStoreTests {
     }
 }
 
+// MARK: - SavedLocationsStore Tests
+
+@Suite("SavedLocationsStore Tests")
+struct SavedLocationsStoreTests {
+    @MainActor
+    @Test func recentsDoNotTriggerFavoritesChanged() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let store = SavedLocationsStore(defaults: defaults)
+        var changeCount = 0
+        var favoritesChangeCount = 0
+
+        store.onChange = { changeCount += 1 }
+        store.onFavoritesChanged = { favoritesChangeCount += 1 }
+
+        store.addRecent(
+            latitude: 36.17,
+            longitude: -115.14,
+            displayName: "Airport",
+            addressLine: "Harry Reid Intl"
+        )
+
+        #expect(changeCount == 1)
+        #expect(favoritesChangeCount == 0)
+    }
+
+    @MainActor
+    @Test func pinningFavoriteTriggersFavoritesChanged() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let store = SavedLocationsStore(defaults: defaults)
+        var favoritesChangeCount = 0
+
+        store.onFavoritesChanged = { favoritesChangeCount += 1 }
+
+        let recent = SavedLocation(
+            id: "home",
+            latitude: 36.17,
+            longitude: -115.14,
+            displayName: "Home",
+            addressLine: "123 Main St",
+            isPinned: false
+        )
+        store.save(recent)
+        store.pin(id: "home", nickname: "Home")
+
+        #expect(favoritesChangeCount == 1)
+        #expect(store.favorites.count == 1)
+    }
+}
+
+// MARK: - AppState Tests
+
+@Suite("AppState Tests")
+struct AppStateTests {
+    @MainActor
+    @Test func localAuthStateRequiresRoadflareMethodsBeforeReady() {
+        let appState = AppState()
+        appState.settings.profileName = "Alice"
+        appState.settings.profileCompleted = true
+        appState.settings.setRoadflarePaymentMethods([])
+
+        #expect(appState.resolveLocalAuthState() == .paymentSetup)
+    }
+
+    @MainActor
+    @Test func profileBackupContentIncludesPinnedAndRecentLocations() {
+        let appState = AppState()
+        appState.settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
+
+        appState.savedLocations.save(SavedLocation(
+            id: "fav",
+            latitude: 36.17,
+            longitude: -115.14,
+            displayName: "Home",
+            addressLine: "123 Main St",
+            isPinned: true,
+            nickname: "Home",
+            timestampMs: 100
+        ))
+        appState.savedLocations.save(SavedLocation(
+            id: "recent",
+            latitude: 36.12,
+            longitude: -115.17,
+            displayName: "Airport",
+            addressLine: "Harry Reid Intl",
+            isPinned: false,
+            timestampMs: 200
+        ))
+
+        let backup = appState.buildProfileBackupContent()
+
+        #expect(backup.savedLocations.count == 2)
+        #expect(backup.savedLocations.contains {
+            $0.displayName == "Home" && $0.isPinned && $0.nickname == "Home" && $0.timestampMs == 100
+        })
+        #expect(backup.savedLocations.contains {
+            $0.displayName == "Airport" && !$0.isPinned && $0.timestampMs == 200
+        })
+        #expect(backup.settings.roadflarePaymentMethods == ["zelle", "venmo-business"])
+        #expect(backup.settings.customPaymentMethods == ["venmo-business"])
+    }
+
+    @MainActor
+    @Test func profileBackupContentPreservesImportedAndroidSettingsTemplate() {
+        let appState = AppState()
+        appState.preserveProfileBackupSettingsTemplate(
+            SettingsBackupContent(
+                roadflarePaymentMethods: ["cash"],
+                notificationSoundEnabled: false,
+                notificationVibrationEnabled: false,
+                autoOpenNavigation: false,
+                alwaysAskVehicle: false,
+                customRelays: ["wss://relay.example"],
+                paymentMethods: ["cashu", "lightning"],
+                defaultPaymentMethod: "cashu",
+                mintUrl: "https://mint.example"
+            )
+        )
+        appState.settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
+
+        let backup = appState.buildProfileBackupContent()
+
+        #expect(backup.settings.roadflarePaymentMethods == ["zelle", "venmo-business"])
+        #expect(backup.settings.notificationSoundEnabled == false)
+        #expect(backup.settings.notificationVibrationEnabled == false)
+        #expect(backup.settings.autoOpenNavigation == false)
+        #expect(backup.settings.alwaysAskVehicle == false)
+        #expect(backup.settings.customRelays == ["wss://relay.example"])
+        #expect(backup.settings.paymentMethods == ["cashu", "lightning"])
+        #expect(backup.settings.defaultPaymentMethod == "cashu")
+        #expect(backup.settings.mintUrl == "https://mint.example")
+    }
+}
+
 // MARK: - UserDefaultsDriversPersistence Tests
 
 @Suite("UserDefaultsDriversPersistence Tests")
@@ -213,20 +402,25 @@ struct UserDefaultsDriversPersistenceTests {
 struct RideStatePersistenceTests {
     init() { RideStatePersistence.clear() }
 
-    private func setupAndSave(stage: RiderStage, pin: String? = "1234", confirmationId: String? = "conf1") {
+    private func setupAndSave(
+        stage: RiderStage,
+        pin: String? = "1234",
+        confirmationId: String? = "conf1",
+        pinAttempts: Int = 0
+    ) {
         let sm = RideStateMachine()
         sm.restore(
             stage: stage, offerEventId: "o1", acceptanceEventId: "a1",
             confirmationEventId: confirmationId, driverPubkey: "d1",
-            pin: pin, pinVerified: false,
-            paymentMethod: .zelle, fiatPaymentMethods: [.zelle, .venmo]
+            pin: pin, pinAttempts: pinAttempts, pinVerified: false,
+            paymentMethod: "zelle", fiatPaymentMethods: ["zelle", "venmo"]
         )
         RideStatePersistence.save(
             stateMachine: sm,
             pickupLocation: Location(latitude: 40.71, longitude: -74.01, address: "Penn Station"),
             destinationLocation: Location(latitude: 40.76, longitude: -73.98, address: "Central Park"),
             fareEstimate: FareEstimate(distanceMiles: 5.5, durationMinutes: 18, fareUSD: 12.50),
-            paymentMethod: .zelle
+            paymentMethod: "zelle"
         )
     }
 
@@ -245,6 +439,39 @@ struct RideStatePersistenceTests {
         #expect(loaded?.fareUSD == "12.5")
         #expect(loaded?.paymentMethodRaw == "zelle")
         #expect(loaded?.fiatPaymentMethodsRaw == ["zelle", "venmo"])
+        RideStatePersistence.clear()
+    }
+
+    @Test func saveCanOmitDriverStateCursor() {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .driverArrived,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "conf1",
+            driverPubkey: "d1",
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"],
+            lastDriverStatus: "arrived",
+            lastDriverStateTimestamp: 1_700_000_100,
+            lastDriverActionCount: 1
+        )
+
+        RideStatePersistence.save(
+            stateMachine: sm,
+            pickupLocation: nil,
+            destinationLocation: nil,
+            fareEstimate: nil,
+            paymentMethod: "zelle",
+            persistDriverStateCursor: false
+        )
+
+        let loaded = RideStatePersistence.load()
+        #expect(loaded?.lastDriverStatus == "arrived")
+        #expect(loaded?.lastDriverStateTimestamp == nil)
+        #expect(loaded?.lastDriverActionCount == nil)
         RideStatePersistence.clear()
     }
 
@@ -271,9 +498,30 @@ struct RideStatePersistenceTests {
         RideStatePersistence.clear()
     }
 
+    @Test func waitingForAcceptanceSurvivesShortRelaunchWithinOfferLifetime() {
+        setupAndSave(stage: .waitingForAcceptance)
+        let stillLiveAt = Date.now.addingTimeInterval(60)
+        #expect(RideStatePersistence.load(now: stillLiveAt)?.stage == "waitingForAcceptance")
+        RideStatePersistence.clear()
+    }
+
+    @Test func waitingForAcceptanceExpiresWithDriverOfferVisibilityWindow() {
+        setupAndSave(stage: .waitingForAcceptance)
+        let expiredAt = Date.now.addingTimeInterval(TimeInterval(RideStatePersistence.interopOfferVisibilitySeconds + 1))
+        #expect(RideStatePersistence.load(now: expiredAt) == nil)
+        RideStatePersistence.clear()
+    }
+
     @Test func loadAcceptsDriverAccepted() {
         setupAndSave(stage: .driverAccepted)
         #expect(RideStatePersistence.load()?.stage == "driverAccepted")
+        RideStatePersistence.clear()
+    }
+
+    @Test func driverAcceptedExpiresWithDriverConfirmationTimeout() {
+        setupAndSave(stage: .driverAccepted)
+        let expiredAt = Date.now.addingTimeInterval(RideConstants.confirmationTimeoutSeconds + 1)
+        #expect(RideStatePersistence.load(now: expiredAt) == nil)
         RideStatePersistence.clear()
     }
 
@@ -317,6 +565,13 @@ struct RideStatePersistenceTests {
         setupAndSave(stage: .driverArrived, pin: "5678")
         let loaded = RideStatePersistence.load()
         #expect(loaded?.pin == "5678")
+        RideStatePersistence.clear()
+    }
+
+    @Test func pinAttemptsSurvivePersistence() {
+        setupAndSave(stage: .driverArrived, pinAttempts: 3)
+        let loaded = RideStatePersistence.load()
+        #expect(loaded?.pinAttempts == 3)
         RideStatePersistence.clear()
     }
 }

@@ -27,10 +27,57 @@ struct FollowedDriversRepositoryTests {
 
     @Test func addDriverUpdatesExisting() {
         let repo = makeRepo()
-        repo.addDriver(FollowedDriver(pubkey: "d1", name: "Alice"))
-        repo.addDriver(FollowedDriver(pubkey: "d1", name: "Alice Updated"))
+        repo.addDriver(FollowedDriver(pubkey: "d1", addedAt: 100, name: "Alice", note: "Local note"))
+        let key = RoadflareKey(privateKeyHex: "priv", publicKeyHex: "pub", version: 1, keyUpdatedAt: 100)
+        repo.updateDriverKey(driverPubkey: "d1", roadflareKey: key)
+        repo.cacheDriverName(pubkey: "d1", name: "Alice Display")
+        repo.cacheDriverProfile(pubkey: "d1", profile: UserProfileContent(about: "Driver bio"))
+        repo.updateDriverLocation(
+            pubkey: "d1", latitude: 40.0, longitude: -74.0,
+            status: "online", timestamp: 100, keyVersion: 1
+        )
+        repo.markKeyStale(pubkey: "d1")
+
+        repo.addDriver(FollowedDriver(pubkey: "d1"))
         #expect(repo.drivers.count == 1)
-        #expect(repo.getDriver(pubkey: "d1")?.name == "Alice Updated")
+        #expect(repo.getDriver(pubkey: "d1")?.addedAt == 100)
+        #expect(repo.getDriver(pubkey: "d1")?.name == "Alice")
+        #expect(repo.getDriver(pubkey: "d1")?.note == "Local note")
+        #expect(repo.getDriver(pubkey: "d1")?.roadflareKey?.version == 1)
+        #expect(repo.cachedDriverName(pubkey: "d1") == "Alice Display")
+        #expect(repo.cachedDriverProfile(pubkey: "d1")?.about == "Driver bio")
+        #expect(repo.driverLocations["d1"] != nil)
+        #expect(repo.staleKeyPubkeys.contains("d1"))
+    }
+
+    @Test func addDriverUsesIncomingReplacementWhenNonEmptyAndNewer() {
+        let repo = makeRepo()
+        let olderKey = RoadflareKey(privateKeyHex: "oldPriv", publicKeyHex: "oldPub", version: 1, keyUpdatedAt: 100)
+        let newerKey = RoadflareKey(privateKeyHex: "newPriv", publicKeyHex: "newPub", version: 2, keyUpdatedAt: 200)
+        repo.addDriver(FollowedDriver(pubkey: "d1", addedAt: 100, name: "Alice", note: "Old note", roadflareKey: olderKey))
+        repo.markKeyStale(pubkey: "d1")
+
+        repo.addDriver(FollowedDriver(pubkey: "d1", addedAt: 999, name: "Alice Updated", note: "New note", roadflareKey: newerKey))
+
+        let driver = repo.getDriver(pubkey: "d1")
+        #expect(driver?.addedAt == 100)
+        #expect(driver?.name == "Alice Updated")
+        #expect(driver?.note == "New note")
+        #expect(driver?.roadflareKey?.version == 2)
+        #expect(!repo.staleKeyPubkeys.contains("d1"))
+    }
+
+    @Test func addDriverClearsStaleFlagWhenKeyUpdatedAtAdvances() {
+        let repo = makeRepo()
+        let current = RoadflareKey(privateKeyHex: "priv", publicKeyHex: "pub", version: 1, keyUpdatedAt: 100)
+        let refreshed = RoadflareKey(privateKeyHex: "priv", publicKeyHex: "pub", version: 1, keyUpdatedAt: 200)
+        repo.addDriver(FollowedDriver(pubkey: "d1", roadflareKey: current))
+        repo.markKeyStale(pubkey: "d1")
+
+        repo.addDriver(FollowedDriver(pubkey: "d1", roadflareKey: refreshed))
+
+        #expect(repo.getDriver(pubkey: "d1")?.roadflareKey?.keyUpdatedAt == 200)
+        #expect(!repo.staleKeyPubkeys.contains("d1"))
     }
 
     @Test func removeDriver() {
@@ -47,10 +94,14 @@ struct FollowedDriversRepositoryTests {
         let repo = makeRepo()
         repo.addDriver(FollowedDriver(pubkey: "d1", name: "Alice"))
         repo.cacheDriverName(pubkey: "d1", name: "Alice Display")
+        repo.cacheDriverProfile(pubkey: "d1", profile: UserProfileContent(about: "Driver bio"))
         repo.updateDriverLocation(pubkey: "d1", latitude: 40.0, longitude: -74.0, status: "online", timestamp: 100, keyVersion: 1)
+        repo.markKeyStale(pubkey: "d1")
         repo.removeDriver(pubkey: "d1")
         #expect(repo.cachedDriverName(pubkey: "d1") == nil)
+        #expect(repo.cachedDriverProfile(pubkey: "d1") == nil)
         #expect(repo.driverLocations["d1"] == nil)
+        #expect(!repo.staleKeyPubkeys.contains("d1"))
     }
 
     @Test func updateDriverKey() {
@@ -59,7 +110,8 @@ struct FollowedDriversRepositoryTests {
         #expect(repo.getDriver(pubkey: "d1")?.hasKey == false)
 
         let key = RoadflareKey(privateKeyHex: "priv", publicKeyHex: "pub", version: 1, keyUpdatedAt: 100)
-        repo.updateDriverKey(driverPubkey: "d1", roadflareKey: key)
+        let outcome = repo.updateDriverKey(driverPubkey: "d1", roadflareKey: key)
+        #expect(outcome == .appliedNewer)
         #expect(repo.getDriver(pubkey: "d1")?.hasKey == true)
         #expect(repo.getDriver(pubkey: "d1")?.roadflareKey?.version == 1)
     }
@@ -67,8 +119,32 @@ struct FollowedDriversRepositoryTests {
     @Test func updateDriverKeyForUnknownDriverDoesNothing() {
         let repo = makeRepo()
         let key = RoadflareKey(privateKeyHex: "p", publicKeyHex: "q", version: 1, keyUpdatedAt: 0)
-        repo.updateDriverKey(driverPubkey: "unknown", roadflareKey: key)
+        let outcome = repo.updateDriverKey(driverPubkey: "unknown", roadflareKey: key)
+        #expect(outcome == .unknownDriver)
         #expect(repo.drivers.isEmpty)
+    }
+
+    @Test func updateDriverKeyRejectsOlderKey() {
+        let repo = makeRepo()
+        let current = RoadflareKey(privateKeyHex: "current", publicKeyHex: "current-pub", version: 2, keyUpdatedAt: 200)
+        let older = RoadflareKey(privateKeyHex: "older", publicKeyHex: "older-pub", version: 1, keyUpdatedAt: 100)
+        repo.addDriver(FollowedDriver(pubkey: "d1", roadflareKey: current))
+
+        let outcome = repo.updateDriverKey(driverPubkey: "d1", roadflareKey: older)
+
+        #expect(outcome == .ignoredOlder)
+        #expect(repo.getDriver(pubkey: "d1")?.roadflareKey == current)
+    }
+
+    @Test func updateDriverKeyTreatsSameKeyAsDuplicate() {
+        let repo = makeRepo()
+        let current = RoadflareKey(privateKeyHex: "current", publicKeyHex: "current-pub", version: 2, keyUpdatedAt: 200)
+        repo.addDriver(FollowedDriver(pubkey: "d1", roadflareKey: current))
+
+        let outcome = repo.updateDriverKey(driverPubkey: "d1", roadflareKey: current)
+
+        #expect(outcome == .duplicateCurrent)
+        #expect(repo.getDriver(pubkey: "d1")?.roadflareKey == current)
     }
 
     @Test func updateDriverNote() {
@@ -173,15 +249,37 @@ struct FollowedDriversRepositoryTests {
 
     @Test func replaceAll() {
         let repo = makeRepo()
-        repo.addDriver(FollowedDriver(pubkey: "old"))
+        let oldKey = RoadflareKey(privateKeyHex: "oldPriv", publicKeyHex: "oldPub", version: 1, keyUpdatedAt: 100)
+        repo.addDriver(FollowedDriver(pubkey: "old", name: "Old", note: "Old note", roadflareKey: oldKey))
+        repo.cacheDriverName(pubkey: "old", name: "Old Display")
+        repo.cacheDriverProfile(pubkey: "old", profile: UserProfileContent(about: "Old bio"))
+        repo.updateDriverLocation(pubkey: "old", latitude: 40.0, longitude: -74.0, status: "online", timestamp: 100, keyVersion: 1)
+        repo.markKeyStale(pubkey: "old")
         let newDrivers = [
-            FollowedDriver(pubkey: "new1"),
+            FollowedDriver(pubkey: "old"),
             FollowedDriver(pubkey: "new2"),
         ]
         repo.replaceAll(drivers: newDrivers)
         #expect(repo.drivers.count == 2)
-        #expect(!repo.isFollowing(pubkey: "old"))
-        #expect(repo.isFollowing(pubkey: "new1"))
+        #expect(repo.isFollowing(pubkey: "old"))
+        #expect(repo.isFollowing(pubkey: "new2"))
+        #expect(repo.getDriver(pubkey: "old")?.name == "Old")
+        #expect(repo.getDriver(pubkey: "old")?.note == nil)
+        #expect(repo.getDriver(pubkey: "old")?.roadflareKey?.version == 1)
+        #expect(repo.cachedDriverName(pubkey: "old") == "Old Display")
+        #expect(repo.cachedDriverProfile(pubkey: "old")?.about == "Old bio")
+        #expect(repo.driverLocations["old"] != nil)
+        #expect(repo.staleKeyPubkeys.contains("old"))
+    }
+
+    @Test func replaceAllTreatsRemoteNoteAsAuthoritative() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1", addedAt: 100, note: "Old note"))
+
+        repo.replaceAll(drivers: [FollowedDriver(pubkey: "d1", addedAt: 200, note: "")])
+
+        #expect(repo.getDriver(pubkey: "d1")?.addedAt == 200)
+        #expect(repo.getDriver(pubkey: "d1")?.note == nil)
     }
 
     @Test func restoreFromNostr() {

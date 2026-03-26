@@ -23,8 +23,8 @@ public enum RideshareEventBuilder {
 
     /// Validate a Nostr event ID (64 hex characters).
     private static func validateEventId(_ eventId: String, label: String = "Event ID") throws {
-        guard !eventId.isEmpty else {
-            throw RidestrError.ride(.invalidEvent("\(label) must not be empty"))
+        guard eventId.count == 64, eventId.allSatisfy(\.isHexDigit) else {
+            throw RidestrError.ride(.invalidEvent("\(label) must be 64 hex characters, got \(eventId.count) chars"))
         }
     }
 
@@ -89,12 +89,18 @@ public enum RideshareEventBuilder {
     public static func rideConfirmation(
         driverPubkey: String,
         acceptanceEventId: String,
-        precisePickup: Location?,
+        precisePickup: Location,
+        paymentHash: String? = nil,
+        escrowToken: String? = nil,
         keypair: NostrKeypair
     ) async throws -> NostrEvent {
         try validatePubkey(driverPubkey, label: "Driver pubkey")
         try validateEventId(acceptanceEventId, label: "Acceptance event ID")
-        let content = RideConfirmationContent(precisePickup: precisePickup)
+        let content = RideConfirmationContent(
+            precisePickup: precisePickup,
+            paymentHash: paymentHash,
+            escrowToken: escrowToken
+        )
         let json = try JSONEncoder().encode(content)
         guard let plaintext = String(data: json, encoding: .utf8) else {
             throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed"))))
@@ -129,14 +135,19 @@ public enum RideshareEventBuilder {
     ///   - phase: The rider's current phase string (e.g., "awaiting_driver", "verified").
     ///   - history: The rider's action history array.
     ///   - keypair: The rider's signing keypair.
-    /// - Returns: A signed, encrypted Nostr event (Kind 30181).
-    /// - Throws: `RidestrError.crypto` if encryption fails, `.ride` if inputs invalid.
+    /// The event envelope is plaintext JSON, matching the shared Android/common protocol.
+    /// Sensitive inner fields such as `location_encrypted` are individually NIP-44 encrypted
+    /// before being added to the history.
+    ///
+    /// - Returns: A signed Nostr event (Kind 30181).
+    /// - Throws: `.ride` if inputs invalid.
     public static func riderRideState(
         driverPubkey: String,
         confirmationEventId: String,
         phase: String,
         history: [RiderRideAction],
-        keypair: NostrKeypair
+        keypair: NostrKeypair,
+        lastTransitionId: String? = nil
     ) async throws -> NostrEvent {
         try validatePubkey(driverPubkey, label: "Driver pubkey")
         try validateEventId(confirmationEventId, label: "Confirmation event ID")
@@ -146,22 +157,20 @@ public enum RideshareEventBuilder {
             throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(content, .init(codingPath: [], debugDescription: "UTF8 encoding failed"))))
         }
 
-        let encrypted = try NIP44.encrypt(
-            plaintext: plaintext,
-            senderKeypair: keypair,
-            recipientPublicKeyHex: driverPubkey
-        )
-
         let expiry = Int(Date.now.timeIntervalSince1970) + Int(EventExpiration.rideStateHours * 3600)
-        let tags: [[String]] = [
+        var tags: [[String]] = [
             [NostrTags.dTag, confirmationEventId],
+            [NostrTags.eventRef, confirmationEventId],
             [NostrTags.pubkeyRef, driverPubkey],
             [NostrTags.hashtag, NostrTags.rideshareTag],
             [NostrTags.expiration, String(expiry)],
         ]
+        if let lastTransitionId {
+            tags.append(["transition", lastTransitionId])
+        }
 
         return try await EventSigner.sign(
-            kind: .riderRideState, content: encrypted, tags: tags, keypair: keypair
+            kind: .riderRideState, content: plaintext, tags: tags, keypair: keypair
         )
     }
 
@@ -217,7 +226,9 @@ public enum RideshareEventBuilder {
     ///   - confirmationEventId: The confirmation event ID for the ride being cancelled.
     ///   - reason: Optional human-readable cancellation reason.
     ///   - keypair: The cancelling party's signing keypair.
-    /// - Returns: A signed, encrypted Nostr event (Kind 3179).
+    /// The event envelope is plaintext JSON, matching the shared Android/common protocol.
+    ///
+    /// - Returns: A signed Nostr event (Kind 3179).
     public static func cancellation(
         counterpartyPubkey: String,
         confirmationEventId: String,
@@ -234,12 +245,6 @@ public enum RideshareEventBuilder {
             )))
         }
 
-        let encrypted = try NIP44.encrypt(
-            plaintext: plaintext,
-            senderKeypair: keypair,
-            recipientPublicKeyHex: counterpartyPubkey
-        )
-
         let expiry = Int(Date.now.timeIntervalSince1970) + Int(EventExpiration.cancellationHours * 3600)
         let tags: [[String]] = [
             [NostrTags.pubkeyRef, counterpartyPubkey],
@@ -249,7 +254,7 @@ public enum RideshareEventBuilder {
         ]
 
         return try await EventSigner.sign(
-            kind: .cancellation, content: encrypted, tags: tags, keypair: keypair
+            kind: .cancellation, content: plaintext, tags: tags, keypair: keypair
         )
     }
 

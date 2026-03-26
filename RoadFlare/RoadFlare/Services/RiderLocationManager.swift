@@ -7,6 +7,7 @@ import CoreLocation
 final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var completion: ((CLLocation) -> Void)?
+    private var failure: (() -> Void)?
     var permissionDenied = false
 
     override init() {
@@ -17,8 +18,12 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
 
     /// Request a single location fix. Calls completion with the location.
     /// Requests permission if not yet granted. Sets permissionDenied if user denied.
-    func requestLocation(completion: @escaping (CLLocation) -> Void) {
+    func requestLocation(
+        completion: @escaping (CLLocation) -> Void,
+        onFailure: @escaping () -> Void = {}
+    ) {
         self.completion = completion
+        self.failure = onFailure
         permissionDenied = false
 
         switch manager.authorizationStatus {
@@ -29,8 +34,12 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
         case .denied, .restricted:
             permissionDenied = true
             self.completion = nil
+            self.failure?()
+            self.failure = nil
         @unknown default:
             self.completion = nil
+            self.failure?()
+            self.failure = nil
         }
     }
 
@@ -41,12 +50,15 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
         Task { @MainActor in
             completion?(location)
             completion = nil
+            failure = nil
         }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
             completion = nil
+            failure?()
+            failure = nil
         }
     }
 
@@ -60,6 +72,8 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
             case .denied, .restricted:
                 permissionDenied = true
                 completion = nil
+                failure?()
+                failure = nil
             default:
                 break
             }

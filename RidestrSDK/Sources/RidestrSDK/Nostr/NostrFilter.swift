@@ -112,19 +112,48 @@ extension NostrFilter {
     }
 
     /// Filter for user profile metadata (Kind 0).
-    /// Limits to one event per pubkey (latest by timestamp wins).
+    /// For a single pubkey, limits to the latest event.
+    /// For multiple pubkeys, leaves the limit unset so relays do not drop authors.
     public static func metadata(pubkeys: [String]) -> NostrFilter {
-        NostrFilter()
+        let filter = NostrFilter()
             .kinds([.metadata])
             .authors(pubkeys)
-            .limit(UInt32(max(pubkeys.count, 1)))
+        if pubkeys.count == 1 {
+            return filter.limit(1)
+        }
+        return filter
     }
 
     /// Filter for ride acceptances targeting a specific offer.
-    public static func rideAcceptances(offerEventId: String) -> NostrFilter {
-        NostrFilter()
+    public static func rideAcceptances(
+        offerEventId: String,
+        riderPubkey: String? = nil,
+        driverPubkey: String? = nil
+    ) -> NostrFilter {
+        var filter = NostrFilter()
             .kinds([.rideAcceptance])
             .eTags([offerEventId])
+        if let riderPubkey {
+            filter = filter.pTags([riderPubkey])
+        }
+        if let driverPubkey {
+            filter = filter.authors([driverPubkey])
+        }
+        return filter
+    }
+
+    /// Filter for ride confirmations targeting a specific acceptance.
+    public static func rideConfirmations(
+        acceptanceEventId: String,
+        riderPubkey: String? = nil
+    ) -> NostrFilter {
+        var filter = NostrFilter()
+            .kinds([.rideConfirmation])
+            .eTags([acceptanceEventId])
+        if let riderPubkey {
+            filter = filter.authors([riderPubkey])
+        }
+        return filter
     }
 
     /// Filter for driver ride state updates for a specific ride.
@@ -152,11 +181,19 @@ extension NostrFilter {
     }
 
     /// Filter for chat messages for a specific ride.
-    public static func chatMessages(counterpartyPubkey: String, myPubkey: String) -> NostrFilter {
-        NostrFilter()
+    public static func chatMessages(
+        counterpartyPubkey: String,
+        myPubkey: String,
+        confirmationEventId: String? = nil
+    ) -> NostrFilter {
+        var filter = NostrFilter()
             .kinds([.chatMessage])
             .authors([counterpartyPubkey])
             .pTags([myPubkey])
+        if let confirmationEventId {
+            filter = filter.eTags([confirmationEventId])
+        }
+        return filter
     }
 
     /// Filter for RoadFlare location broadcasts from specific drivers.

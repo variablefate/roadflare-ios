@@ -2,6 +2,8 @@ import Foundation
 import Testing
 @testable import RidestrSDK
 
+private let crossPlatformConfirmationEventId = String(repeating: "b", count: 64)
+
 /// Tests that verify our SDK produces output compatible with the Android implementation.
 /// These catch the integration boundary failures that unit tests miss.
 @Suite("Cross-Platform Compatibility Tests")
@@ -265,17 +267,12 @@ struct CrossPlatformTests {
         let acceptanceJSON = """
         {"status":"accepted","wallet_pubkey":null,"payment_method":"zelle","mint_url":null}
         """
-        let encryptedAcceptance = try NIP44.encrypt(
-            plaintext: acceptanceJSON,
-            senderPrivateKeyHex: driver.privateKeyHex,
-            recipientPublicKeyHex: rider.publicKeyHex
-        )
         let acceptanceEvent = NostrEvent(
             id: "acc1", pubkey: driver.publicKeyHex,
             createdAt: Int(Date.now.timeIntervalSince1970),
             kind: EventKind.rideAcceptance.rawValue,
             tags: [["e", offerEvent.id], ["p", rider.publicKeyHex]],
-            content: encryptedAcceptance, sig: "fake_sig"
+            content: acceptanceJSON, sig: "fake_sig"
         )
 
         // 5. Rider parses the acceptance
@@ -290,12 +287,65 @@ struct CrossPlatformTests {
         try sm.startRide(
             offerEventId: offerEvent.id,
             driverPubkey: driver.publicKeyHex,
-            paymentMethod: .zelle,
-            fiatPaymentMethods: [.zelle, .venmo]
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle", "venmo"]
         )
         let pin = try sm.handleAcceptance(acceptanceEventId: acceptanceEvent.id)
         #expect(pin.count == 4)
         #expect(sm.stage == .driverAccepted)
+    }
+
+    @Test func riderRideStateUsesAndroidCompatiblePlaintextEnvelope() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let history = [
+            RiderRideAction(
+                type: "pin_verify",
+                at: 1700000000,
+                locationType: nil,
+                locationEncrypted: nil,
+                status: "verified",
+                attempt: 1
+            )
+        ]
+
+        let event = try await RideshareEventBuilder.riderRideState(
+            driverPubkey: driver.publicKeyHex,
+            confirmationEventId: crossPlatformConfirmationEventId,
+            phase: "verified",
+            history: history,
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.riderRideState.rawValue)
+        #expect(event.dTag == crossPlatformConfirmationEventId)
+        #expect(event.referencedEventIds.contains(crossPlatformConfirmationEventId))
+        #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
+
+        let decoded = try JSONDecoder().decode(RiderRideStateContent.self, from: Data(event.content.utf8))
+        #expect(decoded.currentPhase == "verified")
+        #expect(decoded.history.count == 1)
+    }
+
+    @Test func cancellationUsesAndroidCompatiblePlaintextEnvelope() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let event = try await RideshareEventBuilder.cancellation(
+            counterpartyPubkey: driver.publicKeyHex,
+            confirmationEventId: crossPlatformConfirmationEventId,
+            reason: "Changed plans",
+            keypair: rider
+        )
+
+        #expect(event.kind == EventKind.cancellation.rawValue)
+        #expect(event.referencedEventIds.contains(crossPlatformConfirmationEventId))
+        #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
+
+        let decoded = try JSONDecoder().decode(CancellationContent.self, from: Data(event.content.utf8))
+        #expect(decoded.status == "cancelled")
+        #expect(decoded.reason == "Changed plans")
     }
 
     // MARK: - Location Model JSON Compatibility

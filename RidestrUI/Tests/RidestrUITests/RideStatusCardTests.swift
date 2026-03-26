@@ -14,7 +14,7 @@ struct RideStatusCardTests {
             stage: .driverArrived,
             pin: "1234",
             fareEstimate: fare,
-            paymentMethods: [.venmo, .zelle],
+            paymentMethods: ["venmo", "zelle"],
             onCancel: {},
             onChat: {},
             onCloseRide: {}
@@ -90,7 +90,7 @@ struct RideStatusCardTests {
         let fare = FareEstimate(distanceMiles: 10, durationMinutes: 25, fareUSD: Decimal(30), routeSummary: "I-95")
         let view = FareEstimateView(
             estimate: fare,
-            paymentMethods: [.cash, .cashApp, .paypal],
+            paymentMethods: ["cash", "cash_app", "paypal"],
             displayMode: .card
         )
         #expect(view.displayMode == .card)

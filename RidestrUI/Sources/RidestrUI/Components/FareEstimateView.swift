@@ -4,7 +4,7 @@ import RidestrSDK
 /// Displays a fare estimate with optional payment method badges.
 public struct FareEstimateView: View {
     public let estimate: FareEstimate
-    public var paymentMethods: [PaymentMethod]
+    public var paymentMethods: [String]
     public var displayMode: DisplayMode
 
     public enum DisplayMode: Sendable {
@@ -14,7 +14,7 @@ public struct FareEstimateView: View {
 
     public init(
         estimate: FareEstimate,
-        paymentMethods: [PaymentMethod] = [],
+        paymentMethods: [String] = [],
         displayMode: DisplayMode = .card
     ) {
         self.estimate = estimate
@@ -65,7 +65,7 @@ public struct FareEstimateView: View {
 
                 HStack(spacing: 8) {
                     ForEach(paymentMethods, id: \.self) { method in
-                        Text(method.displayName)
+                        Text(PaymentMethod.displayName(for: method))
                             .font(theme.caption(12))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)

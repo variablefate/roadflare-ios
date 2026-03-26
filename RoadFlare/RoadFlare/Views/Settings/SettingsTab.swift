@@ -106,7 +106,7 @@ struct SettingsTab: View {
                                         .font(RFFont.body(15))
                                         .foregroundColor(Color.rfOnSurface)
                                     Spacer()
-                                    Text("\(appState.settings.paymentMethods.count + appState.settings.customPaymentMethods.count)")
+                                    Text("\(appState.settings.roadflarePaymentMethods.count)")
                                         .font(RFFont.caption(12))
                                         .foregroundColor(Color.rfOnSurfaceVariant)
                                     Image(systemName: "chevron.right")

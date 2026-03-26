@@ -34,6 +34,7 @@ public enum RideConstants {
     public static let maxPinAttempts = 3
     public static let progressiveRevealThresholdKm = 1.6  // ~1 mile
     public static let locationApproxDecimals = 2  // ~1km precision
+    public static let confirmationTimeoutSeconds: TimeInterval = 30
     public static let batchSize = 3
     public static let batchDelaySeconds: TimeInterval = 15
     public static let acceptanceTimeoutSeconds: TimeInterval = 15

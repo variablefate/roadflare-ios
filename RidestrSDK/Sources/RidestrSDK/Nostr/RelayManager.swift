@@ -22,11 +22,49 @@ public actor RelayManager: RelayManagerProtocol {
     // MARK: - Connection
 
     public func connect(to relays: [URL]) async throws {
+        connectedRelayURLs = Array(relays.prefix(RelayConstants.maxRelays))
+        try await replaceClient(with: connectedRelayURLs)
+    }
+
+    public func disconnect() async {
+        await teardownConnection(clearRelayURLs: true)
+    }
+
+    public var isConnected: Bool {
+        client != nil && !connectedRelayURLs.isEmpty && _handlerAlive
+    }
+
+    private func markHandlerDead() {
+        _handlerAlive = false
+    }
+
+    /// Reconnect to relays if disconnected. Call from app foreground handler.
+    /// Does NOT restart subscriptions — callers must re-subscribe after this returns.
+    public func reconnectIfNeeded() async {
+        guard !connectedRelayURLs.isEmpty else { return }
+        guard client == nil || !_handlerAlive else { return }
+
+        RidestrLogger.error("[RelayManager] Reconnecting relay client")
+        do {
+            try await replaceClient(with: connectedRelayURLs)
+        } catch {
+            RidestrLogger.error("[RelayManager] Reconnect failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func replaceClient(with relays: [URL]) async throws {
+        await teardownConnection(clearRelayURLs: false)
+        let newClient = try await makeConnectedClient(relays: relays)
+        client = newClient
+        startNotificationHandler(for: newClient)
+    }
+
+    private func makeConnectedClient(relays: [URL]) async throws -> Client {
         let keys = try keypair.toKeys()
         let signer = NostrSigner.keys(keys: keys)
         let newClient = Client(signer: signer)
 
-        for url in relays.prefix(RelayConstants.maxRelays) {
+        for url in relays {
             let relayUrl = try RelayUrl.parse(url: url.absoluteString)
             _ = try await newClient.addRelay(url: relayUrl)
         }
@@ -35,15 +73,14 @@ public actor RelayManager: RelayManagerProtocol {
 
         // Brief wait for relay handshake to complete
         try? await Task.sleep(for: .seconds(1))
+        return newClient
+    }
 
-        self.client = newClient
-        self.connectedRelayURLs = Array(relays.prefix(RelayConstants.maxRelays))
-
-        // Start the global notification handler
+    private func startNotificationHandler(for client: Client) {
         let router = NotificationRouter()
         self.notificationHandler = router
         self._handlerAlive = true
-        let clientRef = newClient
+        let clientRef = client
         notificationTask = Task.detached { [router] in
             do {
                 try await clientRef.handleNotifications(handler: router)
@@ -62,61 +99,21 @@ public actor RelayManager: RelayManagerProtocol {
         }
     }
 
-    public func disconnect() async {
+    private func teardownConnection(clearRelayURLs: Bool) async {
         _handlerAlive = false
         notificationHandler?.removeAll()
         activeStreams.removeAll()
         notificationTask?.cancel()
+        notificationTask = nil
 
         if let client {
             await client.disconnect()
         }
         client = nil
-        connectedRelayURLs = []
         notificationHandler = nil
-    }
-
-    public var isConnected: Bool {
-        client != nil && !connectedRelayURLs.isEmpty && _handlerAlive
-    }
-
-    private func markHandlerDead() {
-        _handlerAlive = false
-    }
-
-    /// Reconnect to relays if disconnected. Call from app foreground handler.
-    /// Does NOT restart subscriptions — callers must re-subscribe after this returns.
-    public func reconnectIfNeeded() async {
-        guard let client, !connectedRelayURLs.isEmpty else { return }
-
-        // Only reconnect if the notification handler has died
-        guard !_handlerAlive else { return }
-
-        RidestrLogger.error("[RelayManager] Reconnecting — notification handler died")
-        await client.connect()
-        try? await Task.sleep(for: .seconds(1))
-
-        // Restart notification handler
-        let router = NotificationRouter()
-        self.notificationHandler = router
-        self._handlerAlive = true
-        let clientRef = client
-        notificationTask = Task.detached { [router] in
-            do {
-                try await clientRef.handleNotifications(handler: router)
-            } catch {
-                RidestrLogger.error("[RelayManager] Notification handler stopped: \(error)")
-            }
-            router.removeAll()
+        if clearRelayURLs {
+            connectedRelayURLs = []
         }
-        // Monitor liveness
-        Task { [weak self] in
-            await self?.notificationTask?.value
-            await self?.markHandlerDead()
-        }
-
-        // Clear old stream mappings — callers must re-subscribe
-        activeStreams.removeAll()
     }
 
     // MARK: - Publishing
@@ -145,8 +142,9 @@ public actor RelayManager: RelayManagerProtocol {
 
         // Cancel any existing subscription with the same ID
         if let oldRelaySubId = activeStreams[id] {
-            router.removeSubscription(relaySubscriptionId: oldRelaySubId)
             activeStreams[id] = nil
+            router.removeSubscription(relaySubscriptionId: oldRelaySubId)
+            await client.unsubscribe(subscriptionId: oldRelaySubId)
         }
 
         let rustFilter = try filter.toRustNostrFilter()
@@ -164,17 +162,21 @@ public actor RelayManager: RelayManagerProtocol {
         // Track relay subscription ID for cleanup
         activeStreams[id] = relaySubId
 
-        continuation.onTermination = { [router] _ in
-            router.removeSubscription(relaySubscriptionId: relaySubId)
+        continuation.onTermination = { [weak self] _ in
+            Task {
+                await self?.handleStreamTermination(id: id, relaySubscriptionId: relaySubId)
+            }
         }
 
         return asyncStream
     }
 
     public func unsubscribe(_ id: SubscriptionID) async {
-        if let relaySubId = activeStreams[id] {
-            notificationHandler?.removeSubscription(relaySubscriptionId: relaySubId)
-            activeStreams[id] = nil
+        guard let relaySubId = activeStreams[id] else { return }
+        activeStreams[id] = nil
+        notificationHandler?.removeSubscription(relaySubscriptionId: relaySubId)
+        if let client {
+            await client.unsubscribe(subscriptionId: relaySubId)
         }
     }
 
@@ -198,8 +200,13 @@ public actor RelayManager: RelayManagerProtocol {
 
     // MARK: - Private
 
-    private func removeStream(id: SubscriptionID) {
+    private func handleStreamTermination(id: SubscriptionID, relaySubscriptionId: String) async {
+        guard activeStreams[id] == relaySubscriptionId else { return }
         activeStreams[id] = nil
+        notificationHandler?.removeSubscription(relaySubscriptionId: relaySubscriptionId)
+        if let client {
+            await client.unsubscribe(subscriptionId: relaySubscriptionId)
+        }
     }
 }
 
