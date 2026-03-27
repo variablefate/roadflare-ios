@@ -230,7 +230,14 @@ public final class RiderRideSession {
 
         let task = Task { [weak self] in
             guard let self else { return }
-            defer { self.activeSubscriptions.removeValue(forKey: sub) }
+            defer {
+                // Only remove if the entry still belongs to THIS task.
+                // Prevents a race where stopSubscription + startSubscription replaced
+                // the entry before this old task's defer ran.
+                if self.activeSubscriptions[sub]?.subscriptionId == subId {
+                    self.activeSubscriptions.removeValue(forKey: sub)
+                }
+            }
             do {
                 let stream = try await self.relayManager.subscribe(filter: filter, id: subId)
                 for await event in stream {
@@ -327,7 +334,7 @@ public final class RiderRideSession {
 
     /// Cancel the current ride. Best-effort publish of cancellation/deletion event.
     /// Pass `terminalOverride` to emit a different terminal outcome (e.g., `.bruteForcePin`).
-    func cancelRide(reason: String? = nil, terminalOverride: RideSessionTerminalOutcome? = nil) async {
+    public func cancelRide(reason: String? = nil, terminalOverride: RideSessionTerminalOutcome? = nil) async {
         let stageBefore = stateMachine.stage
         _ = try? await domainService.publishTermination(for: stateMachine, reason: reason)
         await teardownAll()
@@ -346,10 +353,8 @@ public final class RiderRideSession {
         await teardownAll()
         let stageBefore = stateMachine.stage
         stateMachine.reset()
+        clearSessionOwnedState()
         emitStageChangeIfNeeded(from: stageBefore)
-        precisePickup = nil
-        preciseDestination = nil
-        lastError = nil
     }
 
     /// Manually submit an encrypted PIN (for cases where PIN arrives outside driver state).

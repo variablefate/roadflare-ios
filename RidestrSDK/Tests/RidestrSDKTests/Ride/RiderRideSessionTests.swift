@@ -263,7 +263,7 @@ struct RiderRideSessionTests {
 
     // MARK: - Dismiss Completed Ride
 
-    @Test func dismissCompletedRideResetsToIdle() async throws {
+    @Test func dismissCompletedRideClearsAllState() async throws {
         let (session, _) = try makeSession()
         let driverPubkey = String(repeating: "d", count: 64)
         session.restore(
@@ -278,8 +278,13 @@ struct RiderRideSessionTests {
             fiatPaymentMethods: ["cash"],
             precisePickupShared: true,
             preciseDestinationShared: true,
+            lastDriverStatus: "completed",
+            lastDriverStateTimestamp: 999,
+            lastDriverActionCount: 5,
+            processedPinActionKeys: ["key1"],
             precisePickup: Location(latitude: 1, longitude: 2),
-            preciseDestination: Location(latitude: 3, longitude: 4)
+            preciseDestination: Location(latitude: 3, longitude: 4),
+            savedAt: 500
         )
         #expect(session.stage == .completed)
 
@@ -287,6 +292,12 @@ struct RiderRideSessionTests {
         #expect(session.stage == .idle)
         #expect(session.precisePickup == nil)
         #expect(session.preciseDestination == nil)
+        #expect(session.processedPinActionKeys.isEmpty)
+        #expect(session.lastDriverStatus == nil)
+        #expect(session.lastDriverStateTimestamp == 0)
+        #expect(session.lastDriverActionCount == 0)
+        #expect(session.lastError == nil)
+        #expect(session.restoredSavedAt == 0)
     }
 
     @Test func dismissCompletedRideIgnoredIfNotCompleted() async throws {
