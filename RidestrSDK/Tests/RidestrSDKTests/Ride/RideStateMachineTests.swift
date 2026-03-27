@@ -388,4 +388,69 @@ struct RideStateMachineTests {
         #expect(sm.driverPubkey == nil)
         #expect(sm.acceptanceEventId == nil)
     }
+
+    @Test func restoreRejectsWaitingForAcceptanceWithoutOfferEventId() {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .waitingForAcceptance,
+            offerEventId: nil,
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: String(repeating: "a", count: 64),
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: nil,
+            fiatPaymentMethods: []
+        )
+        #expect(sm.stage == .idle)
+    }
+
+    @Test func restoreRejectsDriverAcceptedWithoutAcceptanceEventId() {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .driverAccepted,
+            offerEventId: "o1",
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: String(repeating: "a", count: 64),
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: nil,
+            fiatPaymentMethods: []
+        )
+        #expect(sm.stage == .idle)
+    }
+
+    @Test func restoreRejectsConfirmedRideWithoutConfirmationEventId() {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .rideConfirmed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: nil,
+            driverPubkey: String(repeating: "a", count: 64),
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: nil,
+            fiatPaymentMethods: []
+        )
+        #expect(sm.stage == .idle)
+    }
+
+    @Test func restoreAcceptsValidConfirmedRide() {
+        let sm = RideStateMachine()
+        sm.restore(
+            stage: .rideConfirmed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: String(repeating: "a", count: 64),
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: "venmo",
+            fiatPaymentMethods: ["venmo"]
+        )
+        #expect(sm.stage == .rideConfirmed)
+        #expect(sm.confirmationEventId == "c1")
+    }
 }

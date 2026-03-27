@@ -314,15 +314,21 @@ public final class RideStateMachine: @unchecked Sendable {
         lastDriverActionCount: Int = 0,
         riderStateHistory: [RiderRideAction] = []
     ) {
-        let requiresDriverPubkey: Bool = {
+        // Validate that the stage has all IDs it needs to function.
+        // Without these, the session would look active but have no way to proceed.
+        let valid: Bool = {
             switch stage {
             case .idle, .completed:
-                false
-            default:
-                true
+                return true
+            case .waitingForAcceptance:
+                return driverPubkey?.isEmpty == false && offerEventId?.isEmpty == false
+            case .driverAccepted:
+                return driverPubkey?.isEmpty == false && acceptanceEventId?.isEmpty == false
+            case .rideConfirmed, .enRoute, .driverArrived, .inProgress:
+                return driverPubkey?.isEmpty == false && confirmationEventId?.isEmpty == false
             }
         }()
-        guard !requiresDriverPubkey || (driverPubkey?.isEmpty == false) else {
+        guard valid else {
             reset()
             return
         }
