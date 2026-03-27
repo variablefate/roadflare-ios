@@ -90,6 +90,7 @@ public final class RiderRideSession {
 
     let stateMachine: RideStateMachine
     let domainService: RiderRideDomainService
+    let relayManager: any RelayManagerProtocol
     let configuration: Configuration
     var pinDeduplicator: PinActionDeduplicator
 
@@ -102,6 +103,7 @@ public final class RiderRideSession {
     ) {
         self.stateMachine = RideStateMachine(riderPubkey: keypair.publicKeyHex)
         self.domainService = RiderRideDomainService(relayManager: relayManager, keypair: keypair)
+        self.relayManager = relayManager
         self.configuration = configuration
         self.pinDeduplicator = PinActionDeduplicator(maxCombinedSize: configuration.maxPinActionSetSize)
     }
@@ -183,5 +185,427 @@ public final class RiderRideSession {
         preciseDestination = nil
         lastError = nil
         restoredSavedAt = 0
+    }
+
+    // MARK: - Subscription Management
+
+    private struct ManagedSubscription {
+        let subscriptionId: SubscriptionID
+        let task: Task<Void, Never>
+    }
+
+    private var activeSubscriptions: [RiderRideDomainService.LiveSubscription: ManagedSubscription] = [:]
+    private var confirmationPublishInFlight = false
+
+    /// Diff desired subscriptions against active ones. Stop extras, start missing.
+    private func reconcileSubscriptions() async {
+        let plan = domainService.runtimePlan(for: stateMachine)
+        let desired = Set(plan.subscriptions)
+        let active = Set(activeSubscriptions.keys)
+
+        // Stop subscriptions no longer needed
+        for sub in active.subtracting(desired) {
+            await stopSubscription(sub)
+        }
+        // Start subscriptions not yet active
+        for sub in desired.subtracting(active) {
+            startSubscription(sub)
+        }
+        // Execute pending action if present
+        if let action = plan.pendingAction {
+            await executePendingAction(action)
+        }
+    }
+
+    private func startSubscription(_ sub: RiderRideDomainService.LiveSubscription) {
+        let filter = domainService.filter(for: sub)
+        let subId = subscriptionId(for: sub)
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let stream = try await self.relayManager.subscribe(filter: filter, id: subId)
+                for await event in stream {
+                    guard !Task.isCancelled else { break }
+                    await self.routeEvent(event, for: sub)
+                }
+            } catch {
+                self.delegate?.sessionDidEncounterError(error)
+            }
+        }
+        activeSubscriptions[sub] = ManagedSubscription(subscriptionId: subId, task: task)
+    }
+
+    private func stopSubscription(_ sub: RiderRideDomainService.LiveSubscription) async {
+        guard let managed = activeSubscriptions.removeValue(forKey: sub) else { return }
+        managed.task.cancel()
+        await relayManager.unsubscribe(managed.subscriptionId)
+    }
+
+    /// Tear down all active subscriptions.
+    public func teardownAll() async {
+        for sub in Array(activeSubscriptions.keys) {
+            await stopSubscription(sub)
+        }
+    }
+
+    private func subscriptionId(for sub: RiderRideDomainService.LiveSubscription) -> SubscriptionID {
+        switch sub {
+        case .acceptance(let offerEventId, _):
+            return SubscriptionID("acceptance-\(offerEventId)")
+        case .driverState(let confirmationEventId, _):
+            return SubscriptionID("driver-state-\(confirmationEventId)")
+        case .cancellation(let confirmationEventId, _):
+            return SubscriptionID("cancel-\(confirmationEventId)")
+        }
+    }
+
+    private func routeEvent(_ event: NostrEvent, for sub: RiderRideDomainService.LiveSubscription) async {
+        switch sub {
+        case .acceptance:
+            await handleAcceptanceEvent(event)
+        case .driverState(let confirmationEventId, _):
+            await handleDriverStateEvent(event, confirmationEventId: confirmationEventId)
+        case .cancellation(let confirmationEventId, _):
+            await handleCancellationEvent(event, confirmationEventId: confirmationEventId)
+        }
+    }
+
+    private func executePendingAction(_ action: RiderRideDomainService.PendingAction) async {
+        switch action {
+        case .recoverOrPublishConfirmation(let acceptanceEventId, let driverPubkey):
+            if let _ = try? await domainService.recoverExistingConfirmation(
+                driverPubkey: driverPubkey,
+                acceptanceEventId: acceptanceEventId,
+                stateMachine: stateMachine
+            ) {
+                // Recovery succeeded — state machine advanced, reconcile for new subs
+                await reconcileSubscriptions()
+                delegate?.sessionShouldPersist()
+            } else {
+                await ensureConfirmationPublished(driverPubkey: driverPubkey, acceptanceEventId: acceptanceEventId)
+            }
+        }
+    }
+
+    // MARK: - Public Ride Actions
+
+    /// Start a new ride by publishing an offer to the specified driver.
+    public func sendOffer(
+        driverPubkey: PublicKeyHex,
+        content: RideOfferContent,
+        precisePickup: Location,
+        preciseDestination: Location
+    ) async {
+        self.precisePickup = precisePickup
+        self.preciseDestination = preciseDestination
+
+        let stageBefore = stateMachine.stage
+        do {
+            try await domainService.publishRideOffer(
+                driverPubkey: driverPubkey,
+                content: content,
+                stateMachine: stateMachine
+            )
+            emitStageChangeIfNeeded(from: stageBefore)
+            await reconcileSubscriptions()
+            delegate?.sessionShouldPersist()
+        } catch {
+            lastError = error
+            delegate?.sessionDidEncounterError(error)
+        }
+    }
+
+    /// Cancel the current ride. Best-effort publish of cancellation/deletion event.
+    public func cancelRide(reason: String? = nil) async {
+        let stageBefore = stateMachine.stage
+        _ = try? await domainService.publishTermination(for: stateMachine, reason: reason)
+        await teardownAll()
+        pinDeduplicator.reset()
+        stateMachine.reset()
+        emitStageChangeIfNeeded(from: stageBefore)
+        delegate?.sessionDidReachTerminal(.cancelledByRider(reason: reason))
+        delegate?.sessionShouldPersist()
+    }
+
+    /// Dismiss a completed ride. Resets session to idle.
+    /// Fires `sessionDidChangeStage(from: .completed, to: .idle)`.
+    /// Does NOT fire `sessionDidReachTerminal` — terminal callbacks are for ride outcomes.
+    public func dismissCompletedRide() async {
+        guard stateMachine.stage == .completed else { return }
+        await teardownAll()
+        let stageBefore = stateMachine.stage
+        stateMachine.reset()
+        emitStageChangeIfNeeded(from: stageBefore)
+        precisePickup = nil
+        preciseDestination = nil
+        lastError = nil
+    }
+
+    /// Manually submit an encrypted PIN (for cases where PIN arrives outside driver state).
+    public func respondToPin(pinEncrypted: String) async {
+        guard let driverPubkey = stateMachine.driverPubkey,
+              let confirmationEventId = stateMachine.confirmationEventId else { return }
+        let syntheticAction = DriverRideAction(
+            type: "pin_submit",
+            at: Int(Date.now.timeIntervalSince1970),
+            status: nil,
+            approxLocation: nil,
+            finalFare: nil,
+            invoice: nil,
+            pinEncrypted: pinEncrypted
+        )
+        await processPinAction(syntheticAction, driverPubkey: driverPubkey, confirmationEventId: confirmationEventId)
+    }
+
+    /// Restore relay subscriptions for the current stage after app relaunch or reconnect.
+    /// May fire `sessionDidChangeStage` if it advances state (e.g., confirmation recovery).
+    /// Does NOT synthesize fake transitions.
+    public func restoreSubscriptions() async {
+        await teardownAll()
+        await reconcileSubscriptions()
+    }
+
+    // MARK: - Private Event Handlers
+
+    private func handleAcceptanceEvent(_ event: NostrEvent) async {
+        guard let offerEventId = stateMachine.offerEventId else { return }
+        let stageBefore = stateMachine.stage
+        do {
+            let resolution = try domainService.receiveAcceptanceEvent(
+                event,
+                expectedOfferEventId: offerEventId,
+                expectedDriverPubkey: stateMachine.driverPubkey,
+                stateMachine: stateMachine
+            )
+            emitStageChangeIfNeeded(from: stageBefore)
+            if resolution.shouldPublishConfirmation,
+               let driverPubkey = stateMachine.driverPubkey,
+               let acceptanceEventId = stateMachine.acceptanceEventId {
+                await ensureConfirmationPublished(driverPubkey: driverPubkey, acceptanceEventId: acceptanceEventId)
+            }
+            delegate?.sessionShouldPersist()
+        } catch {
+            // Invalid acceptance event — skip silently (same as current coordinator behavior)
+        }
+    }
+
+    private func handleDriverStateEvent(_ event: NostrEvent, confirmationEventId: ConfirmationEventID) async {
+        let stageBefore = stateMachine.stage
+        do {
+            let resolution = try domainService.receiveDriverStateEvent(
+                event,
+                confirmationEventId: confirmationEventId,
+                expectedDriverPubkey: stateMachine.driverPubkey,
+                stateMachine: stateMachine
+            )
+            guard case .processed(let update) = resolution else { return }
+            let stageAfter = stateMachine.stage
+
+            // Terminal: cancelled
+            if update.terminalOutcome == .cancelled {
+                await teardownAll()
+                pinDeduplicator.reset()
+                emitStageChangeIfNeeded(from: stageBefore)
+                delegate?.sessionDidReachTerminal(.cancelledByDriver(reason: nil))
+                delegate?.sessionShouldPersist()
+                return
+            }
+
+            // Terminal: completed — tear down subs, keep .completed stage
+            if update.terminalOutcome == .completed && stageBefore != .completed {
+                await reconcileSubscriptions() // empty plan for .completed → tears down subs
+                emitStageChangeIfNeeded(from: stageBefore)
+                delegate?.sessionDidReachTerminal(.completed)
+                delegate?.sessionShouldPersist()
+                return
+            }
+
+            // Duplicate .completed event (already completed) — ignore
+            if update.terminalOutcome == .completed && stageBefore == .completed {
+                return
+            }
+
+            // Non-terminal: process PIN actions, advance cursor
+            var allPinsProcessed = true
+            for action in update.pinActions {
+                guard let pinEncrypted = action.pinEncrypted,
+                      let driverPubkey = stateMachine.driverPubkey else { continue }
+                await processPinAction(action, driverPubkey: driverPubkey, confirmationEventId: confirmationEventId)
+                if !pinDeduplicator.hasProcessed(action) {
+                    allPinsProcessed = false
+                }
+            }
+
+            // Advance safe cursor only when all PIN actions are processed
+            if allPinsProcessed {
+                lastDriverStatus = update.status
+                lastDriverStateTimestamp = event.createdAt
+                lastDriverActionCount = update.content.history.count
+            }
+
+            // Emit stage change for non-terminal transitions (enRoute, driverArrived, inProgress)
+            if stageBefore != stageAfter {
+                emitStageChangeIfNeeded(from: stageBefore)
+            }
+
+            delegate?.sessionShouldPersist()
+        } catch {
+            // Invalid driver state event — skip
+        }
+    }
+
+    private func handleCancellationEvent(_ event: NostrEvent, confirmationEventId: ConfirmationEventID) async {
+        let stageBefore = stateMachine.stage
+        do {
+            let resolution = try domainService.receiveCancellationEvent(
+                event,
+                confirmationEventId: confirmationEventId,
+                expectedDriverPubkey: stateMachine.driverPubkey,
+                stateMachine: stateMachine
+            )
+            guard case .processed = resolution else { return }
+
+            // State machine already transitioned to .idle via receiveCancellationEvent
+            await teardownAll()
+            pinDeduplicator.reset()
+            emitStageChangeIfNeeded(from: stageBefore)
+            delegate?.sessionDidReachTerminal(.cancelledByDriver(reason: nil))
+            delegate?.sessionShouldPersist()
+        } catch {
+            // Invalid cancellation event — skip
+        }
+    }
+
+    // MARK: - Confirmation Flow
+
+    private func ensureConfirmationPublished(driverPubkey: PublicKeyHex, acceptanceEventId: EventID) async {
+        guard !confirmationPublishInFlight else { return }
+        confirmationPublishInFlight = true
+        defer { confirmationPublishInFlight = false }
+
+        guard let pickup = precisePickup else {
+            lastError = RidestrError.ride(.invalidEvent("Missing precisePickup for confirmation"))
+            delegate?.sessionDidEncounterError(lastError!)
+            return
+        }
+
+        let stageBefore = stateMachine.stage
+        do {
+            try await domainService.publishConfirmation(
+                driverPubkey: driverPubkey,
+                acceptanceEventId: acceptanceEventId,
+                precisePickup: pickup,
+                stateMachine: stateMachine
+            )
+            emitStageChangeIfNeeded(from: stageBefore)
+            await reconcileSubscriptions()
+            delegate?.sessionShouldPersist()
+        } catch {
+            await retryConfirmation(driverPubkey: driverPubkey, acceptanceEventId: acceptanceEventId)
+        }
+    }
+
+    private func retryConfirmation(driverPubkey: PublicKeyHex, acceptanceEventId: EventID) async {
+        guard let pickup = precisePickup else { return }
+
+        for (index, delay) in configuration.confirmationRetryDelays.enumerated() {
+            // Pre-sleep guard
+            guard stateMachine.stage == .driverAccepted,
+                  stateMachine.confirmationEventId == nil,
+                  stateMachine.acceptanceEventId == acceptanceEventId,
+                  stateMachine.driverPubkey == driverPubkey else { return }
+
+            if index > 0 {
+                try? await Task.sleep(for: delay)
+            }
+
+            // Post-sleep guard (state may have changed during sleep)
+            guard stateMachine.stage == .driverAccepted,
+                  stateMachine.confirmationEventId == nil,
+                  stateMachine.acceptanceEventId == acceptanceEventId,
+                  stateMachine.driverPubkey == driverPubkey else { return }
+
+            let stageBefore = stateMachine.stage
+            do {
+                try await domainService.publishConfirmation(
+                    driverPubkey: driverPubkey,
+                    acceptanceEventId: acceptanceEventId,
+                    precisePickup: pickup,
+                    stateMachine: stateMachine
+                )
+                emitStageChangeIfNeeded(from: stageBefore)
+                await reconcileSubscriptions()
+                delegate?.sessionShouldPersist()
+                return // Success
+            } catch {
+                // Continue to next retry
+            }
+        }
+
+        // All retries failed
+        lastError = RidestrError.ride(.invalidEvent("Confirmation publish failed after all retries"))
+        delegate?.sessionDidEncounterError(lastError!)
+    }
+
+    // MARK: - PIN Processing
+
+    private func canProcessPinSubmission(driverPubkey: PublicKeyHex, confirmationEventId: ConfirmationEventID) -> Bool {
+        stateMachine.driverPubkey == driverPubkey &&
+            stateMachine.confirmationEventId == confirmationEventId &&
+            stateMachine.stage == .driverArrived &&
+            !stateMachine.pinVerified &&
+            !stateMachine.preciseDestinationShared
+    }
+
+    private func processPinAction(
+        _ action: DriverRideAction,
+        driverPubkey: PublicKeyHex,
+        confirmationEventId: ConfirmationEventID
+    ) async {
+        guard canProcessPinSubmission(driverPubkey: driverPubkey, confirmationEventId: confirmationEventId) else { return }
+        guard pinDeduplicator.beginProcessing(action) else { return }
+
+        var processedSuccessfully = false
+        defer { pinDeduplicator.finishProcessing(action, processed: processedSuccessfully) }
+
+        let stageBefore = stateMachine.stage
+        do {
+            let plan = try domainService.preparePinVerificationResponse(
+                pinEncrypted: action.pinEncrypted ?? "",
+                driverPubkey: driverPubkey,
+                confirmationEventId: confirmationEventId,
+                destination: preciseDestination,
+                stateMachine: stateMachine
+            )
+
+            try await domainService.publishPinVerificationResponse(
+                plan,
+                stateMachine: stateMachine
+            )
+            emitStageChangeIfNeeded(from: stageBefore)
+            processedSuccessfully = true
+
+            if plan.shouldCancelForBruteForce {
+                await cancelRide(reason: "PIN verification failed")
+                delegate?.sessionDidReachTerminal(.bruteForcePin)
+            }
+
+            delegate?.sessionShouldPersist()
+        } catch {
+            lastError = error
+            delegate?.sessionDidEncounterError(error)
+        }
+    }
+
+    // MARK: - Stage Change Detection
+
+    /// Compares captured stageBefore with current stage. If different, fires delegate callback
+    /// and cancels any stage timeout. Used by most methods. Terminal paths (completed, cancelled)
+    /// use manual ordering for deterministic teardown-before-callback.
+    private func emitStageChangeIfNeeded(from stageBefore: RiderStage) {
+        let stageAfter = stateMachine.stage
+        guard stageBefore != stageAfter else { return }
+        delegate?.sessionDidChangeStage(from: stageBefore, to: stageAfter)
     }
 }

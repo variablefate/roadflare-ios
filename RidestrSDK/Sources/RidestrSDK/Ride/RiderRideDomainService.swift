@@ -428,7 +428,7 @@ public final class RiderRideDomainService: @unchecked Sendable {
 
         if let stateMachine {
             if stateMachine.confirmationEventId == envelope.eventId,
-               stateMachine.stage.isActiveRide || stateMachine.stage == .rideConfirmed {
+               stateMachine.stage.isActiveRide {
                 stateMachine.markPrecisePickupShared()
                 return ConfirmationResolution(event: event, envelope: envelope, runtimePlan: runtimePlan(for: stateMachine))
             }

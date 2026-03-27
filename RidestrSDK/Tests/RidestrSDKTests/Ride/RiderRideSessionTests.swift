@@ -202,4 +202,264 @@ struct RiderRideSessionTests {
         #expect(session.configuration.stageTimeouts.waitingForAcceptance == .milliseconds(50))
         #expect(session.configuration.maxPinActionSetSize == 3)
     }
+
+    // MARK: - Send Offer
+
+    @Test func sendOfferTransitionsToWaitingForAcceptance() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+
+        #expect(session.stage == .waitingForAcceptance)
+        #expect(session.precisePickup != nil)
+        #expect(session.preciseDestination != nil)
+        #expect(relay.publishedEvents.count == 1)
+        // Subscription task starts asynchronously — yield to let it run
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(relay.subscribeCalls.count == 1) // acceptance subscription
+    }
+
+    @Test func sendOfferSetsErrorOnPublishFailure() async throws {
+        let (session, relay) = try makeSession()
+        relay.shouldFailPublish = true
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+
+        #expect(session.stage == .idle) // Should not advance
+        #expect(session.lastError != nil)
+    }
+
+    // MARK: - Cancel Ride
+
+    @Test func cancelRideFromWaitingResetsToIdle() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+        #expect(session.stage == .waitingForAcceptance)
+
+        await session.cancelRide(reason: "changed my mind")
+        #expect(session.stage == .idle)
+        // Offer deletion event should be published
+        #expect(relay.publishedEvents.count >= 2) // offer + deletion
+    }
+
+    // MARK: - Dismiss Completed Ride
+
+    @Test func dismissCompletedRideResetsToIdle() async throws {
+        let (session, _) = try makeSession()
+        let driverPubkey = String(repeating: "d", count: 64)
+        session.restore(
+            stage: .completed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: driverPubkey,
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true,
+            preciseDestinationShared: true,
+            precisePickup: Location(latitude: 1, longitude: 2),
+            preciseDestination: Location(latitude: 3, longitude: 4)
+        )
+        #expect(session.stage == .completed)
+
+        await session.dismissCompletedRide()
+        #expect(session.stage == .idle)
+        #expect(session.precisePickup == nil)
+        #expect(session.preciseDestination == nil)
+    }
+
+    @Test func dismissCompletedRideIgnoredIfNotCompleted() async throws {
+        let (session, _) = try makeSession()
+        #expect(session.stage == .idle)
+        await session.dismissCompletedRide()
+        #expect(session.stage == .idle) // No crash, no-op
+    }
+
+    // MARK: - Restore Subscriptions
+
+    @Test func restoreSubscriptionsFromConfirmedRideStartsSubs() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        let driverPubkey = String(repeating: "d", count: 64)
+
+        session.restore(
+            stage: .rideConfirmed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: driverPubkey,
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true
+        )
+
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Should have 2 subs: driver-state + cancellation
+        #expect(relay.subscribeCalls.count == 2)
+    }
+
+    @Test func restoreSubscriptionsFromWaitingStartsAcceptanceSub() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        let driverPubkey = String(repeating: "d", count: 64)
+
+        session.restore(
+            stage: .waitingForAcceptance,
+            offerEventId: "o1",
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"]
+        )
+
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(relay.subscribeCalls.count == 1) // acceptance sub
+    }
+
+    // MARK: - Delegate Tracking
+
+    @Test func sendOfferFiresDelegateCallbacks() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+
+        #expect(tracker.stageChanges.count == 1)
+        #expect(tracker.stageChanges.first?.from == .idle)
+        #expect(tracker.stageChanges.first?.to == .waitingForAcceptance)
+        #expect(tracker.persistCount >= 1)
+    }
+
+    @Test func cancelRideFiresTerminalCallback() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+        tracker.reset()
+
+        await session.cancelRide(reason: "test")
+
+        #expect(tracker.stageChanges.count == 1)
+        #expect(tracker.stageChanges.first?.to == .idle)
+        #expect(tracker.terminalOutcomes.count == 1)
+        if case .cancelledByRider = tracker.terminalOutcomes.first {} else {
+            Issue.record("Expected cancelledByRider, got \(String(describing: tracker.terminalOutcomes.first))")
+        }
+        #expect(tracker.persistCount >= 1)
+    }
+
+    @Test func dismissCompletedFiresStageChangeNotTerminal() async throws {
+        let (session, _) = try makeSession()
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        session.restore(
+            stage: .completed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true,
+            preciseDestinationShared: true
+        )
+
+        await session.dismissCompletedRide()
+
+        #expect(tracker.stageChanges.count == 1)
+        #expect(tracker.stageChanges.first?.from == .completed)
+        #expect(tracker.stageChanges.first?.to == .idle)
+        #expect(tracker.terminalOutcomes.isEmpty) // No terminal callback for dismiss
+    }
+
+    // MARK: - Helpers
+
+    private func makeOfferContent() -> RideOfferContent {
+        RideOfferContent(
+            fareEstimate: 10_000,
+            destination: Location(latitude: 40.758, longitude: -73.985),
+            approxPickup: Location(latitude: 40.710, longitude: -74.010),
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"]
+        )
+    }
+}
+
+// MARK: - Delegate Tracker
+
+@MainActor
+private final class DelegateTracker: RiderRideSessionDelegate {
+    var stageChanges: [(from: RiderStage, to: RiderStage)] = []
+    var terminalOutcomes: [RideSessionTerminalOutcome] = []
+    var errors: [Error] = []
+    var persistCount = 0
+
+    func sessionDidReachTerminal(_ outcome: RideSessionTerminalOutcome) {
+        terminalOutcomes.append(outcome)
+    }
+
+    func sessionDidEncounterError(_ error: Error) {
+        errors.append(error)
+    }
+
+    func sessionDidChangeStage(from: RiderStage, to: RiderStage) {
+        stageChanges.append((from: from, to: to))
+    }
+
+    func sessionShouldPersist() {
+        persistCount += 1
+    }
+
+    func reset() {
+        stageChanges.removeAll()
+        terminalOutcomes.removeAll()
+        errors.removeAll()
+        persistCount = 0
+    }
 }

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23504" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="Y6W-Ov-qYZ">
+    <device id="retina6_12" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23506"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <!--View Controller-->
+        <scene sceneID="JfN-vK-j7p">
+            <objects>
+                <viewController id="Y6W-Ov-qYZ" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="5Xe-QK-vgH">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchMark" translatesAutoresizingMaskIntoConstraints="NO" id="Qe7-Rk-YjY">
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="184" id="Srf-Ux-s1J"/>
+                                    <constraint firstAttribute="height" constant="184" id="nYo-XV-Qmm"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="gNh-Ro-4aW"/>
+                        <color key="backgroundColor" red="0.05490196078" green="0.05490196078" blue="0.05490196078" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="Qe7-Rk-YjY" firstAttribute="centerX" secondItem="5Xe-QK-vgH" secondAttribute="centerX" id="BD7-S3-u0L"/>
+                            <constraint firstItem="Qe7-Rk-YjY" firstAttribute="centerY" secondItem="5Xe-QK-vgH" secondAttribute="centerY" id="mRr-S0-FnY"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="aL6-vk-ySW" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="LaunchMark" width="1024" height="1024"/>
+    </resources>
+</document>
