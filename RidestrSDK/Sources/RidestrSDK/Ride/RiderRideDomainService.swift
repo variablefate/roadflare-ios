@@ -7,7 +7,7 @@ import Foundation
 /// clients can eventually delegate ride protocol wiring into the SDK instead of
 /// rebuilding the session backend themselves.
 public final class RiderRideDomainService: @unchecked Sendable {
-    public enum LiveSubscription: Sendable, Equatable {
+    public enum LiveSubscription: Sendable, Hashable {
         case acceptance(offerEventId: EventID, driverPubkey: PublicKeyHex)
         case driverState(confirmationEventId: ConfirmationEventID, driverPubkey: PublicKeyHex)
         case cancellation(confirmationEventId: ConfirmationEventID, driverPubkey: PublicKeyHex)
