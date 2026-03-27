@@ -18,6 +18,9 @@ Package.resolved
 *.swp
 *~
 
+# Local product docs
+PRD.md
+
 # CocoaPods (not used, but just in case)
 Pods/
 

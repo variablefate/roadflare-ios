@@ -425,15 +425,20 @@ public final class RideStateMachine: @unchecked Sendable {
         processEvent(.verifyPin(verified: verified, attempt: context.pinAttempts + 1))
     }
 
-    /// Handle a cancellation event. Returns true if processed, false if deduplicated.
-    @available(*, deprecated, message: "Use processEvent(.cancel(...))")
-    public func handleCancellation(eventId: String, confirmationId: String) -> Bool {
+    /// Handle a validated cancellation event. Returns true if processed, false if deduplicated.
+    public func receiveCancellationEvent(eventId: String, confirmationId: String) -> Bool {
         guard !processedCancellationEventIds.contains(eventId) else { return false }
         guard confirmationId == confirmationEventId else { return false }
         processedCancellationEventIds.insert(eventId)
 
         processEvent(.cancel(eventId: eventId, confirmationId: confirmationId))
         return true
+    }
+
+    /// Handle a cancellation event. Returns true if processed, false if deduplicated.
+    @available(*, deprecated, message: "Use receiveCancellationEvent(eventId:confirmationId:)")
+    public func handleCancellation(eventId: String, confirmationId: String) -> Bool {
+        receiveCancellationEvent(eventId: eventId, confirmationId: confirmationId)
     }
 
     /// Transition to a new stage (used internally by deprecated wrappers).

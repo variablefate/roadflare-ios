@@ -46,6 +46,7 @@
 ///
 /// - **Nostr**: Relay management, event signing, NIP-44 encryption, event builders/parsers
 /// - **Ride**: State machine, transitions, guards, typed events, immutable context
+///   plus `RiderRideDomainService` for rider-session orchestration helpers
 /// - **Location**: Geohash, fare calculation, routing/geocoding protocols
 /// - **RoadFlare**: Followed drivers, key management, location broadcasts
 /// - **Storage**: Keychain persistence
