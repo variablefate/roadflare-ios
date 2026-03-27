@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import RidestrSDK
 
@@ -416,6 +417,106 @@ struct RiderRideSessionTests {
         #expect(tracker.stageChanges.first?.from == .completed)
         #expect(tracker.stageChanges.first?.to == .idle)
         #expect(tracker.terminalOutcomes.isEmpty) // No terminal callback for dismiss
+    }
+
+    // MARK: - Stage Timeouts
+
+    @Test func waitingForAcceptanceTimesOut() async throws {
+        let config = RiderRideSession.Configuration(
+            stageTimeouts: .init(waitingForAcceptance: .milliseconds(50), driverAccepted: .milliseconds(50)),
+            confirmationRetryDelays: [.zero],
+            maxPinActionSetSize: 10
+        )
+        let (session, relay) = try makeSession(configuration: config)
+        relay.keepSubscriptionsAlive = true
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+        #expect(session.stage == .waitingForAcceptance)
+        tracker.reset()
+
+        // Wait for timeout to fire
+        try await Task.sleep(for: .milliseconds(200))
+
+        #expect(session.stage == .idle)
+        #expect(tracker.terminalOutcomes.count == 1)
+        if case .expired(let stage) = tracker.terminalOutcomes.first {
+            #expect(stage == .waitingForAcceptance)
+        } else {
+            Issue.record("Expected .expired(.waitingForAcceptance)")
+        }
+        #expect(tracker.persistCount >= 1)
+    }
+
+    @Test func timeoutCancelledWhenStageAdvances() async throws {
+        let config = RiderRideSession.Configuration(
+            stageTimeouts: .init(waitingForAcceptance: .milliseconds(200), driverAccepted: .milliseconds(200)),
+            confirmationRetryDelays: [.zero],
+            maxPinActionSetSize: 10
+        )
+        let (session, relay) = try makeSession(configuration: config)
+        relay.keepSubscriptionsAlive = true
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+        #expect(session.stage == .waitingForAcceptance)
+
+        // Cancel before timeout fires
+        await session.cancelRide(reason: "test")
+        #expect(session.stage == .idle)
+
+        // Wait past the original timeout
+        try await Task.sleep(for: .milliseconds(300))
+
+        // Should still be idle (timeout should not have fired)
+        #expect(session.stage == .idle)
+    }
+
+    @Test func restoreWithExpiredTimeoutFiresImmediately() async throws {
+        let config = RiderRideSession.Configuration(
+            stageTimeouts: .init(waitingForAcceptance: .milliseconds(50), driverAccepted: .milliseconds(50)),
+            confirmationRetryDelays: [.zero],
+            maxPinActionSetSize: 10
+        )
+        let (session, relay) = try makeSession(configuration: config)
+        relay.keepSubscriptionsAlive = true
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        let driverPubkey = String(repeating: "d", count: 64)
+        // Restore with savedAt far in the past (timeout already expired)
+        session.restore(
+            stage: .waitingForAcceptance,
+            offerEventId: "o1",
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            savedAt: Int(Date.now.timeIntervalSince1970) - 300 // 5 minutes ago
+        )
+
+        await session.restoreSubscriptions()
+
+        // Give timeout task time to fire
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(session.stage == .idle)
+        if case .expired = tracker.terminalOutcomes.first {} else {
+            Issue.record("Expected .expired terminal outcome, got \(tracker.terminalOutcomes)")
+        }
     }
 
     // MARK: - Helpers

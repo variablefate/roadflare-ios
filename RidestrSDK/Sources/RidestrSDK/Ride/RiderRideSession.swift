@@ -176,6 +176,7 @@ public final class RiderRideSession {
     // MARK: - Reset
 
     public func reset() {
+        cancelStageTimeout()
         stateMachine.reset()
         pinDeduplicator.reset()
         lastDriverStatus = nil
@@ -308,6 +309,7 @@ public final class RiderRideSession {
                 stateMachine: stateMachine
             )
             emitStageChangeIfNeeded(from: stageBefore)
+            scheduleStageTimeout()
             await reconcileSubscriptions()
             delegate?.sessionShouldPersist()
         } catch {
@@ -364,6 +366,10 @@ public final class RiderRideSession {
     public func restoreSubscriptions() async {
         await teardownAll()
         await reconcileSubscriptions()
+        // Schedule timeout for pre-confirmation stages, using savedAt from restore
+        if stateMachine.stage == .waitingForAcceptance || stateMachine.stage == .driverAccepted {
+            scheduleStageTimeout(savedAt: restoredSavedAt > 0 ? restoredSavedAt : nil)
+        }
     }
 
     // MARK: - Private Event Handlers
@@ -379,6 +385,7 @@ public final class RiderRideSession {
                 stateMachine: stateMachine
             )
             emitStageChangeIfNeeded(from: stageBefore)
+            scheduleStageTimeout() // Reschedule for driverAccepted timeout
             if resolution.shouldPublishConfirmation,
                let driverPubkey = stateMachine.driverPubkey,
                let acceptanceEventId = stateMachine.acceptanceEventId {
@@ -600,12 +607,72 @@ public final class RiderRideSession {
 
     // MARK: - Stage Change Detection
 
-    /// Compares captured stageBefore with current stage. If different, fires delegate callback
-    /// and cancels any stage timeout. Used by most methods. Terminal paths (completed, cancelled)
+    /// Compares captured stageBefore with current stage. If different, cancels any stage timeout
+    /// and fires delegate callback. Used by most methods. Terminal paths (completed, cancelled)
     /// use manual ordering for deterministic teardown-before-callback.
     private func emitStageChangeIfNeeded(from stageBefore: RiderStage) {
         let stageAfter = stateMachine.stage
         guard stageBefore != stageAfter else { return }
+        cancelStageTimeout()
         delegate?.sessionDidChangeStage(from: stageBefore, to: stageAfter)
+    }
+
+    // MARK: - Stage Timeout Scheduling
+
+    private var stageTimeoutTask: Task<Void, Never>?
+
+    /// Schedule a timeout for the current pre-confirmation stage.
+    /// `savedAt` is used during restore to account for already-elapsed time.
+    func scheduleStageTimeout(savedAt: Int? = nil) {
+        cancelStageTimeout()
+
+        let timeout: Duration
+        switch stateMachine.stage {
+        case .waitingForAcceptance:
+            timeout = configuration.stageTimeouts.waitingForAcceptance
+        case .driverAccepted:
+            timeout = configuration.stageTimeouts.driverAccepted
+        default:
+            return // No timeout for post-confirmation stages
+        }
+
+        let expectedStage = stateMachine.stage
+
+        // Calculate remaining time, accounting for elapsed time since savedAt
+        var remaining = timeout
+        if let savedAt, savedAt > 0 {
+            let elapsed = Int(Date.now.timeIntervalSince1970) - savedAt
+            let elapsedDuration = Duration.seconds(max(0, elapsed))
+            remaining = timeout - elapsedDuration
+            if remaining <= .zero {
+                // Already expired — fire immediately
+                Task { await handleStageTimeout(expectedStage: expectedStage) }
+                return
+            }
+        }
+
+        stageTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: remaining)
+            guard !Task.isCancelled else { return }
+            await self?.handleStageTimeout(expectedStage: expectedStage)
+        }
+    }
+
+    private func cancelStageTimeout() {
+        stageTimeoutTask?.cancel()
+        stageTimeoutTask = nil
+    }
+
+    private func handleStageTimeout(expectedStage: RiderStage) async {
+        guard stateMachine.stage == expectedStage else { return }
+
+        let stageBefore = stateMachine.stage
+        _ = try? await domainService.publishTermination(for: stateMachine, reason: "stage timeout")
+        await teardownAll()
+        pinDeduplicator.reset()
+        stateMachine.reset()
+        emitStageChangeIfNeeded(from: stageBefore)
+        delegate?.sessionDidReachTerminal(.expired(stage: expectedStage))
+        delegate?.sessionShouldPersist()
     }
 }
