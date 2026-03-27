@@ -178,6 +178,12 @@ public final class RiderRideSession {
     public func reset() {
         cancelStageTimeout()
         stateMachine.reset()
+        clearSessionOwnedState()
+    }
+
+    /// Clears all session-owned state (PIN dedup, cursor, locations, error, savedAt).
+    /// Does NOT reset the state machine — caller is responsible for that.
+    private func clearSessionOwnedState() {
         pinDeduplicator.reset()
         lastDriverStatus = nil
         lastDriverStateTimestamp = 0
@@ -224,6 +230,7 @@ public final class RiderRideSession {
 
         let task = Task { [weak self] in
             guard let self else { return }
+            defer { self.activeSubscriptions.removeValue(forKey: sub) }
             do {
                 let stream = try await self.relayManager.subscribe(filter: filter, id: subId)
                 for await event in stream {
@@ -319,14 +326,15 @@ public final class RiderRideSession {
     }
 
     /// Cancel the current ride. Best-effort publish of cancellation/deletion event.
-    public func cancelRide(reason: String? = nil) async {
+    /// Pass `terminalOverride` to emit a different terminal outcome (e.g., `.bruteForcePin`).
+    func cancelRide(reason: String? = nil, terminalOverride: RideSessionTerminalOutcome? = nil) async {
         let stageBefore = stateMachine.stage
         _ = try? await domainService.publishTermination(for: stateMachine, reason: reason)
         await teardownAll()
-        pinDeduplicator.reset()
         stateMachine.reset()
+        clearSessionOwnedState()
         emitStageChangeIfNeeded(from: stageBefore)
-        delegate?.sessionDidReachTerminal(.cancelledByRider(reason: reason))
+        delegate?.sessionDidReachTerminal(terminalOverride ?? .cancelledByRider(reason: reason))
         delegate?.sessionShouldPersist()
     }
 
@@ -409,10 +417,10 @@ public final class RiderRideSession {
             guard case .processed(let update) = resolution else { return }
             let stageAfter = stateMachine.stage
 
-            // Terminal: cancelled
+            // Terminal: cancelled — state machine already at .idle
             if update.terminalOutcome == .cancelled {
                 await teardownAll()
-                pinDeduplicator.reset()
+                clearSessionOwnedState()
                 emitStageChangeIfNeeded(from: stageBefore)
                 delegate?.sessionDidReachTerminal(.cancelledByDriver(reason: nil))
                 delegate?.sessionShouldPersist()
@@ -471,13 +479,13 @@ public final class RiderRideSession {
                 expectedDriverPubkey: stateMachine.driverPubkey,
                 stateMachine: stateMachine
             )
-            guard case .processed = resolution else { return }
+            guard case .processed(let update) = resolution else { return }
 
             // State machine already transitioned to .idle via receiveCancellationEvent
             await teardownAll()
-            pinDeduplicator.reset()
+            clearSessionOwnedState()
             emitStageChangeIfNeeded(from: stageBefore)
-            delegate?.sessionDidReachTerminal(.cancelledByDriver(reason: nil))
+            delegate?.sessionDidReachTerminal(.cancelledByDriver(reason: update.content.reason))
             delegate?.sessionShouldPersist()
         } catch {
             // Invalid cancellation event — skip
@@ -594,8 +602,7 @@ public final class RiderRideSession {
             processedSuccessfully = true
 
             if plan.shouldCancelForBruteForce {
-                await cancelRide(reason: "PIN verification failed")
-                delegate?.sessionDidReachTerminal(.bruteForcePin)
+                await cancelRide(reason: "PIN verification failed", terminalOverride: .bruteForcePin)
             }
 
             delegate?.sessionShouldPersist()
@@ -669,8 +676,8 @@ public final class RiderRideSession {
         let stageBefore = stateMachine.stage
         _ = try? await domainService.publishTermination(for: stateMachine, reason: "stage timeout")
         await teardownAll()
-        pinDeduplicator.reset()
         stateMachine.reset()
+        clearSessionOwnedState()
         emitStageChangeIfNeeded(from: stageBefore)
         delegate?.sessionDidReachTerminal(.expired(stage: expectedStage))
         delegate?.sessionShouldPersist()
