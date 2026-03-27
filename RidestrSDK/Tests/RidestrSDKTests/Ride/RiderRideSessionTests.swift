@@ -116,7 +116,7 @@ struct RiderRideSessionTests {
         #expect(session.restoredSavedAt == 999)
     }
 
-    @Test func restoreWithInvalidDriverPubkeyResetsToIdle() throws {
+    @Test func restoreWithInvalidDriverPubkeyResetsCompletely() throws {
         let session = try makeSession().session
         session.restore(
             stage: .driverAccepted,
@@ -127,10 +127,20 @@ struct RiderRideSessionTests {
             pin: nil,
             pinVerified: false,
             paymentMethod: nil,
-            fiatPaymentMethods: []
+            fiatPaymentMethods: [],
+            processedPinActionKeys: ["stale_key"],
+            precisePickup: Location(latitude: 1, longitude: 2),
+            preciseDestination: Location(latitude: 3, longitude: 4),
+            savedAt: 999
         )
-        // State machine's restore guards against nil driverPubkey for non-idle stages
+        // State machine rejects nil driverPubkey for non-idle stages.
+        // Session must also clear its own state — no stale data left behind.
         #expect(session.stage == .idle)
+        #expect(session.processedPinActionKeys.isEmpty)
+        #expect(session.precisePickup == nil)
+        #expect(session.preciseDestination == nil)
+        #expect(session.lastDriverStatus == nil)
+        #expect(session.restoredSavedAt == 0)
     }
 
     // MARK: - Reset

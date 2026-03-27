@@ -149,6 +149,12 @@ public final class RiderRideSession {
             lastDriverActionCount: lastDriverActionCount,
             riderStateHistory: riderStateHistory
         )
+        // If the state machine rejected the restore (e.g., nil driverPubkey for
+        // a non-idle stage), it reset to idle. Clear session-owned state to match.
+        guard stateMachine.stage == stage else {
+            reset()
+            return
+        }
         self.pinDeduplicator = PinActionDeduplicator(
             processedKeys: processedPinActionKeys,
             maxCombinedSize: configuration.maxPinActionSetSize
