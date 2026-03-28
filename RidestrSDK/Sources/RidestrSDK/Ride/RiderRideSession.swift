@@ -450,7 +450,7 @@ public final class RiderRideSession {
             // Non-terminal: process PIN actions, advance cursor
             var allPinsProcessed = true
             for action in update.pinActions {
-                guard let pinEncrypted = action.pinEncrypted,
+                guard action.pinEncrypted != nil,
                       let driverPubkey = stateMachine.driverPubkey else { continue }
                 await processPinAction(action, driverPubkey: driverPubkey, confirmationEventId: confirmationEventId)
                 if !pinDeduplicator.hasProcessed(action) {
@@ -609,6 +609,7 @@ public final class RiderRideSession {
 
             if plan.shouldCancelForBruteForce {
                 await cancelRide(reason: "PIN verification failed", terminalOverride: .bruteForcePin)
+                return // cancelRide already persisted
             }
 
             delegate?.sessionShouldPersist()
