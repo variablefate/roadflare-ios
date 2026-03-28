@@ -335,6 +335,7 @@ public final class RiderRideSession {
     /// Cancel the current ride. Best-effort publish of cancellation/deletion event.
     /// Pass `terminalOverride` to emit a different terminal outcome (e.g., `.bruteForcePin`).
     public func cancelRide(reason: String? = nil, terminalOverride: RideSessionTerminalOutcome? = nil) async {
+        guard stateMachine.stage.canCancel else { return }
         let stageBefore = stateMachine.stage
         _ = try? await domainService.publishTermination(for: stateMachine, reason: reason)
         await teardownAll()

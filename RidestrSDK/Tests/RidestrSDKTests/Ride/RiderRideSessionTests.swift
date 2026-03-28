@@ -530,6 +530,105 @@ struct RiderRideSessionTests {
         }
     }
 
+    // MARK: - Cancel Guard
+
+    @Test func cancelRideNoOpsFromIdle() async throws {
+        let (session, _) = try makeSession()
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        await session.cancelRide(reason: "test")
+
+        #expect(session.stage == .idle)
+        #expect(tracker.terminalOutcomes.isEmpty) // No terminal callback
+        #expect(tracker.persistCount == 0) // No persist
+    }
+
+    @Test func cancelRideNoOpsFromCompleted() async throws {
+        let (session, _) = try makeSession()
+        session.restore(
+            stage: .completed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true,
+            preciseDestinationShared: true
+        )
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        await session.cancelRide(reason: "test")
+
+        #expect(session.stage == .completed) // Not reset
+        #expect(tracker.terminalOutcomes.isEmpty)
+    }
+
+    // MARK: - Subscription Resilience
+
+    @Test func subscribeThrowCleansUpEntry() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        relay.shouldFailSubscribe = true
+
+        await session.sendOffer(
+            driverPubkey: String(repeating: "d", count: 64),
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+        // Subscription should have failed — give task time to run and clean up
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Re-enable subscriptions and reconcile — should restart
+        relay.shouldFailSubscribe = false
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Should have attempted subscribe again successfully
+        let successfulCalls = relay.subscribeCalls.filter { !$0.id.rawValue.isEmpty }
+        #expect(successfulCalls.count >= 1)
+    }
+
+    @Test func streamFinishThenRestoreRestartsSubscription() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        let driverPubkey = String(repeating: "d", count: 64)
+
+        session.restore(
+            stage: .rideConfirmed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: driverPubkey,
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true
+        )
+
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+        let initialSubCount = relay.subscribeCalls.count
+        #expect(initialSubCount == 2) // driver-state + cancellation
+
+        // Simulate relay closing the stream
+        relay.finishSubscription("driver-state-c1")
+        try await Task.sleep(for: .milliseconds(50))
+
+        // Restore again (reconnect scenario) — should restart the dead sub
+        relay.resetRecording()
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(relay.subscribeCalls.count == 2) // Both restarted
+    }
+
     // MARK: - Helpers
 
     private func makeOfferContent() -> RideOfferContent {
