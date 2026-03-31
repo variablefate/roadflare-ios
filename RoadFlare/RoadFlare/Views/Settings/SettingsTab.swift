@@ -212,6 +212,7 @@ struct EditProfileSheet: View {
     @State private var saveState: SaveState = .idle
     @State private var copiedAccountId = false
     @State private var showBackupKey = false
+    @State private var showLogoutConfirm = false
 
     enum SaveState {
         case idle, saving, saved
@@ -307,10 +308,34 @@ struct EditProfileSheet: View {
                     .padding(.horizontal, 24)
 
                     Spacer()
+
+                    // Log Out
+                    Button { showLogoutConfirm = true } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .foregroundColor(Color.rfError)
+                            Text("Log Out")
+                                .font(RFFont.body(15))
+                                .foregroundColor(Color.rfError)
+                            Spacer()
+                        }
+                        .padding(14)
+                        .background(Color.rfSurfaceContainerLow)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
                 }
             }
             .navigationTitle("Edit Profile")
             .sheet(isPresented: $showBackupKey) { BackupKeySheet() }
+            .alert("Log Out?", isPresented: $showLogoutConfirm) {
+                Button("Log Out", role: .destructive) { Task { await appState.logout() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will remove all local data including your keys. Make sure you have backed up your private key.")
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbar {
