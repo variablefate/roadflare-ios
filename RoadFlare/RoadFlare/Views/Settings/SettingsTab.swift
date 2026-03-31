@@ -326,6 +326,8 @@ struct EditProfileSheet: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
+                    .disabled(saveState != .idle)
+                    .opacity(saveState != .idle ? 0.4 : 1)
                 }
             }
             .navigationTitle("Edit Profile")
