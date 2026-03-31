@@ -31,15 +31,11 @@ struct WelcomeView: View {
                                 .foregroundColor(Color.rfPrimary)
                         }
 
-                        ZStack {
-                            Circle()
-                                .fill(LinearGradient.rfFlare)
-                                .frame(width: 100, height: 100)
-                                .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
-                            Image(systemName: "car.fill")
-                                .font(.system(size: 44))
-                                .foregroundStyle(.black)
-                        }
+                        Image("LaunchMark")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 100, height: 100)
+                            .rfAmbientShadow(color: .rfPrimary, radius: 40, opacity: 0.2)
                     }
 
                     Color.clear.frame(height: h * 0.015)
