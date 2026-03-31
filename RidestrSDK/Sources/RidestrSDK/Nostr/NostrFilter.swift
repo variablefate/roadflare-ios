@@ -202,7 +202,6 @@ extension NostrFilter {
             .kinds([.roadflareLocation])
             .authors(driverPubkeys)
             .dTags(["roadflare-location"])
-            .limit(UInt32(driverPubkeys.count))
     }
 
     /// Filter for RoadFlare key shares addressed to this user (Kind 3186).

@@ -10,6 +10,7 @@ public actor RelayManager: RelayManagerProtocol {
     private var client: Client?
     private let keypair: NostrKeypair
     private var activeStreams: [SubscriptionID: String] = [:]  // maps our ID → relay subscription ID
+    private var subscriptionGenerations: [SubscriptionID: UInt64] = [:]
     private var connectedRelayURLs: [URL] = []
     private var notificationHandler: NotificationRouter?
     private var notificationTask: Task<Void, Never>?
@@ -103,6 +104,7 @@ public actor RelayManager: RelayManagerProtocol {
         _handlerAlive = false
         notificationHandler?.removeAll()
         activeStreams.removeAll()
+        subscriptionGenerations.removeAll()
         notificationTask?.cancel()
         notificationTask = nil
 
@@ -140,6 +142,8 @@ public actor RelayManager: RelayManagerProtocol {
             throw RidestrError.relay(.notConnected)
         }
 
+        let generation = nextSubscriptionGeneration(for: id)
+
         // Cancel any existing subscription with the same ID
         if let oldRelaySubId = activeStreams[id] {
             activeStreams[id] = nil
@@ -153,6 +157,15 @@ public actor RelayManager: RelayManagerProtocol {
         let output = try await client.subscribe(filter: rustFilter)
         let relaySubId = output.id
 
+        // A newer subscribe/unsubscribe request for this logical ID won while
+        // this async subscribe was in flight. Tear down the stale relay sub.
+        guard subscriptionGenerations[id] == generation else {
+            await client.unsubscribe(subscriptionId: relaySubId)
+            let (stream, continuation) = AsyncStream<NostrEvent>.makeStream()
+            continuation.finish()
+            return stream
+        }
+
         // Create AsyncStream backed by the notification router
         let (asyncStream, continuation) = AsyncStream<NostrEvent>.makeStream()
 
@@ -164,7 +177,11 @@ public actor RelayManager: RelayManagerProtocol {
 
         continuation.onTermination = { [weak self] _ in
             Task {
-                await self?.handleStreamTermination(id: id, relaySubscriptionId: relaySubId)
+                await self?.handleStreamTermination(
+                    id: id,
+                    relaySubscriptionId: relaySubId,
+                    generation: generation
+                )
             }
         }
 
@@ -172,6 +189,7 @@ public actor RelayManager: RelayManagerProtocol {
     }
 
     public func unsubscribe(_ id: SubscriptionID) async {
+        _ = nextSubscriptionGeneration(for: id)
         guard let relaySubId = activeStreams[id] else { return }
         activeStreams[id] = nil
         notificationHandler?.removeSubscription(relaySubscriptionId: relaySubId)
@@ -200,7 +218,12 @@ public actor RelayManager: RelayManagerProtocol {
 
     // MARK: - Private
 
-    private func handleStreamTermination(id: SubscriptionID, relaySubscriptionId: String) async {
+    private func handleStreamTermination(
+        id: SubscriptionID,
+        relaySubscriptionId: String,
+        generation: UInt64
+    ) async {
+        guard subscriptionGenerations[id] == generation else { return }
         guard activeStreams[id] == relaySubscriptionId else { return }
         activeStreams[id] = nil
         notificationHandler?.removeSubscription(relaySubscriptionId: relaySubscriptionId)
@@ -208,19 +231,37 @@ public actor RelayManager: RelayManagerProtocol {
             await client.unsubscribe(subscriptionId: relaySubscriptionId)
         }
     }
+
+    private func nextSubscriptionGeneration(for id: SubscriptionID) -> UInt64 {
+        let next = (subscriptionGenerations[id] ?? 0) + 1
+        subscriptionGenerations[id] = next
+        return next
+    }
 }
 
 // MARK: - Notification Router
 
 /// Routes events from rust-nostr's handleNotifications callback to the correct
 /// subscription's AsyncStream continuation. Thread-safe via NSLock.
+///
+/// Events may arrive from the relay between `client.subscribe()` and
+/// `addSubscription()` because the notification handler runs in a detached task.
+/// To avoid dropping these initial events, the router buffers events for
+/// subscription IDs that haven't been registered yet and flushes them
+/// when `addSubscription()` is called.
 final class NotificationRouter: HandleNotification, @unchecked Sendable {
     private let lock = NSLock()
     private var subscriptions: [String: AsyncStream<NostrEvent>.Continuation] = [:]
+    private var pendingEvents: [String: [NostrEvent]] = [:]
 
     func addSubscription(relaySubscriptionId: String, continuation: AsyncStream<NostrEvent>.Continuation) {
         lock.withLock {
             subscriptions[relaySubscriptionId] = continuation
+            if let buffered = pendingEvents.removeValue(forKey: relaySubscriptionId) {
+                for event in buffered {
+                    continuation.yield(event)
+                }
+            }
         }
     }
 
@@ -228,6 +269,7 @@ final class NotificationRouter: HandleNotification, @unchecked Sendable {
         lock.withLock {
             subscriptions[relaySubscriptionId]?.finish()
             subscriptions[relaySubscriptionId] = nil
+            pendingEvents.removeValue(forKey: relaySubscriptionId)
         }
     }
 
@@ -237,6 +279,7 @@ final class NotificationRouter: HandleNotification, @unchecked Sendable {
                 cont.finish()
             }
             subscriptions.removeAll()
+            pendingEvents.removeAll()
         }
     }
 
@@ -250,9 +293,16 @@ final class NotificationRouter: HandleNotification, @unchecked Sendable {
         guard let nostrEvent = try? EventSigner.fromRustEvent(event) else { return }
 
         lock.withLock {
-            // Route event to the matching subscription continuation
             if let cont = subscriptions[subscriptionId] {
                 cont.yield(nostrEvent)
+            } else {
+                // Buffer events that arrive before addSubscription is called.
+                // This closes the race between client.subscribe() returning
+                // and the continuation being registered.
+                var buffer = pendingEvents[subscriptionId, default: []]
+                guard buffer.count < 100 else { return }
+                buffer.append(nostrEvent)
+                pendingEvents[subscriptionId] = buffer
             }
         }
     }

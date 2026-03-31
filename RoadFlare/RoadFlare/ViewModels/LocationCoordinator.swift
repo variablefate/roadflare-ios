@@ -24,10 +24,14 @@ final class LocationCoordinator {
     private let roadflareSyncStore: RoadflareSyncStateStore?
     let driversRepository: FollowedDriversRepository
 
-    private var locationSubscriptionId: SubscriptionID?
-    private var keyShareSubscriptionId: SubscriptionID?
-    private var locationTask: Task<Void, Never>?
-    private var keyShareTask: Task<Void, Never>?
+    private struct ManagedSubscription {
+        let id: SubscriptionID
+        let generation: UUID
+        let task: Task<Void, Never>
+    }
+
+    private var activeLocationSubscription: ManagedSubscription?
+    private var activeKeyShareSubscription: ManagedSubscription?
 
     var lastError: String?
 
@@ -46,42 +50,54 @@ final class LocationCoordinator {
 
     func startLocationSubscriptions() {
         let pubkeys = driversRepository.allPubkeys
-        locationTask?.cancel()
-        let oldId = locationSubscriptionId
-        locationSubscriptionId = nil
+        let previous = takeLocationSubscription()
 
         guard !pubkeys.isEmpty else {
-            if let oldId {
-                locationTask = Task {
-                    await relayManager.unsubscribe(oldId)
+            if let previous {
+                Task {
+                    previous.task.cancel()
+                    await relayManager.unsubscribe(previous.id)
                 }
             }
             return
         }
 
         let subId = SubscriptionID("roadflare-locations")
-        locationSubscriptionId = subId
+        let generation = UUID()
 
-        locationTask = Task {
-            if let oldId { await relayManager.unsubscribe(oldId) }
+        let task = Task {
+            previous?.task.cancel()
+            if let oldId = previous?.id {
+                await relayManager.unsubscribe(oldId)
+            }
+            guard !Task.isCancelled,
+                  activeLocationSubscription?.generation == generation else { return }
 
             do {
                 let filter = NostrFilter.roadflareLocations(driverPubkeys: pubkeys)
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
+                guard !Task.isCancelled,
+                      activeLocationSubscription?.generation == generation else { return }
 
                 for await event in stream {
-                    guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled,
+                          activeLocationSubscription?.generation == generation else { break }
                     await handleLocationEvent(event)
                 }
             } catch {
+                guard activeLocationSubscription?.generation == generation else { return }
                 lastError = "Location subscription failed: \(error.localizedDescription)"
             }
         }
+        activeLocationSubscription = ManagedSubscription(id: subId, generation: generation, task: task)
     }
 
     func handleLocationEvent(_ event: NostrEvent) async {
         let driverPubkey = event.pubkey
-        guard let key = driversRepository.getRoadflareKey(driverPubkey: driverPubkey) else { return }
+        guard let key = driversRepository.getRoadflareKey(driverPubkey: driverPubkey) else {
+            AppLogger.location.debug("Location event ignored — no key for driver \(driverPubkey.prefix(8))")
+            return
+        }
 
         do {
             let parsed = try RideshareEventParser.parseRoadflareLocation(
@@ -97,7 +113,7 @@ final class LocationCoordinator {
                 keyVersion: parsed.keyVersion
             )
         } catch {
-            // Decryption failure — stale key or wrong driver, silently ignore
+            AppLogger.location.info("Location decryption failed for driver \(driverPubkey.prefix(8)) (key v\(key.version)): \(error)")
         }
     }
 
@@ -107,29 +123,37 @@ final class LocationCoordinator {
     /// When a driver accepts a follow request, they send Kind 3186 (12-hour expiry).
     /// The key is then stored locally and in the rider's Kind 30011 backup.
     func startKeyShareSubscription() {
-        keyShareTask?.cancel()
-        let oldId = keyShareSubscriptionId
+        let previous = takeKeyShareSubscription()
 
         let subId = SubscriptionID("key-shares")
-        keyShareSubscriptionId = subId
+        let generation = UUID()
 
-        keyShareTask = Task {
-            if let oldId { await relayManager.unsubscribe(oldId) }
-
+        let task = Task {
+            previous?.task.cancel()
+            if let oldId = previous?.id {
+                await relayManager.unsubscribe(oldId)
+            }
+            guard !Task.isCancelled,
+                  activeKeyShareSubscription?.generation == generation else { return }
             do {
                 let filter = NostrFilter.keyShares(myPubkey: keypair.publicKeyHex)
                 AppLogger.location.info("Subscribing to key shares for \(self.keypair.publicKeyHex.prefix(8))...")
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
+                guard !Task.isCancelled,
+                      activeKeyShareSubscription?.generation == generation else { return }
                 AppLogger.location.info("Key share subscription active")
 
                 for await event in stream {
-                    guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled,
+                          activeKeyShareSubscription?.generation == generation else { break }
                     await handleKeyShareEvent(event)
                 }
             } catch {
+                guard activeKeyShareSubscription?.generation == generation else { return }
                 lastError = "Key share subscription failed: \(error.localizedDescription)"
             }
         }
+        activeKeyShareSubscription = ManagedSubscription(id: subId, generation: generation, task: task)
     }
 
     func handleKeyShareEvent(_ event: NostrEvent) async {
@@ -258,11 +282,23 @@ final class LocationCoordinator {
     // MARK: - Cleanup
 
     func stopAll() async {
-        locationTask?.cancel()
-        keyShareTask?.cancel()
-        if let id = locationSubscriptionId { await relayManager.unsubscribe(id) }
-        if let id = keyShareSubscriptionId { await relayManager.unsubscribe(id) }
-        locationSubscriptionId = nil
-        keyShareSubscriptionId = nil
+        let location = takeLocationSubscription()
+        let keyShare = takeKeyShareSubscription()
+        location?.task.cancel()
+        keyShare?.task.cancel()
+        if let id = location?.id { await relayManager.unsubscribe(id) }
+        if let id = keyShare?.id { await relayManager.unsubscribe(id) }
+    }
+
+    private func takeLocationSubscription() -> ManagedSubscription? {
+        let previous = activeLocationSubscription
+        activeLocationSubscription = nil
+        return previous
+    }
+
+    private func takeKeyShareSubscription() -> ManagedSubscription? {
+        let previous = activeKeyShareSubscription
+        activeKeyShareSubscription = nil
+        return previous
     }
 }

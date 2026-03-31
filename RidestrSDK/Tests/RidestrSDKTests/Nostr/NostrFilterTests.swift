@@ -76,7 +76,7 @@ struct NostrFilterTests {
         let filter = NostrFilter.roadflareLocations(driverPubkeys: drivers)
         #expect(filter.kinds == [EventKind.roadflareLocation.rawValue])
         #expect(filter.authors == drivers)
-        #expect(filter.limit == 3)
+        #expect(filter.limit == nil)
     }
 
     @Test func remoteConfigConvenience() {
