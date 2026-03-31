@@ -212,17 +212,27 @@ public final class RideStateMachine: @unchecked Sendable {
         createdAt: Int = 0
     ) -> String? {
         // Event ID deduplication
-        guard !processedDriverStateEventIds.contains(eventId) else { return nil }
+        guard !processedDriverStateEventIds.contains(eventId) else {
+            RidestrLogger.info("[RideStateMachine] Ignoring duplicate driver state event \(eventId.prefix(8))")
+            return nil
+        }
         // Confirmation must match current ride
-        guard confirmationId == confirmationEventId else { return nil }
+        guard confirmationId == confirmationEventId else {
+            RidestrLogger.info("[RideStateMachine] Ignoring driver state for wrong confirmation: \(confirmationId.prefix(8)) vs expected \(confirmationEventId?.prefix(8) ?? "nil")")
+            return nil
+        }
         let actionCount = driverState.history.count
         // Timestamp ordering — prevent state regression from late events.
         // Android driver updates are second-granularity, so same-second snapshots must
         // be ordered by append-only history length rather than dropped outright.
         if createdAt > 0 {
-            if createdAt < context.lastDriverStateTimestamp { return nil }
+            if createdAt < context.lastDriverStateTimestamp {
+                RidestrLogger.info("[RideStateMachine] Ignoring stale driver state: event at \(createdAt) < cursor \(context.lastDriverStateTimestamp)")
+                return nil
+            }
             if createdAt == context.lastDriverStateTimestamp &&
                 actionCount <= context.lastDriverActionCount {
+                RidestrLogger.info("[RideStateMachine] Ignoring same-second driver state: \(actionCount) actions <= cursor \(context.lastDriverActionCount)")
                 return nil
             }
         }

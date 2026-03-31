@@ -395,6 +395,17 @@ public final class RiderRideSession {
         emitStageChangeIfNeeded(from: stageBefore)
     }
 
+    /// Manually end a ride from any active stage. Escape hatch when the driver's
+    /// completion event was missed (network issues, relay problems, driver app bugs).
+    public func forceEndRide() async {
+        guard stateMachine.stage.isActiveRide else { return }
+        await teardownAll()
+        let stageBefore = stateMachine.stage
+        stateMachine.reset()
+        clearSessionOwnedState()
+        emitStageChangeIfNeeded(from: stageBefore)
+    }
+
     /// Manually submit an encrypted PIN (for cases where PIN arrives outside driver state).
     public func respondToPin(pinEncrypted: String) async {
         guard let driverPubkey = stateMachine.driverPubkey,
@@ -416,10 +427,31 @@ public final class RiderRideSession {
     /// Does NOT synthesize fake transitions.
     public func restoreSubscriptions() async {
         await teardownAll()
-        await reconcileSubscriptions()
-        // Schedule timeout for pre-confirmation stages, using savedAt from restore
+        // Arm timeout BEFORE recovery to prevent late confirmations
         if stateMachine.stage == .waitingForAcceptance || stateMachine.stage == .driverAccepted {
             scheduleStageTimeout(savedAt: restoredSavedAt > 0 ? restoredSavedAt : nil)
+        }
+        await reconcileSubscriptions()
+        // Catch missed driver state events (e.g., completion published while app was offline)
+        if stateMachine.stage.isActiveRide, stateMachine.stage != .waitingForAcceptance {
+            await fetchAndProcessLatestDriverState()
+        }
+    }
+
+    private func fetchAndProcessLatestDriverState() async {
+        guard let confirmationEventId = stateMachine.confirmationEventId,
+              let driverPubkey = stateMachine.driverPubkey else { return }
+        let filter = domainService.filter(
+            for: .driverState(confirmationEventId: confirmationEventId, driverPubkey: driverPubkey)
+        )
+        do {
+            let events = try await relayManager.fetchEvents(filter: filter, timeout: 5)
+            guard let latest = events.max(by: { $0.createdAt < $1.createdAt }) else { return }
+            await routeEvent(latest, for: .driverState(
+                confirmationEventId: confirmationEventId, driverPubkey: driverPubkey
+            ))
+        } catch {
+            // Non-fatal — persistent subscription is the primary mechanism
         }
     }
 

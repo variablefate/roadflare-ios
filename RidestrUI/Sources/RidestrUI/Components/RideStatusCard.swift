@@ -169,6 +169,18 @@ public struct RideStatusCard: View {
             }
 
             Spacer()
+            if let onCloseRide {
+                Button { onCloseRide() } label: {
+                    Label("I've Paid — End Ride", systemImage: "checkmark.circle")
+                        .font(theme.title(18))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(theme.accentColor)
+                        .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
+                }
+                .padding(.horizontal, 24)
+            }
             if let onChat {
                 Button { onChat() } label: {
                     Label("Chat with Driver", systemImage: "message")

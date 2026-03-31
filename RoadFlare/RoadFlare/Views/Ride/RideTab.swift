@@ -22,7 +22,7 @@ struct RideTab: View {
     @State private var isOffline = false
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
-    private var stage: RiderStage { coordinator?.stateMachine.stage ?? .idle }
+    private var stage: RiderStage { coordinator?.session.stage ?? .idle }
     private var onlineDrivers: [FollowedDriver] {
         guard let repo = appState.driversRepository else { return [] }
         return repo.drivers.filter { driver in
@@ -54,14 +54,20 @@ struct RideTab: View {
                 default:
                     RideStatusCard(
                         stage: stage,
-                        pin: coordinator?.stateMachine.pin,
+                        pin: coordinator?.session.pin,
                         fareEstimate: coordinator?.currentFareEstimate,
                         paymentMethods: coordinator?.activeRidePaymentMethods
                             ?? appState.settings.roadflarePaymentMethods,
                         onCancel: { showCancelWarning = true },
                         onChat: { showChat = true },
                         onCloseRide: {
-                            Task { await coordinator?.closeCompletedRide() }
+                            Task {
+                                if coordinator?.session.stage == .completed {
+                                    await coordinator?.closeCompletedRide()
+                                } else {
+                                    await coordinator?.forceEndRide()
+                                }
+                            }
                             selectedDriverPubkey = nil
                             pickupAddress = ""
                             destinationAddress = ""
@@ -532,7 +538,7 @@ struct RideTab: View {
             appliedExplicitSelection = true
         }
 
-        if selectedDriverPubkey == nil, let activeRideDriver = coordinator?.stateMachine.driverPubkey {
+        if selectedDriverPubkey == nil, let activeRideDriver = coordinator?.session.driverPubkey {
             selectedDriverPubkey = activeRideDriver
         }
 

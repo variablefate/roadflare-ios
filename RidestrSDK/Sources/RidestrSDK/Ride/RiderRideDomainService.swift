@@ -643,7 +643,8 @@ public final class RiderRideDomainService: @unchecked Sendable {
             return .cancellation(event)
         }
 
-        if let offerEventId = stateMachine.offerEventId {
+        if let offerEventId = stateMachine.offerEventId,
+           stateMachine.stage == .waitingForAcceptance {
             let event = try await RideshareEventBuilder.deletion(
                 eventIds: [offerEventId],
                 reason: reason ?? "rider cancelled",

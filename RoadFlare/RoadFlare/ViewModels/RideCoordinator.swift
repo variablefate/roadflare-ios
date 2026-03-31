@@ -234,6 +234,13 @@ final class RideCoordinator {
         clearCoordinatorUIState()
     }
 
+    func forceEndRide() async {
+        recordRideHistory()
+        await session.forceEndRide()
+        clearCoordinatorUIState()
+        RideStatePersistence.clear()
+    }
+
     func stopAll() async {
         await chat.cleanup()
         await session.teardownAll()
