@@ -9,7 +9,9 @@ final class ChatCoordinator {
     private let keypair: NostrKeypair
 
     var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
+    var unreadCount: Int = 0
     private var chatMessageIds: Set<String> = []
+    private var subscriptionStartTime: Int = 0
     private struct ActiveSubscription {
         let id: SubscriptionID
         let generation: UUID
@@ -28,6 +30,7 @@ final class ChatCoordinator {
 
     func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
         let previous = takeActiveSubscription()
+        subscriptionStartTime = Int(Date.now.timeIntervalSince1970)
         let subId = SubscriptionID("chat-\(confirmationEventId)")
         let generation = UUID()
         let task = Task {
@@ -93,7 +96,14 @@ final class ChatCoordinator {
                 let removed = chatMessages.removeFirst()
                 chatMessageIds.remove(removed.id)
             }
-            if !isMine { HapticManager.messageReceived() }
+            if !isMine {
+                // Only count as unread if the message arrived after subscription start,
+                // to avoid inflating the badge with replayed history on app restart.
+                if event.createdAt >= subscriptionStartTime {
+                    unreadCount += 1
+                }
+                HapticManager.messageReceived()
+            }
         } catch {
             // Invalid chat message, skip
         }
@@ -148,9 +158,14 @@ final class ChatCoordinator {
         }
     }
 
+    func markRead() {
+        unreadCount = 0
+    }
+
     func reset() {
         chatMessages = []
         chatMessageIds = []
+        unreadCount = 0
     }
 
     private func takeActiveSubscription() -> ActiveSubscription? {

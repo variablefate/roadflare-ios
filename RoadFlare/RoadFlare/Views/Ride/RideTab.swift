@@ -59,7 +59,11 @@ struct RideTab: View {
                         paymentMethods: coordinator?.activeRidePaymentMethods
                             ?? appState.settings.roadflarePaymentMethods,
                         onCancel: { showCancelWarning = true },
-                        onChat: { showChat = true },
+                        unreadChatCount: coordinator?.chat.unreadCount ?? 0,
+                        onChat: {
+                            coordinator?.chat.markRead()
+                            showChat = true
+                        },
                         onCloseRide: {
                             Task {
                                 if coordinator?.session.stage == .completed {
@@ -81,7 +85,10 @@ struct RideTab: View {
             .navigationBarHidden(true)
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
-            .sheet(isPresented: $showChat) { WiredChatView() }
+            .sheet(isPresented: $showChat) {
+                WiredChatView()
+                    .onDisappear { coordinator?.chat.markRead() }
+            }
             .task { await monitorConnection() }
             .onAppear {
                 refreshSelectedDriverSelection()
