@@ -25,6 +25,7 @@ public struct RideStatusCard: View {
     public let fareEstimate: FareEstimate?
     public let paymentMethods: [String]
 
+    public var unreadChatCount: Int
     public var onCancel: (() -> Void)?
     public var onChat: (() -> Void)?
     public var onCloseRide: (() -> Void)?
@@ -34,6 +35,7 @@ public struct RideStatusCard: View {
         pin: String? = nil,
         fareEstimate: FareEstimate? = nil,
         paymentMethods: [String] = [],
+        unreadChatCount: Int = 0,
         onCancel: (() -> Void)? = nil,
         onChat: (() -> Void)? = nil,
         onCloseRide: (() -> Void)? = nil
@@ -42,6 +44,7 @@ public struct RideStatusCard: View {
         self.pin = pin
         self.fareEstimate = fareEstimate
         self.paymentMethods = paymentMethods
+        self.unreadChatCount = unreadChatCount
         self.onCancel = onCancel
         self.onChat = onChat
         self.onCloseRide = onCloseRide
@@ -181,18 +184,8 @@ public struct RideStatusCard: View {
                 }
                 .padding(.horizontal, 24)
             }
-            if let onChat {
-                Button { onChat() } label: {
-                    Label("Chat with Driver", systemImage: "message")
-                        .font(theme.title(16))
-                        .foregroundColor(theme.accentColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(theme.surfaceSecondaryColor)
-                        .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
-                }
+            chatButton
                 .padding(.horizontal, 24)
-            }
             Spacer().frame(height: 40)
         }
     }
@@ -238,22 +231,38 @@ public struct RideStatusCard: View {
 
     private var actionButtons: some View {
         VStack(spacing: 12) {
-            if let onChat {
-                Button { onChat() } label: {
-                    Label("Chat with Driver", systemImage: "message")
-                        .font(theme.title(16))
-                        .foregroundColor(theme.accentColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(theme.surfaceSecondaryColor)
-                        .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
-                }
-            }
-
+            chatButton
             if let onCancel {
                 Button("Cancel Ride") { onCancel() }
                     .font(theme.body(15))
                     .foregroundColor(theme.onSurfaceSecondaryColor)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var chatButton: some View {
+        if let onChat {
+            Button { onChat() } label: {
+                Label("Chat with Driver", systemImage: "message")
+                    .font(theme.title(16))
+                    .foregroundColor(theme.accentColor)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(theme.surfaceSecondaryColor)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
+            }
+            .overlay(alignment: .topTrailing) {
+                if unreadChatCount > 0 {
+                    Text("\(unreadChatCount)")
+                        .font(.caption2.bold())
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.red)
+                        .clipShape(Capsule())
+                        .offset(x: -8, y: -8)
+                }
             }
         }
     }

@@ -9,6 +9,7 @@ final class ChatCoordinator {
     private let keypair: NostrKeypair
 
     var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
+    var unreadCount: Int = 0
     private var chatMessageIds: Set<String> = []
     private struct ActiveSubscription {
         let id: SubscriptionID
@@ -93,7 +94,10 @@ final class ChatCoordinator {
                 let removed = chatMessages.removeFirst()
                 chatMessageIds.remove(removed.id)
             }
-            if !isMine { HapticManager.messageReceived() }
+            if !isMine {
+                unreadCount += 1
+                HapticManager.messageReceived()
+            }
         } catch {
             // Invalid chat message, skip
         }
@@ -148,9 +152,14 @@ final class ChatCoordinator {
         }
     }
 
+    func markRead() {
+        unreadCount = 0
+    }
+
     func reset() {
         chatMessages = []
         chatMessageIds = []
+        unreadCount = 0
     }
 
     private func takeActiveSubscription() -> ActiveSubscription? {
