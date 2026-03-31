@@ -187,4 +187,70 @@ struct FakeRelayManagerTests {
         #expect(fake.unsubscribeCalls.count == 1)
         #expect(fake.unsubscribeCalls.first?.rawValue == "unsub-test")
     }
+
+    @Test func unsubscribeFinishesLiveSubscription() async throws {
+        let fake = FakeRelayManager()
+        try await fake.connect(to: DefaultRelays.all)
+        fake.keepSubscriptionsAlive = true
+
+        let subId = SubscriptionID("live-unsub-test")
+        let stream = try await fake.subscribe(filter: NostrFilter.remoteConfig(), id: subId)
+        let consumer = Task {
+            for await _ in stream {}
+        }
+
+        #expect(fake.activeSubscriptionCount == 1)
+
+        await fake.unsubscribe(subId)
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(fake.activeSubscriptionCount == 0)
+        await consumer.value
+    }
+
+    @Test func finishSubscriptionClosesLiveStream() async throws {
+        let fake = FakeRelayManager()
+        try await fake.connect(to: DefaultRelays.all)
+        fake.keepSubscriptionsAlive = true
+
+        let subId = SubscriptionID("finish-test")
+        let stream = try await fake.subscribe(filter: NostrFilter.remoteConfig(), id: subId)
+        let consumer = Task {
+            for await _ in stream {}
+        }
+
+        #expect(fake.activeSubscriptionCount == 1)
+
+        fake.finishSubscription(subId.rawValue)
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(fake.activeSubscriptionCount == 0)
+        await consumer.value
+    }
+
+    @Test func latestSubscribeGenerationWinsWhenSubscribeCompletionsRace() async throws {
+        let fake = FakeRelayManager()
+        try await fake.connect(to: DefaultRelays.all)
+        fake.keepSubscriptionsAlive = true
+        fake.subscribeDelay = .milliseconds(100)
+
+        let subId = SubscriptionID("race-sub")
+        let first = Task {
+            try await fake.subscribe(filter: NostrFilter.remoteConfig(), id: subId)
+        }
+        try await Task.sleep(for: .milliseconds(10))
+        let second = Task {
+            try await fake.subscribe(filter: NostrFilter.remoteConfig(), id: subId)
+        }
+
+        _ = try await first.value
+        _ = try await second.value
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(fake.activeSubscriptionCount == 1)
+        #expect(fake.isSubscriptionActive(subId.rawValue))
+
+        await fake.unsubscribe(subId)
+        #expect(fake.activeSubscriptionCount == 0)
+    }
 }

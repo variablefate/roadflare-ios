@@ -43,6 +43,7 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     public var shouldFailConnect = false
     public var shouldFailPublish = false
     public var shouldFailSubscribe = false
+    public var subscribeDelay: Duration?
     private var _isConnected = false
 
     /// Events to return immediately from subscribe calls, keyed by subscription ID.
@@ -53,6 +54,7 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     /// Live subscription continuations for deferred event injection.
     private var _liveContinuations: [String: AsyncStream<NostrEvent>.Continuation] = [:]
+    private var _subscriptionGenerations: [String: UInt64] = [:]
 
     /// When true, subscription streams stay open for deferred injection.
     /// When false (default), streams finish immediately after yielding canned events.
@@ -73,14 +75,15 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     }
 
     public func disconnect() async {
-        lock.withLock {
+        let continuations = lock.withLock { () -> [AsyncStream<NostrEvent>.Continuation] in
             _disconnectCount += 1
             _isConnected = false
-            // Finish all live continuations
-            for (_, cont) in _liveContinuations {
-                cont.finish()
-            }
+            let continuations = Array(_liveContinuations.values)
             _liveContinuations.removeAll()
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.finish()
         }
     }
 
@@ -105,10 +108,19 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
             throw RidestrError.relay(.notConnected)
         }
         lock.withLock { _subscribeCalls.append((filter, id)) }
+        let generation = lock.withLock { nextSubscriptionGeneration(for: id.rawValue) }
 
         let immediateEvents = subscriptionEvents[id.rawValue] ?? []
+        if let subscribeDelay {
+            try? await Task.sleep(for: subscribeDelay)
+        }
 
         let (stream, continuation) = AsyncStream<NostrEvent>.makeStream()
+        let isCurrent = lock.withLock { _subscriptionGenerations[id.rawValue] == generation }
+        guard isCurrent else {
+            continuation.finish()
+            return stream
+        }
 
         // Store continuation for deferred injection
         lock.withLock {
@@ -137,11 +149,12 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     }
 
     public func unsubscribe(_ id: SubscriptionID) async {
-        lock.withLock {
+        let continuation = lock.withLock { () -> AsyncStream<NostrEvent>.Continuation? in
             _unsubscribeCalls.append(id)
-            _liveContinuations[id.rawValue]?.finish()
-            _liveContinuations[id.rawValue] = nil
+            _ = nextSubscriptionGeneration(for: id.rawValue)
+            return _liveContinuations.removeValue(forKey: id.rawValue)
         }
+        continuation?.finish()
     }
 
     public func fetchEvents(filter: NostrFilter, timeout: TimeInterval) async throws -> [NostrEvent] {
@@ -164,10 +177,10 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     /// Finish a live subscription stream (simulates relay closing the subscription).
     public func finishSubscription(_ subscriptionId: String) {
-        lock.withLock {
-            _liveContinuations[subscriptionId]?.finish()
-            _liveContinuations[subscriptionId] = nil
+        let continuation = lock.withLock {
+            _liveContinuations.removeValue(forKey: subscriptionId)
         }
+        continuation?.finish()
     }
 
     /// Number of active live subscriptions.
@@ -194,5 +207,11 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     enum FakeError: Error {
         case simulated
+    }
+
+    private func nextSubscriptionGeneration(for id: String) -> UInt64 {
+        let next = (_subscriptionGenerations[id] ?? 0) + 1
+        _subscriptionGenerations[id] = next
+        return next
     }
 }

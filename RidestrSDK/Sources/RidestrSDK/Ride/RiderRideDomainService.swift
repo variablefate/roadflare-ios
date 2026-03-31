@@ -256,6 +256,16 @@ public final class RiderRideDomainService: @unchecked Sendable {
         content: RideOfferContent,
         stateMachine: RideStateMachine? = nil
     ) async throws -> OfferPublication {
+        if let stateMachine,
+           stateMachine.stage != .idle {
+            throw RidestrError.ride(
+                .stateMachineViolation(
+                    from: stateMachine.stage.rawValue,
+                    to: RiderStage.waitingForAcceptance.rawValue
+                )
+            )
+        }
+
         let offerEvent = try await RideshareEventBuilder.rideOffer(
             driverPubkey: driverPubkey,
             driverAvailabilityEventId: driverAvailabilityEventId,
@@ -618,7 +628,7 @@ public final class RiderRideDomainService: @unchecked Sendable {
         for stateMachine: RideStateMachine,
         reason: String? = nil
     ) async throws -> TerminationPublication {
-        guard stateMachine.stage != .idle, stateMachine.stage != .completed else {
+        guard stateMachine.stage != .completed else {
             return .none
         }
         if let confirmationEventId = stateMachine.confirmationEventId,

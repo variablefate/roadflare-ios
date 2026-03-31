@@ -24,9 +24,11 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     var shouldFailSubscribe = false
     var keepSubscriptionsAlive = false
     var publishDelay: Duration?
+    var subscribeDelay: Duration?
     var fetchResults: [NostrEvent] = []
 
     private var liveContinuations: [String: AsyncStream<NostrEvent>.Continuation] = [:]
+    private var subscriptionGenerations: [String: UInt64] = [:]
 
     func connect(to relays: [URL]) async throws {
         if shouldFailConnect {
@@ -36,12 +38,14 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     }
 
     func disconnect() async {
-        lock.withLock {
+        let continuations = lock.withLock { () -> [AsyncStream<NostrEvent>.Continuation] in
             _isConnected = false
-            for (_, continuation) in liveContinuations {
-                continuation.finish()
-            }
+            let continuations = Array(liveContinuations.values)
             liveContinuations.removeAll()
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.finish()
         }
     }
 
@@ -69,9 +73,19 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
             throw RidestrError.relay(.notConnected)
         }
         lock.withLock { _subscribeCalls.append((filter, id)) }
+        let generation = lock.withLock { nextSubscriptionGeneration(for: id.rawValue) }
 
         let immediateEvents: [NostrEvent] = []
+        if let subscribeDelay {
+            try? await Task.sleep(for: subscribeDelay)
+        }
+
         let (stream, continuation) = AsyncStream<NostrEvent>.makeStream()
+        let isCurrent = lock.withLock { subscriptionGenerations[id.rawValue] == generation }
+        guard isCurrent else {
+            continuation.finish()
+            return stream
+        }
 
         lock.withLock { liveContinuations[id.rawValue] = continuation }
 
@@ -80,11 +94,17 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
         }
 
         if !keepSubscriptionsAlive {
-            lock.withLock { liveContinuations[id.rawValue] = nil }
+            lock.withLock {
+                if subscriptionGenerations[id.rawValue] == generation {
+                    liveContinuations[id.rawValue] = nil
+                }
+            }
             continuation.finish()
         } else {
             continuation.onTermination = { [weak self] _ in
-                self?.lock.withLock { self?.liveContinuations[id.rawValue] = nil }
+                self?.lock.withLock {
+                    self?.liveContinuations[id.rawValue] = nil
+                }
             }
         }
 
@@ -92,11 +112,12 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     }
 
     func unsubscribe(_ id: SubscriptionID) async {
-        lock.withLock {
+        let continuation = lock.withLock { () -> AsyncStream<NostrEvent>.Continuation? in
             _unsubscribeCalls.append(id)
-            liveContinuations[id.rawValue]?.finish()
-            liveContinuations[id.rawValue] = nil
+            _ = nextSubscriptionGeneration(for: id.rawValue)
+            return liveContinuations.removeValue(forKey: id.rawValue)
         }
+        continuation?.finish()
     }
 
     func fetchEvents(filter: NostrFilter, timeout: TimeInterval) async throws -> [NostrEvent] {
@@ -112,6 +133,14 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
         }
     }
 
+    var activeSubscriptionCount: Int {
+        lock.withLock { liveContinuations.count }
+    }
+
+    func isSubscriptionActive(_ subscriptionId: String) -> Bool {
+        lock.withLock { liveContinuations[subscriptionId] != nil }
+    }
+
     func resetRecording() {
         lock.withLock {
             _publishedEvents.removeAll()
@@ -119,5 +148,11 @@ final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
             _unsubscribeCalls.removeAll()
             _fetchCalls.removeAll()
         }
+    }
+
+    private func nextSubscriptionGeneration(for id: String) -> UInt64 {
+        let next = (subscriptionGenerations[id] ?? 0) + 1
+        subscriptionGenerations[id] = next
+        return next
     }
 }

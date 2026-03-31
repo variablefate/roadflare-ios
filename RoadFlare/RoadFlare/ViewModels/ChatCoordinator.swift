@@ -10,8 +10,12 @@ final class ChatCoordinator {
 
     var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
     private var chatMessageIds: Set<String> = []
-    private var chatSubscriptionId: SubscriptionID?
-    private var chatTask: Task<Void, Never>?
+    private struct ActiveSubscription {
+        let id: SubscriptionID
+        let generation: UUID
+        let task: Task<Void, Never>
+    }
+    private var activeSubscription: ActiveSubscription?
 
     var lastError: String?
 
@@ -23,11 +27,16 @@ final class ChatCoordinator {
     // MARK: - Subscribe
 
     func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
+        let previous = takeActiveSubscription()
         let subId = SubscriptionID("chat-\(confirmationEventId)")
-        chatSubscriptionId = subId
-
-        chatTask?.cancel()
-        chatTask = Task {
+        let generation = UUID()
+        let task = Task {
+            previous?.task.cancel()
+            if let oldId = previous?.id {
+                await relayManager.unsubscribe(oldId)
+            }
+            guard !Task.isCancelled,
+                  activeSubscription?.generation == generation else { return }
             do {
                 let filter = NostrFilter.chatMessages(
                     counterpartyPubkey: driverPubkey,
@@ -35,9 +44,17 @@ final class ChatCoordinator {
                     confirmationEventId: confirmationEventId
                 )
                 let stream = try await relayManager.subscribe(filter: filter, id: subId)
+                guard !Task.isCancelled else { return }
+                guard activeSubscription?.generation == generation else {
+                    if activeSubscription?.id != subId {
+                        await relayManager.unsubscribe(subId)
+                    }
+                    return
+                }
 
                 for await event in stream {
-                    guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled,
+                          activeSubscription?.generation == generation else { break }
                     await handleChatEvent(
                         event,
                         expectedConfirmationEventId: confirmationEventId,
@@ -48,6 +65,7 @@ final class ChatCoordinator {
                 // Chat subscription failure is non-fatal
             }
         }
+        activeSubscription = ActiveSubscription(id: subId, generation: generation, task: task)
     }
 
     // MARK: - Handle Incoming
@@ -92,13 +110,15 @@ final class ChatCoordinator {
                 keypair: keypair
             )
             _ = try await relayManager.publish(event)
+            guard !chatMessageIds.contains(event.id) else { return }
+            chatMessageIds.insert(event.id)
             chatMessages.append((
                 id: event.id,
                 text: text,
                 isMine: true,
-                timestamp: Int(Date.now.timeIntervalSince1970)
+                timestamp: event.createdAt
             ))
-            // Enforce same 500-message cap as received messages
+            chatMessages.sort { $0.timestamp != $1.timestamp ? $0.timestamp < $1.timestamp : $0.id < $1.id }
             if chatMessages.count > 500 {
                 let removed = chatMessages.removeFirst()
                 chatMessageIds.remove(removed.id)
@@ -111,13 +131,31 @@ final class ChatCoordinator {
     // MARK: - Cleanup
 
     func cleanup() async {
-        chatTask?.cancel()
-        if let id = chatSubscriptionId { await relayManager.unsubscribe(id) }
-        chatSubscriptionId = nil
+        let previous = takeActiveSubscription()
+        previous?.task.cancel()
+        if let id = previous?.id {
+            await relayManager.unsubscribe(id)
+        }
+    }
+
+    func cleanupAsync() {
+        let previous = takeActiveSubscription()
+        guard let previous else { return }
+
+        Task {
+            previous.task.cancel()
+            await relayManager.unsubscribe(previous.id)
+        }
     }
 
     func reset() {
         chatMessages = []
         chatMessageIds = []
+    }
+
+    private func takeActiveSubscription() -> ActiveSubscription? {
+        let previous = activeSubscription
+        activeSubscription = nil
+        return previous
     }
 }

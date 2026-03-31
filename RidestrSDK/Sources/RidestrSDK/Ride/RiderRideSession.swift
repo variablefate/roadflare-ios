@@ -198,6 +198,7 @@ public final class RiderRideSession {
 
     private struct ManagedSubscription {
         let subscriptionId: SubscriptionID
+        let generation: UUID
         let task: Task<Void, Never>
     }
 
@@ -227,28 +228,38 @@ public final class RiderRideSession {
     private func startSubscription(_ sub: RiderRideDomainService.LiveSubscription) {
         let filter = domainService.filter(for: sub)
         let subId = subscriptionId(for: sub)
+        let generation = UUID()
 
         let task = Task { [weak self] in
             guard let self else { return }
             defer {
-                // Only remove if the entry still belongs to THIS task.
-                // Prevents a race where stopSubscription + startSubscription replaced
-                // the entry before this old task's defer ran.
-                if self.activeSubscriptions[sub]?.subscriptionId == subId {
+                // Only remove if the entry still belongs to THIS task generation.
+                // Logical subscription IDs are stable across restarts.
+                if self.activeSubscriptions[sub]?.generation == generation {
                     self.activeSubscriptions.removeValue(forKey: sub)
                 }
             }
+            guard !Task.isCancelled,
+                  self.activeSubscriptions[sub]?.generation == generation else { return }
             do {
                 let stream = try await self.relayManager.subscribe(filter: filter, id: subId)
+                guard !Task.isCancelled,
+                      self.activeSubscriptions[sub]?.generation == generation else { return }
                 for await event in stream {
-                    guard !Task.isCancelled else { break }
+                    guard !Task.isCancelled,
+                          self.activeSubscriptions[sub]?.generation == generation else { break }
                     await self.routeEvent(event, for: sub)
                 }
             } catch {
+                guard self.activeSubscriptions[sub]?.generation == generation else { return }
                 self.delegate?.sessionDidEncounterError(error)
             }
         }
-        activeSubscriptions[sub] = ManagedSubscription(subscriptionId: subId, task: task)
+        activeSubscriptions[sub] = ManagedSubscription(
+            subscriptionId: subId,
+            generation: generation,
+            task: task
+        )
     }
 
     private func stopSubscription(_ sub: RiderRideDomainService.LiveSubscription) async {
@@ -289,12 +300,14 @@ public final class RiderRideSession {
     private func executePendingAction(_ action: RiderRideDomainService.PendingAction) async {
         switch action {
         case .recoverOrPublishConfirmation(let acceptanceEventId, let driverPubkey):
+            let stageBefore = stateMachine.stage
             if let _ = try? await domainService.recoverExistingConfirmation(
                 driverPubkey: driverPubkey,
                 acceptanceEventId: acceptanceEventId,
                 stateMachine: stateMachine
             ) {
-                // Recovery succeeded — state machine advanced, reconcile for new subs
+                // Recovery succeeded — state machine advanced, reconcile for new subs.
+                emitStageChangeIfNeeded(from: stageBefore)
                 await reconcileSubscriptions()
                 delegate?.sessionShouldPersist()
             } else {
@@ -312,6 +325,18 @@ public final class RiderRideSession {
         precisePickup: Location,
         preciseDestination: Location
     ) async {
+        guard stateMachine.stage == .idle else {
+            let error = RidestrError.ride(
+                .stateMachineViolation(
+                    from: stateMachine.stage.rawValue,
+                    to: RiderStage.waitingForAcceptance.rawValue
+                )
+            )
+            lastError = error
+            delegate?.sessionDidEncounterError(error)
+            return
+        }
+
         self.precisePickup = precisePickup
         self.preciseDestination = preciseDestination
 
@@ -335,7 +360,7 @@ public final class RiderRideSession {
     /// Cancel the current ride. Best-effort publish of cancellation/deletion event.
     /// Pass `terminalOverride` to emit a different terminal outcome (e.g., `.bruteForcePin`).
     public func cancelRide(reason: String? = nil, terminalOverride: RideSessionTerminalOutcome? = nil) async {
-        guard stateMachine.stage.canCancel else { return }
+        guard canFinalizeCancellation(terminalOverride: terminalOverride) else { return }
         let stageBefore = stateMachine.stage
         _ = try? await domainService.publishTermination(for: stateMachine, reason: reason)
         await teardownAll()
@@ -344,6 +369,18 @@ public final class RiderRideSession {
         emitStageChangeIfNeeded(from: stageBefore)
         delegate?.sessionDidReachTerminal(terminalOverride ?? .cancelledByRider(reason: reason))
         delegate?.sessionShouldPersist()
+    }
+
+    private func canFinalizeCancellation(terminalOverride: RideSessionTerminalOutcome?) -> Bool {
+        if stateMachine.stage.canCancel {
+            return true
+        }
+        guard case .bruteForcePin? = terminalOverride else {
+            return false
+        }
+        return stateMachine.stage == .idle &&
+            stateMachine.confirmationEventId != nil &&
+            stateMachine.driverPubkey != nil
     }
 
     /// Dismiss a completed ride. Resets session to idle.
@@ -590,16 +627,23 @@ public final class RiderRideSession {
         var processedSuccessfully = false
         defer { pinDeduplicator.finishProcessing(action, processed: processedSuccessfully) }
 
-        let stageBefore = stateMachine.stage
+        let plan: RiderRideDomainService.PinVerificationPlan
         do {
-            let plan = try domainService.preparePinVerificationResponse(
+            plan = try domainService.preparePinVerificationResponse(
                 pinEncrypted: action.pinEncrypted ?? "",
                 driverPubkey: driverPubkey,
                 confirmationEventId: confirmationEventId,
                 destination: preciseDestination,
                 stateMachine: stateMachine
             )
+        } catch {
+            lastError = error
+            delegate?.sessionDidEncounterError(error)
+            return
+        }
 
+        let stageBefore = stateMachine.stage
+        do {
             try await domainService.publishPinVerificationResponse(
                 plan,
                 stateMachine: stateMachine
@@ -616,6 +660,9 @@ public final class RiderRideSession {
         } catch {
             lastError = error
             delegate?.sessionDidEncounterError(error)
+            if plan.shouldCancelForBruteForce {
+                await cancelRide(reason: "PIN verification failed", terminalOverride: .bruteForcePin)
+            }
         }
     }
 

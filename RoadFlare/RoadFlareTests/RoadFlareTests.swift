@@ -359,9 +359,22 @@ struct UserDefaultsDriversPersistenceTests {
     @Test func saveAndLoadNames() {
         let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
         let p = UserDefaultsDriversPersistence(defaults: defaults)
+        p.saveDrivers([FollowedDriver(pubkey: "d1"), FollowedDriver(pubkey: "d2")])
         p.saveDriverNames(["d1": "Alice", "d2": "Bob"])
         let loaded = p.loadDriverNames()
         #expect(loaded["d1"] == "Alice")
+        #expect(loaded["d2"] == "Bob")
+    }
+
+    @Test func loadDriverNamesDropsOrphans() {
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let p = UserDefaultsDriversPersistence(defaults: defaults)
+        p.saveDrivers([FollowedDriver(pubkey: "d1")])
+        p.saveDriverNames(["d1": "Alice", "d2": "Bob"])
+
+        let loaded = p.loadDriverNames()
+
+        #expect(loaded == ["d1": "Alice"])
     }
 
     @Test func emptyOnInit() {
@@ -398,34 +411,64 @@ struct UserDefaultsDriversPersistenceTests {
 
 // MARK: - RideStatePersistence Tests
 
+@MainActor
 @Suite("RideStatePersistence Tests", .serialized)
 struct RideStatePersistenceTests {
     init() { RideStatePersistence.clear() }
+
+    private func makeRestoredSession(
+        stage: RiderStage,
+        pin: String? = "1234",
+        confirmationId: String? = "conf1",
+        pinAttempts: Int = 0,
+        paymentMethod: String? = "zelle",
+        fiatPaymentMethods: [String] = ["zelle", "venmo"],
+        lastDriverStatus: String? = nil,
+        lastDriverStateTimestamp: Int = 0,
+        lastDriverActionCount: Int = 0
+    ) throws -> RiderRideSession {
+        let keypair = try NostrKeypair.generate()
+        let session = RiderRideSession(relayManager: FakeRelayManager(), keypair: keypair)
+        session.restore(
+            stage: stage,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: confirmationId,
+            driverPubkey: "d1",
+            pin: pin,
+            pinAttempts: pinAttempts,
+            pinVerified: false,
+            paymentMethod: paymentMethod,
+            fiatPaymentMethods: fiatPaymentMethods,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp,
+            lastDriverActionCount: lastDriverActionCount
+        )
+        return session
+    }
 
     private func setupAndSave(
         stage: RiderStage,
         pin: String? = "1234",
         confirmationId: String? = "conf1",
         pinAttempts: Int = 0
-    ) {
-        let sm = RideStateMachine()
-        sm.restore(
-            stage: stage, offerEventId: "o1", acceptanceEventId: "a1",
-            confirmationEventId: confirmationId, driverPubkey: "d1",
-            pin: pin, pinAttempts: pinAttempts, pinVerified: false,
-            paymentMethod: "zelle", fiatPaymentMethods: ["zelle", "venmo"]
+    ) throws {
+        let session = try makeRestoredSession(
+            stage: stage,
+            pin: pin,
+            confirmationId: confirmationId,
+            pinAttempts: pinAttempts
         )
         RideStatePersistence.save(
-            stateMachine: sm,
-            pickupLocation: Location(latitude: 40.71, longitude: -74.01, address: "Penn Station"),
-            destinationLocation: Location(latitude: 40.76, longitude: -73.98, address: "Central Park"),
-            fareEstimate: FareEstimate(distanceMiles: 5.5, durationMinutes: 18, fareUSD: 12.50),
-            paymentMethod: "zelle"
+            session: session,
+            pickup: Location(latitude: 40.71, longitude: -74.01, address: "Penn Station"),
+            destination: Location(latitude: 40.76, longitude: -73.98, address: "Central Park"),
+            fare: FareEstimate(distanceMiles: 5.5, durationMinutes: 18, fareUSD: 12.50)
         )
     }
 
-    @Test func saveAndLoad() {
-        setupAndSave(stage: .rideConfirmed)
+    @Test func saveAndLoad() throws {
+        try setupAndSave(stage: .rideConfirmed)
         let loaded = RideStatePersistence.load()
         #expect(loaded != nil)
         #expect(loaded?.stage == "rideConfirmed")
@@ -442,36 +485,21 @@ struct RideStatePersistenceTests {
         RideStatePersistence.clear()
     }
 
-    @Test func saveCanOmitDriverStateCursor() {
-        let sm = RideStateMachine()
-        sm.restore(
+    @Test func savePersistsDriverStateCursorFromSession() throws {
+        let session = try makeRestoredSession(
             stage: .driverArrived,
-            offerEventId: "o1",
-            acceptanceEventId: "a1",
-            confirmationEventId: "conf1",
-            driverPubkey: "d1",
-            pin: "1234",
-            pinVerified: false,
             paymentMethod: "zelle",
             fiatPaymentMethods: ["zelle"],
             lastDriverStatus: "arrived",
             lastDriverStateTimestamp: 1_700_000_100,
             lastDriverActionCount: 1
         )
-
-        RideStatePersistence.save(
-            stateMachine: sm,
-            pickupLocation: nil,
-            destinationLocation: nil,
-            fareEstimate: nil,
-            paymentMethod: "zelle",
-            persistDriverStateCursor: false
-        )
+        RideStatePersistence.save(session: session, pickup: nil, destination: nil, fare: nil)
 
         let loaded = RideStatePersistence.load()
         #expect(loaded?.lastDriverStatus == "arrived")
-        #expect(loaded?.lastDriverStateTimestamp == nil)
-        #expect(loaded?.lastDriverActionCount == nil)
+        #expect(loaded?.lastDriverStateTimestamp == 1_700_000_100)
+        #expect(loaded?.lastDriverActionCount == 1)
         RideStatePersistence.clear()
     }
 
@@ -480,80 +508,79 @@ struct RideStatePersistenceTests {
         #expect(RideStatePersistence.load() == nil)
     }
 
-    @Test func loadIgnoresIdle() {
-        setupAndSave(stage: .idle)
+    @Test func loadIgnoresIdle() throws {
+        try setupAndSave(stage: .idle)
         #expect(RideStatePersistence.load() == nil)
         RideStatePersistence.clear()
     }
 
-    @Test func loadIgnoresCompleted() {
-        setupAndSave(stage: .completed)
+    @Test func loadIgnoresCompleted() throws {
+        try setupAndSave(stage: .completed)
         #expect(RideStatePersistence.load() == nil)
         RideStatePersistence.clear()
     }
 
-    @Test func loadAcceptsWaitingForAcceptance() {
-        setupAndSave(stage: .waitingForAcceptance)
+    @Test func loadAcceptsWaitingForAcceptance() throws {
+        try setupAndSave(stage: .waitingForAcceptance)
         #expect(RideStatePersistence.load()?.stage == "waitingForAcceptance")
         RideStatePersistence.clear()
     }
 
-    @Test func waitingForAcceptanceSurvivesShortRelaunchWithinOfferLifetime() {
-        setupAndSave(stage: .waitingForAcceptance)
+    @Test func waitingForAcceptanceSurvivesShortRelaunchWithinOfferLifetime() throws {
+        try setupAndSave(stage: .waitingForAcceptance)
         let stillLiveAt = Date.now.addingTimeInterval(60)
         #expect(RideStatePersistence.load(now: stillLiveAt)?.stage == "waitingForAcceptance")
         RideStatePersistence.clear()
     }
 
-    @Test func waitingForAcceptanceExpiresWithDriverOfferVisibilityWindow() {
-        setupAndSave(stage: .waitingForAcceptance)
+    @Test func waitingForAcceptanceExpiresWithDriverOfferVisibilityWindow() throws {
+        try setupAndSave(stage: .waitingForAcceptance)
         let expiredAt = Date.now.addingTimeInterval(TimeInterval(RideStatePersistence.interopOfferVisibilitySeconds + 1))
         #expect(RideStatePersistence.load(now: expiredAt) == nil)
         RideStatePersistence.clear()
     }
 
-    @Test func loadAcceptsDriverAccepted() {
-        setupAndSave(stage: .driverAccepted)
+    @Test func loadAcceptsDriverAccepted() throws {
+        try setupAndSave(stage: .driverAccepted)
         #expect(RideStatePersistence.load()?.stage == "driverAccepted")
         RideStatePersistence.clear()
     }
 
-    @Test func driverAcceptedExpiresWithDriverConfirmationTimeout() {
-        setupAndSave(stage: .driverAccepted)
+    @Test func driverAcceptedExpiresWithDriverConfirmationTimeout() throws {
+        try setupAndSave(stage: .driverAccepted)
         let expiredAt = Date.now.addingTimeInterval(RideConstants.confirmationTimeoutSeconds + 1)
         #expect(RideStatePersistence.load(now: expiredAt) == nil)
         RideStatePersistence.clear()
     }
 
-    @Test func loadAcceptsDriverArrived() {
-        setupAndSave(stage: .driverArrived)
+    @Test func loadAcceptsDriverArrived() throws {
+        try setupAndSave(stage: .driverArrived)
         #expect(RideStatePersistence.load()?.stage == "driverArrived")
         RideStatePersistence.clear()
     }
 
-    @Test func loadAcceptsInProgress() {
-        setupAndSave(stage: .inProgress)
+    @Test func loadAcceptsInProgress() throws {
+        try setupAndSave(stage: .inProgress)
         #expect(RideStatePersistence.load()?.stage == "inProgress")
         RideStatePersistence.clear()
     }
 
-    @Test func clearRemovesData() {
-        setupAndSave(stage: .rideConfirmed)
+    @Test func clearRemovesData() throws {
+        try setupAndSave(stage: .rideConfirmed)
         #expect(RideStatePersistence.load() != nil)
         RideStatePersistence.clear()
         #expect(RideStatePersistence.load() == nil)
     }
 
-    @Test func saveWithoutLocations() {
-        let sm = RideStateMachine()
-        sm.restore(stage: .waitingForAcceptance, offerEventId: "o1", acceptanceEventId: nil,
-                   confirmationEventId: nil, driverPubkey: "d1", pin: nil,
-                   pinVerified: false, paymentMethod: nil, fiatPaymentMethods: [])
-        RideStatePersistence.save(
-            stateMachine: sm,
-            pickupLocation: nil, destinationLocation: nil,
-            fareEstimate: nil, paymentMethod: nil
+    @Test func saveWithoutLocations() throws {
+        let session = try makeRestoredSession(
+            stage: .waitingForAcceptance,
+            pin: nil,
+            confirmationId: nil,
+            paymentMethod: nil,
+            fiatPaymentMethods: []
         )
+        RideStatePersistence.save(session: session, pickup: nil, destination: nil, fare: nil)
         let loaded = RideStatePersistence.load()
         #expect(loaded?.pickupLat == nil)
         #expect(loaded?.destLat == nil)
@@ -561,15 +588,15 @@ struct RideStatePersistenceTests {
         RideStatePersistence.clear()
     }
 
-    @Test func pinSurvivesPersistence() {
-        setupAndSave(stage: .driverArrived, pin: "5678")
+    @Test func pinSurvivesPersistence() throws {
+        try setupAndSave(stage: .driverArrived, pin: "5678")
         let loaded = RideStatePersistence.load()
         #expect(loaded?.pin == "5678")
         RideStatePersistence.clear()
     }
 
-    @Test func pinAttemptsSurvivePersistence() {
-        setupAndSave(stage: .driverArrived, pinAttempts: 3)
+    @Test func pinAttemptsSurvivePersistence() throws {
+        try setupAndSave(stage: .driverArrived, pinAttempts: 3)
         let loaded = RideStatePersistence.load()
         #expect(loaded?.pinAttempts == 3)
         RideStatePersistence.clear()

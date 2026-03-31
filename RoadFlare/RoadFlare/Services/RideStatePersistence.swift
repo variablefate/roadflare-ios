@@ -4,8 +4,8 @@ import RidestrSDK
 /// Persists active ride state to UserDefaults so it can be restored after app kill.
 struct RideStatePersistence {
     private static let key = "roadflare_active_ride_state"
-    static let interopOfferVisibilitySeconds = 2 * 60
-    static let interopConfirmationWaitSeconds = Int(RideConstants.confirmationTimeoutSeconds)
+    nonisolated static let interopOfferVisibilitySeconds = 2 * 60
+    nonisolated static let interopConfirmationWaitSeconds = Int(RideConstants.confirmationTimeoutSeconds)
 
     struct PersistedRideState: Codable {
         let stage: String
@@ -38,62 +38,61 @@ struct RideStatePersistence {
         let riderStateHistory: [RiderRideAction]?
     }
 
-    static func save(
-        stateMachine: RideStateMachine,
-        pickupLocation: Location?,
-        destinationLocation: Location?,
-        fareEstimate: FareEstimate?,
-        paymentMethod: String?,
-        processedPinActionKeys: Set<String> = [],
-        persistDriverStateCursor: Bool = true
-    ) {
-        let state = PersistedRideState(
-            stage: stateMachine.stage.rawValue,
-            offerEventId: stateMachine.offerEventId,
-            acceptanceEventId: stateMachine.acceptanceEventId,
-            confirmationEventId: stateMachine.confirmationEventId,
-            driverPubkey: stateMachine.driverPubkey,
-            pin: stateMachine.pin,
-            pinVerified: stateMachine.pinVerified,
-            paymentMethodRaw: paymentMethod,
-            fiatPaymentMethodsRaw: stateMachine.fiatPaymentMethods,
-            pickupLat: pickupLocation?.latitude,
-            pickupLon: pickupLocation?.longitude,
-            pickupAddress: pickupLocation?.address,
-            destLat: destinationLocation?.latitude,
-            destLon: destinationLocation?.longitude,
-            destAddress: destinationLocation?.address,
-            fareUSD: fareEstimate.map { "\($0.fareUSD)" },
-            fareDistanceMiles: fareEstimate.map(\.distanceMiles),
-            fareDurationMinutes: fareEstimate.map(\.durationMinutes),
-            savedAt: Int(Date.now.timeIntervalSince1970),
-            processedPinActionKeys: processedPinActionKeys.isEmpty ? nil : Array(processedPinActionKeys),
-            processedPinTimestamps: nil,
-            pinAttempts: stateMachine.pinAttempts > 0 ? stateMachine.pinAttempts : nil,
-            precisePickupShared: stateMachine.precisePickupShared ? true : nil,
-            preciseDestinationShared: stateMachine.preciseDestinationShared ? true : nil,
-            lastDriverStatus: stateMachine.lastDriverStatus,
-            lastDriverStateTimestamp: persistDriverStateCursor && stateMachine.context.lastDriverStateTimestamp > 0
-                ? stateMachine.context.lastDriverStateTimestamp
-                : nil,
-            lastDriverActionCount: persistDriverStateCursor && stateMachine.lastDriverActionCount > 0
-                ? stateMachine.lastDriverActionCount
-                : nil,
-            riderStateHistory: stateMachine.riderStateHistory.isEmpty ? nil : stateMachine.riderStateHistory
+    struct RestorePolicy: Sendable, Equatable {
+        let waitingForAcceptance: Int
+        let driverAccepted: Int
+        let postConfirmation: Int
+
+        static let interopDefault = RestorePolicy(
+            waitingForAcceptance: interopOfferVisibilitySeconds,
+            driverAccepted: interopConfirmationWaitSeconds,
+            postConfirmation: Int(EventExpiration.rideConfirmationHours * 3600)
         )
-        if let data = try? JSONEncoder().encode(state) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
     }
 
-    static func load(now: Date = .now) -> PersistedRideState? {
+    static func save(
+        session: RiderRideSession,
+        pickup: Location?,
+        destination: Location?,
+        fare: FareEstimate?,
+        savedAt: Int? = nil
+    ) {
+        save(
+            stage: session.stage.rawValue,
+            offerEventId: session.offerEventId,
+            acceptanceEventId: session.acceptanceEventId,
+            confirmationEventId: session.confirmationEventId,
+            driverPubkey: session.driverPubkey,
+            pin: session.pin,
+            pinVerified: session.pinVerified,
+            paymentMethodRaw: session.paymentMethod,
+            fiatPaymentMethodsRaw: session.fiatPaymentMethods,
+            pickupLocation: pickup ?? session.precisePickup,
+            destinationLocation: destination ?? session.preciseDestination,
+            fareEstimate: fare,
+            processedPinActionKeys: session.processedPinActionKeys,
+            pinAttempts: session.pinAttempts,
+            precisePickupShared: session.precisePickupShared,
+            preciseDestinationShared: session.preciseDestinationShared,
+            lastDriverStatus: session.lastDriverStatus,
+            lastDriverStateTimestamp: session.lastDriverStateTimestamp,
+            lastDriverActionCount: session.lastDriverActionCount,
+            riderStateHistory: session.riderStateHistory,
+            savedAt: savedAt
+        )
+    }
+
+    static func load(
+        now: Date = .now,
+        restorePolicy: RestorePolicy = .interopDefault
+    ) -> PersistedRideState? {
         guard let data = UserDefaults.standard.data(forKey: key),
               let state = try? JSONDecoder().decode(PersistedRideState.self, from: data) else {
             return nil
         }
         // Match restore windows to the latest event the app still needs for that stage.
         let age = Int(now.timeIntervalSince1970) - state.savedAt
-        guard age < maxRestoreAge(for: state.stage) else {
+        guard age < maxRestoreAge(for: state.stage, restorePolicy: restorePolicy) else {
             clear()
             return nil
         }
@@ -105,18 +104,76 @@ struct RideStatePersistence {
         return state
     }
 
-    private static func maxRestoreAge(for stage: String) -> Int {
+    private static func maxRestoreAge(for stage: String, restorePolicy: RestorePolicy) -> Int {
         switch stage {
         case RiderStage.waitingForAcceptance.rawValue:
-            interopOfferVisibilitySeconds
+            restorePolicy.waitingForAcceptance
         case RiderStage.driverAccepted.rawValue:
-            interopConfirmationWaitSeconds
+            restorePolicy.driverAccepted
         default:
-            Int(EventExpiration.rideConfirmationHours * 3600)
+            restorePolicy.postConfirmation
         }
     }
 
     static func clear() {
         UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    private static func save(
+        stage: String,
+        offerEventId: String?,
+        acceptanceEventId: String?,
+        confirmationEventId: String?,
+        driverPubkey: String?,
+        pin: String?,
+        pinVerified: Bool,
+        paymentMethodRaw: String?,
+        fiatPaymentMethodsRaw: [String],
+        pickupLocation: Location?,
+        destinationLocation: Location?,
+        fareEstimate: FareEstimate?,
+        processedPinActionKeys: Set<String>,
+        pinAttempts: Int,
+        precisePickupShared: Bool,
+        preciseDestinationShared: Bool,
+        lastDriverStatus: String?,
+        lastDriverStateTimestamp: Int,
+        lastDriverActionCount: Int,
+        riderStateHistory: [RiderRideAction],
+        savedAt: Int?
+    ) {
+        let state = PersistedRideState(
+            stage: stage,
+            offerEventId: offerEventId,
+            acceptanceEventId: acceptanceEventId,
+            confirmationEventId: confirmationEventId,
+            driverPubkey: driverPubkey,
+            pin: pin,
+            pinVerified: pinVerified,
+            paymentMethodRaw: paymentMethodRaw,
+            fiatPaymentMethodsRaw: fiatPaymentMethodsRaw,
+            pickupLat: pickupLocation?.latitude,
+            pickupLon: pickupLocation?.longitude,
+            pickupAddress: pickupLocation?.address,
+            destLat: destinationLocation?.latitude,
+            destLon: destinationLocation?.longitude,
+            destAddress: destinationLocation?.address,
+            fareUSD: fareEstimate.map { "\($0.fareUSD)" },
+            fareDistanceMiles: fareEstimate.map(\.distanceMiles),
+            fareDurationMinutes: fareEstimate.map(\.durationMinutes),
+            savedAt: savedAt ?? Int(Date.now.timeIntervalSince1970),
+            processedPinActionKeys: processedPinActionKeys.isEmpty ? nil : Array(processedPinActionKeys),
+            processedPinTimestamps: nil,
+            pinAttempts: pinAttempts > 0 ? pinAttempts : nil,
+            precisePickupShared: precisePickupShared ? true : nil,
+            preciseDestinationShared: preciseDestinationShared ? true : nil,
+            lastDriverStatus: lastDriverStatus,
+            lastDriverStateTimestamp: lastDriverStateTimestamp > 0 ? lastDriverStateTimestamp : nil,
+            lastDriverActionCount: lastDriverActionCount > 0 ? lastDriverActionCount : nil,
+            riderStateHistory: riderStateHistory.isEmpty ? nil : riderStateHistory
+        )
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
     }
 }

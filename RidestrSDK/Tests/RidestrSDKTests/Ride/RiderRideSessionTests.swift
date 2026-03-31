@@ -9,6 +9,13 @@ struct RiderRideSessionTests {
     private func makeSession(
         configuration: RiderRideSession.Configuration = .default
     ) throws -> (session: RiderRideSession, relay: FakeRelayManager) {
+        let bundle = try makeSessionBundle(configuration: configuration)
+        return (bundle.session, bundle.relay)
+    }
+
+    private func makeSessionBundle(
+        configuration: RiderRideSession.Configuration = .default
+    ) throws -> (session: RiderRideSession, relay: FakeRelayManager, keypair: NostrKeypair) {
         let keypair = try NostrKeypair.generate()
         let relay = FakeRelayManager()
         let session = RiderRideSession(
@@ -16,7 +23,7 @@ struct RiderRideSessionTests {
             keypair: keypair,
             configuration: configuration
         )
-        return (session, relay)
+        return (session, relay, keypair)
     }
 
     // MARK: - Construction
@@ -241,6 +248,37 @@ struct RiderRideSessionTests {
         #expect(session.lastError != nil)
     }
 
+    @Test func sendOfferFromNonIdleDoesNotPublishGhostOffer() async throws {
+        let (session, relay) = try makeSession()
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+        let driverPubkey = String(repeating: "d", count: 64)
+
+        session.restore(
+            stage: .waitingForAcceptance,
+            offerEventId: "o1",
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"]
+        )
+
+        await session.sendOffer(
+            driverPubkey: driverPubkey,
+            content: makeOfferContent(),
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+
+        #expect(session.stage == .waitingForAcceptance)
+        #expect(relay.publishedEvents.isEmpty)
+        #expect(tracker.errors.count == 1)
+        #expect(tracker.persistCount == 0)
+    }
+
     // MARK: - Cancel Ride
 
     @Test func cancelRideFromWaitingResetsToIdle() async throws {
@@ -357,6 +395,50 @@ struct RiderRideSessionTests {
         #expect(relay.subscribeCalls.count == 1) // acceptance sub
     }
 
+    @Test func restoreSubscriptionsRecoveryFiresStageChangeAndStartsConfirmedSubscriptions() async throws {
+        let (session, relay, rider) = try makeSessionBundle()
+        relay.keepSubscriptionsAlive = true
+        let driver = try NostrKeypair.generate()
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+        let offerEventId = String(repeating: "d", count: 64)
+        let acceptanceEventId = String(repeating: "a", count: 64)
+
+        session.restore(
+            stage: .driverAccepted,
+            offerEventId: offerEventId,
+            acceptanceEventId: acceptanceEventId,
+            confirmationEventId: nil,
+            driverPubkey: driver.publicKeyHex,
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: false
+        )
+
+        relay.fetchResults = [
+            try await RideshareEventBuilder.rideConfirmation(
+                driverPubkey: driver.publicKeyHex,
+                acceptanceEventId: acceptanceEventId,
+                precisePickup: Location(latitude: 40.71, longitude: -74.01),
+                keypair: rider
+            )
+        ]
+
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(session.stage == .rideConfirmed)
+        #expect(tracker.stageChanges.count == 1)
+        #expect(tracker.stageChanges.first?.from == .driverAccepted)
+        #expect(tracker.stageChanges.first?.to == .rideConfirmed)
+        #expect(tracker.persistCount >= 1)
+        #expect(relay.subscribeCalls.count == 2)
+        #expect(relay.subscribeCalls.contains { $0.id.rawValue.hasPrefix("driver-state-") })
+        #expect(relay.subscribeCalls.contains { $0.id.rawValue.hasPrefix("cancel-") })
+    }
+
     // MARK: - Delegate Tracking
 
     @Test func sendOfferFiresDelegateCallbacks() async throws {
@@ -401,6 +483,101 @@ struct RiderRideSessionTests {
             Issue.record("Expected cancelledByRider, got \(String(describing: tracker.terminalOutcomes.first))")
         }
         #expect(tracker.persistCount >= 1)
+    }
+
+    @Test func bruteForcePinFiresTerminalCallbackAndPublishesCancellation() async throws {
+        let (session, relay, rider) = try makeSessionBundle()
+        let driver = try NostrKeypair.generate()
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+        let offerEventId = String(repeating: "a", count: 64)
+        let acceptanceEventId = String(repeating: "b", count: 64)
+        let confirmationEventId = String(repeating: "c", count: 64)
+
+        session.restore(
+            stage: .driverArrived,
+            offerEventId: offerEventId,
+            acceptanceEventId: acceptanceEventId,
+            confirmationEventId: confirmationEventId,
+            driverPubkey: driver.publicKeyHex,
+            pin: "1234",
+            pinAttempts: RideConstants.maxPinAttempts - 1,
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true,
+            preciseDestinationShared: false,
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+
+        let wrongPinEncrypted = try NIP44.encrypt(
+            plaintext: "9999",
+            senderKeypair: driver,
+            recipientPublicKeyHex: rider.publicKeyHex
+        )
+
+        await session.respondToPin(pinEncrypted: wrongPinEncrypted)
+
+        #expect(session.stage == .idle)
+        #expect(tracker.stageChanges.count == 1)
+        #expect(tracker.stageChanges.first?.from == .driverArrived)
+        #expect(tracker.stageChanges.first?.to == .idle)
+        #expect(tracker.terminalOutcomes.count == 1)
+        if case .bruteForcePin = tracker.terminalOutcomes.first {} else {
+            Issue.record("Expected .bruteForcePin terminal outcome, got \(String(describing: tracker.terminalOutcomes.first))")
+        }
+        #expect(tracker.persistCount >= 1)
+        #expect(relay.publishedEvents.contains { $0.kind == EventKind.riderRideState.rawValue })
+        #expect(relay.publishedEvents.contains { $0.kind == EventKind.cancellation.rawValue })
+        #expect(session.precisePickup == nil)
+        #expect(session.preciseDestination == nil)
+    }
+
+    @Test func bruteForcePinCancelsEvenWhenRiderStatePublishFails() async throws {
+        let (session, relay, rider) = try makeSessionBundle()
+        let driver = try NostrKeypair.generate()
+        let tracker = DelegateTracker()
+        session.delegate = tracker
+
+        relay.shouldFailPublish = true
+
+        session.restore(
+            stage: .driverArrived,
+            offerEventId: String(repeating: "a", count: 64),
+            acceptanceEventId: String(repeating: "b", count: 64),
+            confirmationEventId: String(repeating: "c", count: 64),
+            driverPubkey: driver.publicKeyHex,
+            pin: "1234",
+            pinAttempts: RideConstants.maxPinAttempts - 1,
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true,
+            preciseDestinationShared: false,
+            precisePickup: Location(latitude: 40.71, longitude: -74.01),
+            preciseDestination: Location(latitude: 40.76, longitude: -73.98)
+        )
+
+        let wrongPinEncrypted = try NIP44.encrypt(
+            plaintext: "9999",
+            senderKeypair: driver,
+            recipientPublicKeyHex: rider.publicKeyHex
+        )
+
+        await session.respondToPin(pinEncrypted: wrongPinEncrypted)
+
+        #expect(session.stage == .idle)
+        #expect(tracker.errors.count == 1)
+        #expect(tracker.stageChanges.count == 1)
+        #expect(tracker.stageChanges.first?.from == .driverArrived)
+        #expect(tracker.stageChanges.first?.to == .idle)
+        #expect(tracker.persistCount >= 1)
+        #expect(tracker.terminalOutcomes.count == 1)
+        if case .bruteForcePin = tracker.terminalOutcomes.first {} else {
+            Issue.record("Expected .bruteForcePin terminal outcome, got \(String(describing: tracker.terminalOutcomes.first))")
+        }
+        #expect(relay.publishedEvents.isEmpty)
     }
 
     @Test func dismissCompletedFiresStageChangeNotTerminal() async throws {
@@ -627,6 +804,34 @@ struct RiderRideSessionTests {
         try await Task.sleep(for: .milliseconds(50))
 
         #expect(relay.subscribeCalls.count == 2) // Both restarted
+    }
+
+    @Test func repeatedRestoreThenTeardownLeavesNoLiveSubscriptions() async throws {
+        let (session, relay) = try makeSession()
+        relay.keepSubscriptionsAlive = true
+        let driverPubkey = String(repeating: "d", count: 64)
+
+        session.restore(
+            stage: .rideConfirmed,
+            offerEventId: "o1",
+            acceptanceEventId: "a1",
+            confirmationEventId: "c1",
+            driverPubkey: driverPubkey,
+            pin: "1234",
+            pinVerified: false,
+            paymentMethod: "cash",
+            fiatPaymentMethods: ["cash"],
+            precisePickupShared: true
+        )
+
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+        await session.restoreSubscriptions()
+        try await Task.sleep(for: .milliseconds(50))
+        await session.teardownAll()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(relay.activeSubscriptionCount == 0)
     }
 
     // MARK: - Helpers
