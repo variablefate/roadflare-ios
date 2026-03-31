@@ -224,7 +224,7 @@ struct PaymentMethodPicker: View {
             .buttonStyle(.plain)
         }
         .alert("Custom Payment Method", isPresented: $showAddCustom) {
-            TextField("e.g., Apple Pay, Venmo Business", text: $customName)
+            TextField("e.g., Sand Dollars, Glass Beads", text: $customName)
             Button("Add") {
                 switch settings.addCustomPaymentMethod(customName) {
                 case .added:

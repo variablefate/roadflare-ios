@@ -31,7 +31,15 @@ struct HistoryTab: View {
                     ScrollView {
                         LazyVStack(spacing: 12) {
                             ForEach(appState.rideHistory.rides) { ride in
-                                RideHistoryCard(ride: ride)
+                                SwipeToDeleteRow {
+                                    // History cards are currently read-only.
+                                } onDelete: {
+                                    withAnimation {
+                                        appState.rideHistory.removeRide(id: ride.id)
+                                    }
+                                } content: {
+                                    RideHistoryCard(ride: ride)
+                                }
                             }
                         }
                         .padding(.horizontal, 16)

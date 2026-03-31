@@ -1,0 +1,30 @@
+Tired of faceless rideshare apps? RoadFlare lets you request rides from people you already know and trust for the job. Build your personal driver network, pay however you want, and it goes straight to your driver. No surge pricing. No platform fees. No middleman.
+
+---
+
+App Store Connect Notes
+=======================
+
+Category: Travel
+Price: Free
+Age Rating: 4+
+Support URL: https://roadflare.app
+Support Email: support@roadflare.app
+Privacy Policy: https://roadflare.app/privacy
+Terms of Use: https://roadflare.app/terms
+
+Privacy Nutrition Labels
+------------------------
+Data Not Collected.
+
+RoadFlare does not collect user data. Location is encrypted end-to-end to the
+driver via Nostr — never seen by RoadFlare. Display names are optional and not
+linked to real identity. Nostr keypairs are generated and stored locally on
+device. Nostr relays are third-party infrastructure; RoadFlare does not operate
+or read data from them.
+
+Still Needed
+------------
+- App Store screenshots (6.7" and 6.1" minimum)
+- Keywords for App Store search
+- Upload build via Xcode (Product > Archive > Distribute App)
