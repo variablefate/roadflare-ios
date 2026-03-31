@@ -1,6 +1,5 @@
 # Xcode
-*.xcodeproj/xcuserdata/
-*.xcworkspace/xcuserdata/
+**/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 DerivedData/
 build/
@@ -20,6 +19,9 @@ Package.resolved
 
 # Local product docs
 PRD.md
+
+# Branding backups (local-only design iterations)
+Branding/backups/
 
 # CocoaPods (not used, but just in case)
 Pods/
