@@ -48,6 +48,7 @@ private struct LaunchLoadingView: View {
                 ProgressView()
                     .tint(Color.rfPrimary)
                     .scaleEffect(1.2)
+                    .accessibilityLabel("Loading")
             }
         }
         .onAppear { pulse = true }
