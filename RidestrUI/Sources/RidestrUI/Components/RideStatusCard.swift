@@ -24,6 +24,9 @@ public struct RideStatusCard: View {
     public let pin: String?
     public let fareEstimate: FareEstimate?
     public let paymentMethods: [String]
+    public let driverName: String?
+    public let pickupAddress: String?
+    public let destinationAddress: String?
 
     public var unreadChatCount: Int
     public var onCancel: (() -> Void)?
@@ -35,6 +38,9 @@ public struct RideStatusCard: View {
         pin: String? = nil,
         fareEstimate: FareEstimate? = nil,
         paymentMethods: [String] = [],
+        driverName: String? = nil,
+        pickupAddress: String? = nil,
+        destinationAddress: String? = nil,
         unreadChatCount: Int = 0,
         onCancel: (() -> Void)? = nil,
         onChat: (() -> Void)? = nil,
@@ -44,6 +50,9 @@ public struct RideStatusCard: View {
         self.pin = pin
         self.fareEstimate = fareEstimate
         self.paymentMethods = paymentMethods
+        self.driverName = driverName
+        self.pickupAddress = pickupAddress
+        self.destinationAddress = destinationAddress
         self.unreadChatCount = unreadChatCount
         self.onCancel = onCancel
         self.onChat = onChat
@@ -72,7 +81,7 @@ public struct RideStatusCard: View {
     // MARK: - Waiting
 
     private var waitingView: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 24) {
             Spacer()
             ProgressView()
                 .scaleEffect(1.5)
@@ -83,6 +92,12 @@ public struct RideStatusCard: View {
             Text("This usually takes a few seconds")
                 .font(theme.body(14))
                 .foregroundColor(theme.onSurfaceSecondaryColor)
+
+            if let fare = fareEstimate {
+                FareEstimateView(estimate: fare, paymentMethods: paymentMethods, displayMode: .compact)
+                    .padding(.horizontal, 24)
+            }
+
             Spacer()
             if let onCancel {
                 Button("Cancel Request") { onCancel() }
@@ -101,20 +116,35 @@ public struct RideStatusCard: View {
     // MARK: - En Route
 
     private var enRouteView: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 20) {
             Spacer()
             ZStack {
-                Circle().fill(theme.accentColor.opacity(0.1)).frame(width: 120, height: 120)
+                Circle().fill(theme.accentColor.opacity(0.1)).frame(width: 100, height: 100)
                 Image(systemName: "car.fill")
-                    .font(.system(size: 48))
+                    .font(.system(size: 44))
                     .foregroundColor(theme.accentColor)
             }
-            Text("Driver is on the way!")
-                .font(theme.headline(24))
-                .foregroundColor(theme.onSurfaceColor)
-            Text("Heading to your pickup location")
-                .font(theme.body(15))
-                .foregroundColor(theme.onSurfaceSecondaryColor)
+            if let driverName, !driverName.isEmpty {
+                Text("\(driverName) is on the way!")
+                    .font(theme.headline(22))
+                    .foregroundColor(theme.onSurfaceColor)
+            } else {
+                Text("Driver is on the way!")
+                    .font(theme.headline(22))
+                    .foregroundColor(theme.onSurfaceColor)
+            }
+
+            rideSummaryCard
+
+            if let pin, stage == .rideConfirmed || stage == .enRoute {
+                VStack(spacing: 6) {
+                    Text("Your Pickup PIN")
+                        .font(theme.caption(12))
+                        .foregroundColor(theme.onSurfaceSecondaryColor)
+                    PINDisplayView(pin: pin)
+                }
+            }
+
             Spacer()
             actionButtons
             Spacer().frame(height: 40)
@@ -125,14 +155,20 @@ public struct RideStatusCard: View {
     // MARK: - Arrived (PIN)
 
     private var arrivedView: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 20) {
             Spacer()
             Image(systemName: "mappin.circle.fill")
                 .font(.system(size: 56))
                 .foregroundColor(theme.successColor)
-            Text("Driver Has Arrived!")
-                .font(theme.headline(24))
-                .foregroundColor(theme.onSurfaceColor)
+            if let driverName, !driverName.isEmpty {
+                Text("\(driverName) has arrived!")
+                    .font(theme.headline(24))
+                    .foregroundColor(theme.onSurfaceColor)
+            } else {
+                Text("Driver Has Arrived!")
+                    .font(theme.headline(24))
+                    .foregroundColor(theme.onSurfaceColor)
+            }
             if let pin {
                 Text("Show this PIN to your driver:")
                     .font(theme.body(14))
@@ -224,6 +260,50 @@ public struct RideStatusCard: View {
                 .padding(.horizontal, 24)
             }
             Spacer().frame(height: 40)
+        }
+    }
+
+    // MARK: - Ride Summary Card
+
+    @ViewBuilder
+    private var rideSummaryCard: some View {
+        let hasContent = pickupAddress != nil || destinationAddress != nil || fareEstimate != nil
+        if hasContent {
+            VStack(spacing: 0) {
+                if let pickup = pickupAddress {
+                    HStack(spacing: 10) {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(theme.successColor)
+                        Text(pickup)
+                            .font(theme.body(14))
+                            .foregroundColor(theme.onSurfaceColor)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                }
+                if let dest = destinationAddress {
+                    HStack(spacing: 10) {
+                        Image(systemName: "mappin.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(theme.accentColor)
+                        Text(dest)
+                            .font(theme.body(14))
+                            .foregroundColor(theme.onSurfaceColor)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.vertical, 10)
+                }
+                if let fare = fareEstimate {
+                    Divider().padding(.vertical, 4)
+                    FareEstimateView(estimate: fare, paymentMethods: paymentMethods, displayMode: .compact)
+                }
+            }
+            .padding(16)
+            .background(theme.surfaceSecondaryColor)
+            .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
         }
     }
 
