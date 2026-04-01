@@ -220,21 +220,23 @@ struct RideHistoryRepositoryTests {
     }
 }
 
-// MARK: - SavedLocationsStore Tests
+// MARK: - SavedLocationsRepository Tests
 
-@Suite("SavedLocationsStore Tests")
-struct SavedLocationsStoreTests {
-    @MainActor
+@Suite("SavedLocationsRepository Tests")
+struct SavedLocationsRepositoryTests {
+    private func makeRepo() -> SavedLocationsRepository {
+        SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
+    }
+
     @Test func recentsDoNotTriggerFavoritesChanged() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let store = SavedLocationsStore(defaults: defaults)
+        let repo = makeRepo()
         var changeCount = 0
         var favoritesChangeCount = 0
 
-        store.onChange = { changeCount += 1 }
-        store.onFavoritesChanged = { favoritesChangeCount += 1 }
+        repo.onChange = { changeCount += 1 }
+        repo.onFavoritesChanged = { favoritesChangeCount += 1 }
 
-        store.addRecent(
+        repo.addRecent(
             latitude: 36.17,
             longitude: -115.14,
             displayName: "Airport",
@@ -245,13 +247,11 @@ struct SavedLocationsStoreTests {
         #expect(favoritesChangeCount == 0)
     }
 
-    @MainActor
     @Test func pinningFavoriteTriggersFavoritesChanged() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let store = SavedLocationsStore(defaults: defaults)
+        let repo = makeRepo()
         var favoritesChangeCount = 0
 
-        store.onFavoritesChanged = { favoritesChangeCount += 1 }
+        repo.onFavoritesChanged = { favoritesChangeCount += 1 }
 
         let recent = SavedLocation(
             id: "home",
@@ -261,11 +261,30 @@ struct SavedLocationsStoreTests {
             addressLine: "123 Main St",
             isPinned: false
         )
-        store.save(recent)
-        store.pin(id: "home", nickname: "Home")
+        repo.save(recent)
+        repo.pin(id: "home", nickname: "Home")
 
         #expect(favoritesChangeCount == 1)
-        #expect(store.favorites.count == 1)
+        #expect(repo.favorites.count == 1)
+    }
+
+    @Test func restoreFromBackupReplacesAll() {
+        let repo = makeRepo()
+        repo.addRecent(latitude: 1, longitude: 2, displayName: "Old", addressLine: "Old St")
+        repo.restoreFromBackup([
+            SavedLocation(latitude: 3, longitude: 4, displayName: "New", addressLine: "New Ave", isPinned: true, nickname: "Work")
+        ])
+        #expect(repo.locations.count == 1)
+        #expect(repo.favorites.count == 1)
+    }
+
+    @Test func persistsViaPersistence() {
+        let persistence = InMemorySavedLocationsPersistence()
+        let repo1 = SavedLocationsRepository(persistence: persistence)
+        repo1.save(SavedLocation(latitude: 40, longitude: -74, displayName: "NYC", addressLine: "Broadway", isPinned: true, nickname: "Office"))
+        let repo2 = SavedLocationsRepository(persistence: persistence)
+        #expect(repo2.locations.count == 1)
+        #expect(repo2.favorites.first?.nickname == "Office")
     }
 }
 

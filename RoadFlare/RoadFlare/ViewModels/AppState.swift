@@ -39,7 +39,7 @@ final class AppState {
     private(set) var fareCalculator: FareCalculator?
     private(set) var remoteConfigManager: RemoteConfigManager?
     let rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
-    let savedLocations = SavedLocationsStore()
+    let savedLocations = SavedLocationsRepository(persistence: UserDefaultsSavedLocationsPersistence())
     let bitcoinPrice = BitcoinPriceService()
 
     // MARK: - User State
@@ -464,25 +464,17 @@ final class AppState {
             settings.setRoadflarePaymentMethods(backup.settings.roadflarePaymentMethods)
         }
 
-        savedLocations.performWithoutChangeTracking {
-            let currentLocations = savedLocations.locations
-            for location in currentLocations {
-                savedLocations.remove(id: location.id)
-            }
-
-            for loc in backup.savedLocations {
-                savedLocations.save(SavedLocation(
-                    id: UUID().uuidString,
-                    latitude: loc.lat,
-                    longitude: loc.lon,
-                    displayName: loc.displayName,
-                    addressLine: loc.addressLine ?? loc.displayName,
-                    isPinned: loc.isPinned,
-                    nickname: loc.nickname,
-                    timestampMs: loc.timestampMs ?? Int(Date.now.timeIntervalSince1970 * 1000)
-                ))
-            }
-        }
+        savedLocations.restoreFromBackup(backup.savedLocations.map { loc in
+            SavedLocation(
+                latitude: loc.lat,
+                longitude: loc.lon,
+                displayName: loc.displayName,
+                addressLine: loc.addressLine ?? loc.displayName,
+                isPinned: loc.isPinned,
+                nickname: loc.nickname,
+                timestampMs: loc.timestampMs ?? Int(Date.now.timeIntervalSince1970 * 1000)
+            )
+        })
 
         if !backup.savedLocations.isEmpty {
             AppLogger.auth.info("Restored \(backup.savedLocations.count) saved locations")
