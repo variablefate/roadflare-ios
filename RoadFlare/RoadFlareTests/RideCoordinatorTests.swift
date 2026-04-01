@@ -16,7 +16,7 @@ struct RideCoordinatorTests {
         clearRidePersistence: Bool = true,
         roadflarePaymentMethods: [String] = ["zelle"],
         stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault
-    ) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryStore) {
+    ) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryRepository) {
         if clearRidePersistence {
             RideStatePersistence.clear()
         }
@@ -28,7 +28,7 @@ struct RideCoordinatorTests {
         let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
         let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
         settings.setRoadflarePaymentMethods(roadflarePaymentMethods)
-        let history = RideHistoryStore(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let history = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
         let bitcoinPrice = BitcoinPriceService()
         bitcoinPrice.btcPriceUsdForTesting = 100_000
 

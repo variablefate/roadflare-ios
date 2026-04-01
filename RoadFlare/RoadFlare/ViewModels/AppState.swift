@@ -38,7 +38,7 @@ final class AppState {
     private(set) var rideCoordinator: RideCoordinator?
     private(set) var fareCalculator: FareCalculator?
     private(set) var remoteConfigManager: RemoteConfigManager?
-    let rideHistory = RideHistoryStore()
+    let rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
     let savedLocations = SavedLocationsStore()
     let bitcoinPrice = BitcoinPriceService()
 

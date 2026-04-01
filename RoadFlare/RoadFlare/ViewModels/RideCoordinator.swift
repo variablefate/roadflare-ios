@@ -22,7 +22,7 @@ final class RideCoordinator {
     let session: RiderRideSession
 
     private let settings: UserSettings
-    private let rideHistory: RideHistoryStore
+    private let rideHistory: RideHistoryRepository
     private let bitcoinPrice: BitcoinPriceService
     private let roadflareDomainService: RoadflareDomainService?
     private let roadflareSyncStore: RoadflareSyncStateStore?
@@ -51,7 +51,7 @@ final class RideCoordinator {
         keypair: NostrKeypair,
         driversRepository: FollowedDriversRepository,
         settings: UserSettings,
-        rideHistory: RideHistoryStore,
+        rideHistory: RideHistoryRepository,
         bitcoinPrice: BitcoinPriceService? = nil,
         roadflareDomainService: RoadflareDomainService? = nil,
         roadflareSyncStore: RoadflareSyncStateStore? = nil,

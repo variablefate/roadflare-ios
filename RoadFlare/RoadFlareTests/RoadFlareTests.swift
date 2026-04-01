@@ -128,13 +128,12 @@ struct UserSettingsTests {
     }
 }
 
-// MARK: - RideHistoryStore Tests
+// MARK: - RideHistoryRepository Tests
 
-@Suite("RideHistoryStore Tests")
-struct RideHistoryStoreTests {
-    @MainActor
-    private func makeStore() -> RideHistoryStore {
-        RideHistoryStore(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+@Suite("RideHistoryRepository Tests")
+struct RideHistoryRepositoryTests {
+    private func makeRepo() -> RideHistoryRepository {
+        RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
     }
 
     private func makeEntry(id: String = UUID().uuidString, fare: Decimal = 10.0) -> RideHistoryEntry {
@@ -147,60 +146,77 @@ struct RideHistoryStoreTests {
         )
     }
 
-    @MainActor
     @Test func emptyOnInit() {
-        let store = makeStore()
-        #expect(store.rides.isEmpty)
+        let repo = makeRepo()
+        #expect(repo.rides.isEmpty)
     }
 
-    @MainActor
     @Test func addRide() {
-        let store = makeStore()
-        store.addRide(makeEntry(id: "ride1"))
-        #expect(store.rides.count == 1)
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "ride1"))
+        #expect(repo.rides.count == 1)
     }
 
-    @MainActor
     @Test func addRideDeduplicatesById() {
-        let store = makeStore()
-        store.addRide(makeEntry(id: "ride1"))
-        store.addRide(makeEntry(id: "ride1"))
-        #expect(store.rides.count == 1)
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "ride1"))
+        repo.addRide(makeEntry(id: "ride1"))
+        #expect(repo.rides.count == 1)
     }
 
-    @MainActor
     @Test func addRideNewestFirst() {
-        let store = makeStore()
-        store.addRide(makeEntry(id: "old"))
-        store.addRide(makeEntry(id: "new"))
-        #expect(store.rides.first?.id == "new")
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "old"))
+        repo.addRide(makeEntry(id: "new"))
+        #expect(repo.rides.first?.id == "new")
     }
 
-    @MainActor
     @Test func removeRide() {
-        let store = makeStore()
-        store.addRide(makeEntry(id: "ride1"))
-        store.addRide(makeEntry(id: "ride2"))
-        store.removeRide(id: "ride1")
-        #expect(store.rides.count == 1)
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "ride1"))
+        repo.addRide(makeEntry(id: "ride2"))
+        repo.removeRide(id: "ride1")
+        #expect(repo.rides.count == 1)
     }
 
-    @MainActor
     @Test func clearAll() {
-        let store = makeStore()
-        store.addRide(makeEntry(id: "ride1"))
-        store.clearAll()
-        #expect(store.rides.isEmpty)
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "ride1"))
+        repo.clearAll()
+        #expect(repo.rides.isEmpty)
     }
 
-    @MainActor
-    @Test func persistsAcrossInit() {
-        let suiteName = "test_\(UUID().uuidString)"
-        let s1 = RideHistoryStore(defaults: UserDefaults(suiteName: suiteName)!)
-        s1.addRide(makeEntry(id: "ride1", fare: 15.50))
-        let s2 = RideHistoryStore(defaults: UserDefaults(suiteName: suiteName)!)
-        #expect(s2.rides.count == 1)
-        #expect(s2.rides.first?.fare == 15.50)
+    @Test func mergeFromBackupAddsNew() {
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "local"))
+        let merged = repo.mergeFromBackup([makeEntry(id: "remote")])
+        #expect(merged)
+        #expect(repo.rides.count == 2)
+    }
+
+    @Test func mergeFromBackupSkipsDuplicates() {
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "ride1"))
+        let merged = repo.mergeFromBackup([makeEntry(id: "ride1")])
+        #expect(!merged)
+        #expect(repo.rides.count == 1)
+    }
+
+    @Test func restoreFromBackupReplacesAll() {
+        let repo = makeRepo()
+        repo.addRide(makeEntry(id: "local"))
+        repo.restoreFromBackup([makeEntry(id: "remote1"), makeEntry(id: "remote2")])
+        #expect(repo.rides.count == 2)
+        #expect(!repo.rides.contains { $0.id == "local" })
+    }
+
+    @Test func persistsViaPersistence() {
+        let persistence = InMemoryRideHistoryPersistence()
+        let repo1 = RideHistoryRepository(persistence: persistence)
+        repo1.addRide(makeEntry(id: "ride1", fare: 15.50))
+        let repo2 = RideHistoryRepository(persistence: persistence)
+        #expect(repo2.rides.count == 1)
+        #expect(repo2.rides.first?.fare == 15.50)
     }
 }
 
