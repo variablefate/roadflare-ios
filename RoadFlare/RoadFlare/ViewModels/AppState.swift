@@ -74,9 +74,6 @@ final class AppState {
         settings.onProfileBackupChanged = { [weak self] in
             self?.roadflareSyncStore?.markDirty(.profileBackup)
         }
-        savedLocations.onChange = { [weak self] in
-            self?.roadflareSyncStore?.markDirty(.profileBackup)
-        }
     }
 
     private static let hasLaunchedKey = "roadflare_has_launched"
@@ -532,6 +529,7 @@ final class AppState {
         self.driversRepository = repo
         configureDriversRepositoryTracking(repo, syncStore: syncStore)
         configureRideHistoryTracking(syncStore: syncStore)
+        configureSavedLocationsTracking(syncStore: syncStore)
         let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
         self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
@@ -569,6 +567,7 @@ final class AppState {
         self.driversRepository = repo
         configureDriversRepositoryTracking(repo, syncStore: syncStore)
         configureRideHistoryTracking(syncStore: syncStore)
+        configureSavedLocationsTracking(syncStore: syncStore)
         let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
         self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
@@ -612,6 +611,12 @@ final class AppState {
     private func configureRideHistoryTracking(syncStore: RoadflareSyncStateStore?) {
         rideHistory.onRidesChanged = {
             syncStore?.markDirty(.rideHistory)
+        }
+    }
+
+    private func configureSavedLocationsTracking(syncStore: RoadflareSyncStateStore?) {
+        savedLocations.onChange = {
+            syncStore?.markDirty(.profileBackup)
         }
     }
 
