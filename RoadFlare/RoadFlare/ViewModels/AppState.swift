@@ -672,7 +672,10 @@ final class AppState {
             driversPersistence.saveDrivers([])
             driversPersistence.saveDriverNames([:])
         }
+        rideHistory.onRidesChanged = nil
         rideHistory.clearAll()
+        savedLocations.onChange = nil
+        savedLocations.onFavoritesChanged = nil
         savedLocations.clearAll()
         settings.clearAll()
         profileBackupSettingsTemplate = SettingsBackupContent()
