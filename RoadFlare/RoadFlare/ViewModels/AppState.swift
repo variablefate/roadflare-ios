@@ -500,6 +500,11 @@ final class AppState {
             metadata: metadata,
             remoteCreatedAt: remote.latestSeenCreatedAt
         )
+        let shouldSeedLegacyLocal = RoadflareDomainService.shouldSeedLegacyLocalState(
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt,
+            hasLocalState: !rideHistory.rides.isEmpty
+        )
 
         if resolution.source == .remote,
            let snapshot = remote.snapshot,
@@ -514,7 +519,10 @@ final class AppState {
             if !snapshot.value.rides.isEmpty {
                 AppLogger.auth.info("Restored \(snapshot.value.rides.count) ride(s) from Nostr")
             }
-        } else if resolution.shouldPublishLocal, !rideHistory.rides.isEmpty {
+        } else if (resolution.shouldPublishLocal || shouldSeedLegacyLocal), !rideHistory.rides.isEmpty {
+            if shouldSeedLegacyLocal {
+                syncStore.markDirty(.rideHistory)
+            }
             do {
                 let content = RideHistoryBackupContent(rides: rideHistory.rides)
                 let event = try await service.publishRideHistoryBackup(content)
@@ -535,6 +543,7 @@ final class AppState {
         let repo = FollowedDriversRepository(persistence: driversPersistence)
         self.driversRepository = repo
         configureDriversRepositoryTracking(repo, syncStore: syncStore)
+        configureRideHistoryTracking(syncStore: syncStore)
         let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
         self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
@@ -571,6 +580,7 @@ final class AppState {
         let repo = FollowedDriversRepository(persistence: driversPersistence)
         self.driversRepository = repo
         configureDriversRepositoryTracking(repo, syncStore: syncStore)
+        configureRideHistoryTracking(syncStore: syncStore)
         let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
         self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
@@ -608,6 +618,12 @@ final class AppState {
         repo.onDriversChanged = { source in
             guard source == .local else { return }
             syncStore?.markDirty(.followedDrivers)
+        }
+    }
+
+    private func configureRideHistoryTracking(syncStore: RoadflareSyncStateStore?) {
+        rideHistory.onRidesChanged = {
+            syncStore?.markDirty(.rideHistory)
         }
     }
 
