@@ -27,6 +27,7 @@ public struct RideStatusCard: View {
     public let driverName: String?
     public let pickupAddress: String?
     public let destinationAddress: String?
+    public let waitingTimeoutSeconds: Int
 
     public var unreadChatCount: Int
     public var onCancel: (() -> Void)?
@@ -41,6 +42,7 @@ public struct RideStatusCard: View {
         driverName: String? = nil,
         pickupAddress: String? = nil,
         destinationAddress: String? = nil,
+        waitingTimeoutSeconds: Int = 120,
         unreadChatCount: Int = 0,
         onCancel: (() -> Void)? = nil,
         onChat: (() -> Void)? = nil,
@@ -53,6 +55,7 @@ public struct RideStatusCard: View {
         self.driverName = driverName
         self.pickupAddress = pickupAddress
         self.destinationAddress = destinationAddress
+        self.waitingTimeoutSeconds = waitingTimeoutSeconds
         self.unreadChatCount = unreadChatCount
         self.onCancel = onCancel
         self.onChat = onChat
@@ -81,37 +84,116 @@ public struct RideStatusCard: View {
     // MARK: - Waiting
 
     private var waitingView: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            ProgressView()
-                .scaleEffect(1.5)
-                .tint(theme.accentColor)
-            Text("Waiting for driver...")
-                .font(theme.headline(22))
-                .foregroundColor(theme.onSurfaceColor)
-            Text("This usually takes a few seconds")
-                .font(theme.body(14))
-                .foregroundColor(theme.onSurfaceSecondaryColor)
-
-            if let fare = fareEstimate {
-                FareEstimateView(estimate: fare, paymentMethods: paymentMethods, displayMode: .compact)
-                    .padding(.horizontal, 24)
-            }
-
-            Spacer()
-            if let onCancel {
-                Button("Cancel Request") { onCancel() }
-                    .font(theme.title(16))
-                    .foregroundColor(theme.accentColor)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(theme.surfaceSecondaryColor)
-                    .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
-                    .padding(.horizontal, 24)
-            }
-            Spacer().frame(height: 40)
-        }
+        WaitingContentView(
+            totalSeconds: waitingTimeoutSeconds,
+            fareEstimate: fareEstimate,
+            paymentMethods: paymentMethods,
+            driverName: driverName,
+            onCancel: onCancel
+        )
     }
+
+// MARK: - Waiting Content (extracted for @State timer management)
+
+private struct WaitingContentView: View {
+    let totalSeconds: Int
+    let fareEstimate: FareEstimate?
+    let paymentMethods: [String]
+    let driverName: String?
+    let onCancel: (() -> Void)?
+
+    @Environment(\.ridestrTheme) private var theme
+    @State private var startDate = Date.now
+    @State private var remaining: Int
+
+    private let warningThreshold = 30
+
+    init(totalSeconds: Int, fareEstimate: FareEstimate?, paymentMethods: [String],
+         driverName: String?, onCancel: (() -> Void)?) {
+        self.totalSeconds = totalSeconds
+        self.fareEstimate = fareEstimate
+        self.paymentMethods = paymentMethods
+        self.driverName = driverName
+        self.onCancel = onCancel
+        self._remaining = State(initialValue: totalSeconds)
+    }
+
+    private var isWarning: Bool { remaining <= warningThreshold && remaining > 0 }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { context in
+            let elapsed = context.date.timeIntervalSince(startDate)
+            let current = max(0, totalSeconds - Int(elapsed))
+
+            VStack(spacing: 20) {
+                Spacer()
+
+                // Countdown timer
+                ZStack {
+                    Circle()
+                        .stroke(theme.surfaceSecondaryColor, lineWidth: 8)
+                    Circle()
+                        .trim(from: 0, to: Double(current) / Double(totalSeconds))
+                        .stroke(
+                            current <= warningThreshold ? Color.orange : theme.accentColor,
+                            style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                    Text(formatTime(current))
+                        .font(.system(size: 28, weight: .bold, design: .monospaced))
+                        .foregroundColor(current <= warningThreshold ? .orange : theme.onSurfaceColor)
+                }
+                .frame(width: 100, height: 100)
+
+                // Status text
+                if current <= warningThreshold && current > 0 {
+                    Text("Driver hasn't responded yet")
+                        .font(theme.headline(20))
+                        .foregroundColor(.orange)
+                    Text("Would you like to keep waiting?")
+                        .font(theme.body(14))
+                        .foregroundColor(theme.onSurfaceSecondaryColor)
+                } else if let driverName, !driverName.isEmpty {
+                    Text("Waiting for \(driverName)...")
+                        .font(theme.headline(22))
+                        .foregroundColor(theme.onSurfaceColor)
+                } else {
+                    Text("Waiting for driver...")
+                        .font(theme.headline(22))
+                        .foregroundColor(theme.onSurfaceColor)
+                    Text("This usually takes a few seconds")
+                        .font(theme.body(14))
+                        .foregroundColor(theme.onSurfaceSecondaryColor)
+                }
+
+                if let fare = fareEstimate {
+                    FareEstimateView(estimate: fare, paymentMethods: paymentMethods, displayMode: .compact)
+                        .padding(.horizontal, 24)
+                }
+
+                Spacer()
+                if let onCancel {
+                    Button("Cancel Request") { onCancel() }
+                        .font(theme.title(16))
+                        .foregroundColor(current <= warningThreshold ? .orange : theme.accentColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(theme.surfaceSecondaryColor)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal, 24)
+                }
+                Spacer().frame(height: 40)
+            }
+        }
+        .onAppear { startDate = .now }
+    }
+
+    private func formatTime(_ totalSeconds: Int) -> String {
+        let minutes = totalSeconds / 60
+        let seconds = totalSeconds % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+}
 
     // MARK: - En Route
 
