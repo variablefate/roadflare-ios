@@ -24,6 +24,8 @@ final class RideCoordinator {
     private let settings: UserSettings
     private let rideHistory: RideHistoryStore
     private let bitcoinPrice: BitcoinPriceService
+    private let roadflareDomainService: RoadflareDomainService?
+    private let roadflareSyncStore: RoadflareSyncStateStore?
     private let rideRestorePolicy: RideStatePersistence.RestorePolicy
 
     var currentFareEstimate: FareEstimate?
@@ -58,6 +60,8 @@ final class RideCoordinator {
         self.settings = settings
         self.rideHistory = rideHistory
         self.bitcoinPrice = bitcoinPrice ?? BitcoinPriceService()
+        self.roadflareDomainService = roadflareDomainService
+        self.roadflareSyncStore = roadflareSyncStore
         self.rideRestorePolicy = Self.restorePolicy(for: stageTimeouts)
         self.location = LocationCoordinator(
             relayManager: relayManager,
@@ -291,6 +295,21 @@ final class RideCoordinator {
             duration: currentFareEstimate.map { Int($0.durationMinutes) }
         )
         rideHistory.addRide(entry)
+        backupRideHistory()
+    }
+
+    private func backupRideHistory() {
+        guard let service = roadflareDomainService,
+              let syncStore = roadflareSyncStore else { return }
+        Task {
+            do {
+                let content = RideHistoryBackupContent(rides: rideHistory.rides)
+                let event = try await service.publishRideHistoryBackup(content)
+                syncStore.markPublished(.rideHistory, at: event.createdAt)
+            } catch {
+                syncStore.markDirty(.rideHistory)
+            }
+        }
     }
 
     private static func duration(seconds: TimeInterval) -> Duration {

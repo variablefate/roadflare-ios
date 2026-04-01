@@ -5,6 +5,7 @@ public enum RoadflareSyncDomain: String, Codable, CaseIterable, Sendable {
     case profile
     case followedDrivers
     case profileBackup
+    case rideHistory
 }
 
 /// Per-domain local sync metadata.
@@ -27,15 +28,18 @@ public struct RoadflareSyncState: Codable, Sendable, Equatable {
     public var profile: RoadflareSyncMetadata
     public var followedDrivers: RoadflareSyncMetadata
     public var profileBackup: RoadflareSyncMetadata
+    public var rideHistory: RoadflareSyncMetadata
 
     public init(
         profile: RoadflareSyncMetadata = RoadflareSyncMetadata(),
         followedDrivers: RoadflareSyncMetadata = RoadflareSyncMetadata(),
-        profileBackup: RoadflareSyncMetadata = RoadflareSyncMetadata()
+        profileBackup: RoadflareSyncMetadata = RoadflareSyncMetadata(),
+        rideHistory: RoadflareSyncMetadata = RoadflareSyncMetadata()
     ) {
         self.profile = profile
         self.followedDrivers = followedDrivers
         self.profileBackup = profileBackup
+        self.rideHistory = rideHistory
     }
 
     public subscript(domain: RoadflareSyncDomain) -> RoadflareSyncMetadata {
@@ -44,6 +48,7 @@ public struct RoadflareSyncState: Codable, Sendable, Equatable {
             case .profile: profile
             case .followedDrivers: followedDrivers
             case .profileBackup: profileBackup
+            case .rideHistory: rideHistory
             }
         }
         set {
@@ -51,6 +56,7 @@ public struct RoadflareSyncState: Codable, Sendable, Equatable {
             case .profile: profile = newValue
             case .followedDrivers: followedDrivers = newValue
             case .profileBackup: profileBackup = newValue
+            case .rideHistory: rideHistory = newValue
             }
         }
     }

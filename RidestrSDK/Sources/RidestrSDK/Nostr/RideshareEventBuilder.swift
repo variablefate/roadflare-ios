@@ -266,6 +266,34 @@ public enum RideshareEventBuilder {
     /// allow driver discovery without revealing the full relationship data.
     ///
     /// - Parameters:
+    // MARK: - Ride History Backup (Kind 30174)
+
+    /// Build and sign an encrypted ride history backup event (Kind 30174).
+    /// Content is NIP-44 encrypted to self.
+    public static func rideHistoryBackup(
+        content: RideHistoryBackupContent,
+        keypair: NostrKeypair
+    ) async throws -> NostrEvent {
+        let json = try JSONEncoder().encode(content)
+        guard let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(underlying: EncodingError.invalidValue(
+                content, .init(codingPath: [], debugDescription: "Failed to encode ride history backup as UTF-8")
+            )))
+        }
+        let encrypted = try NIP44.encryptToSelf(
+            plaintext: plaintext,
+            privateKeyHex: keypair.privateKeyHex,
+            publicKeyHex: keypair.publicKeyHex
+        )
+        let tags: [[String]] = [
+            [NostrTags.dTag, "rideshare-history"],
+            [NostrTags.hashtag, NostrTags.roadflareTag],
+        ]
+        return try await EventSigner.sign(
+            kind: .rideHistoryBackup, content: encrypted, tags: tags, keypair: keypair
+        )
+    }
+
     // MARK: - Profile Backup (Kind 30177)
 
     /// Build and sign an encrypted profile backup event (Kind 30177).

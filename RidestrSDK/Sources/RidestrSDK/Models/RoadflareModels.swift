@@ -536,6 +536,25 @@ public struct RideHistoryEntry: Codable, Identifiable, Sendable, Hashable {
     }
 }
 
+// MARK: - Ride History Backup (Kind 30174)
+
+/// Content of a ride history backup event (Kind 30174, encrypted to self).
+/// Matches Android's RideHistoryEvent JSON structure for cross-platform sync.
+public struct RideHistoryBackupContent: Codable, Sendable {
+    public let rides: [RideHistoryEntry]
+    public let updatedAt: Int
+
+    enum CodingKeys: String, CodingKey {
+        case rides
+        case updatedAt = "updated_at"
+    }
+
+    public init(rides: [RideHistoryEntry], updatedAt: Int = Int(Date.now.timeIntervalSince1970)) {
+        self.rides = rides
+        self.updatedAt = updatedAt
+    }
+}
+
 // MARK: - Saved Location
 
 /// A saved pickup/destination address.

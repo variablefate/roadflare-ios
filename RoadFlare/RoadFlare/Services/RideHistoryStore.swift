@@ -32,6 +32,30 @@ final class RideHistoryStore {
         save()
     }
 
+    /// Merge rides from a Nostr backup. Adds entries not already present locally.
+    /// Returns true if any new rides were added.
+    @discardableResult
+    func mergeFromBackup(_ incoming: [RideHistoryEntry]) -> Bool {
+        let existingIds = Set(rides.map(\.id))
+        let newRides = incoming.filter { !existingIds.contains($0.id) }
+        guard !newRides.isEmpty else { return false }
+        rides = (rides + newRides)
+            .sorted { $0.date > $1.date }
+            .prefix(StorageConstants.maxRideHistory)
+            .map { $0 }
+        save()
+        return true
+    }
+
+    /// Replace all rides with a Nostr backup (full restore on new device).
+    func restoreFromBackup(_ incoming: [RideHistoryEntry]) {
+        rides = incoming
+            .sorted { $0.date > $1.date }
+            .prefix(StorageConstants.maxRideHistory)
+            .map { $0 }
+        save()
+    }
+
     /// Clear all history.
     func clearAll() {
         rides = []

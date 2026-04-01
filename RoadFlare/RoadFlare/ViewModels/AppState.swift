@@ -325,6 +325,9 @@ final class AppState {
         await applyProfileBackupResolution(remote: remote.profileBackup)
         if importFlow { syncRestoredLocations = savedLocations.locations.count }
 
+        if importFlow { syncStatus = "Restoring ride history..." }
+        await applyRideHistoryResolution(remote: remote.rideHistory)
+
         if importFlow { syncStatus = "Loading driver info..." }
         let driverProfiles = await service.fetchDriverProfiles(pubkeys: repo.allPubkeys)
         for (pubkey, snapshot) in driverProfiles {
@@ -483,6 +486,43 @@ final class AppState {
 
         if !backup.savedLocations.isEmpty {
             AppLogger.auth.info("Restored \(backup.savedLocations.count) saved locations")
+        }
+    }
+
+    private func applyRideHistoryResolution(
+        remote: RoadflareDomainService.StartupRemoteDomain<RideHistoryBackupContent>
+    ) async {
+        guard let service = roadflareDomainService else { return }
+        guard let syncStore = roadflareSyncStore else { return }
+        let metadata = syncStore.metadata(for: .rideHistory)
+        let resolution = RoadflareDomainService.resolve(
+            domain: .rideHistory,
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt
+        )
+
+        if resolution.source == .remote,
+           let snapshot = remote.snapshot,
+           snapshot.createdAt == remote.latestSeenCreatedAt {
+            // Remote is newer — merge rides (preserves local-only entries)
+            if rideHistory.rides.isEmpty {
+                rideHistory.restoreFromBackup(snapshot.value.rides)
+            } else {
+                rideHistory.mergeFromBackup(snapshot.value.rides)
+            }
+            syncStore.markPublished(.rideHistory, at: snapshot.createdAt)
+            if !snapshot.value.rides.isEmpty {
+                AppLogger.auth.info("Restored \(snapshot.value.rides.count) ride(s) from Nostr")
+            }
+        } else if resolution.shouldPublishLocal, !rideHistory.rides.isEmpty {
+            do {
+                let content = RideHistoryBackupContent(rides: rideHistory.rides)
+                let event = try await service.publishRideHistoryBackup(content)
+                syncStore.markPublished(.rideHistory, at: event.createdAt)
+                AppLogger.auth.info("Published ride history backup to Nostr")
+            } catch {
+                AppLogger.auth.info("Failed to publish ride history backup: \(error)")
+            }
         }
     }
 
