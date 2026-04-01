@@ -104,21 +104,8 @@ private struct WaitingContentView: View {
 
     @Environment(\.ridestrTheme) private var theme
     @State private var startDate = Date.now
-    @State private var remaining: Int
 
     private let warningThreshold = 30
-
-    init(totalSeconds: Int, fareEstimate: FareEstimate?, paymentMethods: [String],
-         driverName: String?, onCancel: (() -> Void)?) {
-        self.totalSeconds = totalSeconds
-        self.fareEstimate = fareEstimate
-        self.paymentMethods = paymentMethods
-        self.driverName = driverName
-        self.onCancel = onCancel
-        self._remaining = State(initialValue: totalSeconds)
-    }
-
-    private var isWarning: Bool { remaining <= warningThreshold && remaining > 0 }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { context in
@@ -179,7 +166,7 @@ private struct WaitingContentView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(theme.surfaceSecondaryColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
                         .padding(.horizontal, 24)
                 }
                 Spacer().frame(height: 40)
