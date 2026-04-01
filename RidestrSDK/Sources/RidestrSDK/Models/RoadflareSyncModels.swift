@@ -5,6 +5,7 @@ public enum RoadflareSyncDomain: String, Codable, CaseIterable, Sendable {
     case profile
     case followedDrivers
     case profileBackup
+    case rideHistory
 }
 
 /// Per-domain local sync metadata.
@@ -23,19 +24,33 @@ public struct RoadflareSyncMetadata: Codable, Sendable, Equatable {
 }
 
 /// Complete sync state for all RoadFlare domains.
+///
+/// New domains MUST use a custom `init(from:)` with `decodeIfPresent` so that
+/// payloads persisted before the domain was added still decode successfully.
 public struct RoadflareSyncState: Codable, Sendable, Equatable {
     public var profile: RoadflareSyncMetadata
     public var followedDrivers: RoadflareSyncMetadata
     public var profileBackup: RoadflareSyncMetadata
+    public var rideHistory: RoadflareSyncMetadata
 
     public init(
         profile: RoadflareSyncMetadata = RoadflareSyncMetadata(),
         followedDrivers: RoadflareSyncMetadata = RoadflareSyncMetadata(),
-        profileBackup: RoadflareSyncMetadata = RoadflareSyncMetadata()
+        profileBackup: RoadflareSyncMetadata = RoadflareSyncMetadata(),
+        rideHistory: RoadflareSyncMetadata = RoadflareSyncMetadata()
     ) {
         self.profile = profile
         self.followedDrivers = followedDrivers
         self.profileBackup = profileBackup
+        self.rideHistory = rideHistory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        profile = try container.decode(RoadflareSyncMetadata.self, forKey: .profile)
+        followedDrivers = try container.decode(RoadflareSyncMetadata.self, forKey: .followedDrivers)
+        profileBackup = try container.decode(RoadflareSyncMetadata.self, forKey: .profileBackup)
+        rideHistory = try container.decodeIfPresent(RoadflareSyncMetadata.self, forKey: .rideHistory) ?? RoadflareSyncMetadata()
     }
 
     public subscript(domain: RoadflareSyncDomain) -> RoadflareSyncMetadata {
@@ -44,6 +59,7 @@ public struct RoadflareSyncState: Codable, Sendable, Equatable {
             case .profile: profile
             case .followedDrivers: followedDrivers
             case .profileBackup: profileBackup
+            case .rideHistory: rideHistory
             }
         }
         set {
@@ -51,6 +67,7 @@ public struct RoadflareSyncState: Codable, Sendable, Equatable {
             case .profile: profile = newValue
             case .followedDrivers: followedDrivers = newValue
             case .profileBackup: profileBackup = newValue
+            case .rideHistory: rideHistory = newValue
             }
         }
     }

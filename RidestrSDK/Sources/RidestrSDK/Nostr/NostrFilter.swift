@@ -102,6 +102,15 @@ public struct NostrFilter: Sendable {
 // MARK: - Rideshare Convenience Filters
 
 extension NostrFilter {
+    /// Filter for ride history backup (Kind 30174, encrypted to self).
+    public static func rideHistoryBackup(myPubkey: String) -> NostrFilter {
+        NostrFilter()
+            .kinds([.rideHistoryBackup])
+            .authors([myPubkey])
+            .dTags(["rideshare-history"])
+            .limit(1)
+    }
+
     /// Filter for profile backup (Kind 30177, encrypted to self).
     public static func profileBackup(myPubkey: String) -> NostrFilter {
         NostrFilter()

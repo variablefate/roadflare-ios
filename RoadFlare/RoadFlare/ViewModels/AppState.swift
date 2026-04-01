@@ -38,7 +38,7 @@ final class AppState {
     private(set) var rideCoordinator: RideCoordinator?
     private(set) var fareCalculator: FareCalculator?
     private(set) var remoteConfigManager: RemoteConfigManager?
-    let rideHistory = RideHistoryStore()
+    let rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
     let savedLocations = SavedLocationsStore()
     let bitcoinPrice = BitcoinPriceService()
 
@@ -325,6 +325,9 @@ final class AppState {
         await applyProfileBackupResolution(remote: remote.profileBackup)
         if importFlow { syncRestoredLocations = savedLocations.locations.count }
 
+        if importFlow { syncStatus = "Restoring ride history..." }
+        await applyRideHistoryResolution(remote: remote.rideHistory)
+
         if importFlow { syncStatus = "Loading driver info..." }
         let driverProfiles = await service.fetchDriverProfiles(pubkeys: repo.allPubkeys)
         for (pubkey, snapshot) in driverProfiles {
@@ -486,6 +489,47 @@ final class AppState {
         }
     }
 
+    private func applyRideHistoryResolution(
+        remote: RoadflareDomainService.StartupRemoteDomain<RideHistoryBackupContent>
+    ) async {
+        guard let service = roadflareDomainService else { return }
+        guard let syncStore = roadflareSyncStore else { return }
+        let metadata = syncStore.metadata(for: .rideHistory)
+        let resolution = RoadflareDomainService.resolve(
+            domain: .rideHistory,
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt
+        )
+        let shouldSeedLegacyLocal = RoadflareDomainService.shouldSeedLegacyLocalState(
+            metadata: metadata,
+            remoteCreatedAt: remote.latestSeenCreatedAt,
+            hasLocalState: !rideHistory.rides.isEmpty
+        )
+
+        if resolution.source == .remote,
+           let snapshot = remote.snapshot,
+           snapshot.createdAt == remote.latestSeenCreatedAt {
+            // Remote is authoritative — full replace (matches other domain patterns)
+            rideHistory.restoreFromBackup(snapshot.value.rides)
+            syncStore.markPublished(.rideHistory, at: snapshot.createdAt)
+            if !snapshot.value.rides.isEmpty {
+                AppLogger.auth.info("Restored \(snapshot.value.rides.count) ride(s) from Nostr")
+            }
+        } else if (resolution.shouldPublishLocal || shouldSeedLegacyLocal), !rideHistory.rides.isEmpty {
+            if shouldSeedLegacyLocal {
+                syncStore.markDirty(.rideHistory)
+            }
+            do {
+                let content = RideHistoryBackupContent(rides: rideHistory.rides)
+                let event = try await service.publishRideHistoryBackup(content)
+                syncStore.markPublished(.rideHistory, at: event.createdAt)
+                AppLogger.auth.info("Published ride history backup to Nostr")
+            } catch {
+                AppLogger.auth.info("Failed to publish ride history backup: \(error)")
+            }
+        }
+    }
+
     /// Setup with sync status updates for the import flow UI.
     private func setupServicesWithSync(keypair: NostrKeypair) async {
         let rm = RelayManager(keypair: keypair)
@@ -495,6 +539,7 @@ final class AppState {
         let repo = FollowedDriversRepository(persistence: driversPersistence)
         self.driversRepository = repo
         configureDriversRepositoryTracking(repo, syncStore: syncStore)
+        configureRideHistoryTracking(syncStore: syncStore)
         let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
         self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
@@ -531,6 +576,7 @@ final class AppState {
         let repo = FollowedDriversRepository(persistence: driversPersistence)
         self.driversRepository = repo
         configureDriversRepositoryTracking(repo, syncStore: syncStore)
+        configureRideHistoryTracking(syncStore: syncStore)
         let service = RoadflareDomainService(relayManager: rm, keypair: keypair)
         self.roadflareDomainService = service
         self.fareCalculator = FareCalculator()
@@ -571,6 +617,12 @@ final class AppState {
         }
     }
 
+    private func configureRideHistoryTracking(syncStore: RoadflareSyncStateStore?) {
+        rideHistory.onRidesChanged = {
+            syncStore?.markDirty(.rideHistory)
+        }
+    }
+
     func reconnectAndRestoreSession() async {
         guard let rm = relayManager else { return }
         await rm.reconnectIfNeeded()
@@ -592,6 +644,17 @@ final class AppState {
         }
         if syncStore.metadata(for: .profileBackup).isDirty {
             await publishProfileBackup()
+        }
+        if syncStore.metadata(for: .rideHistory).isDirty, !rideHistory.rides.isEmpty {
+            do {
+                let content = RideHistoryBackupContent(rides: rideHistory.rides)
+                if let service = roadflareDomainService {
+                    let event = try await service.publishRideHistoryBackup(content)
+                    syncStore.markPublished(.rideHistory, at: event.createdAt)
+                }
+            } catch {
+                // Will retry on next reconnect
+            }
         }
     }
 

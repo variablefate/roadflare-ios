@@ -25,15 +25,18 @@ public final class RoadflareDomainService: @unchecked Sendable {
         public let profile: StartupRemoteDomain<UserProfileContent>
         public let followedDrivers: StartupRemoteDomain<FollowedDriversContent>
         public let profileBackup: StartupRemoteDomain<ProfileBackupContent>
+        public let rideHistory: StartupRemoteDomain<RideHistoryBackupContent>
 
         public init(
             profile: StartupRemoteDomain<UserProfileContent>,
             followedDrivers: StartupRemoteDomain<FollowedDriversContent>,
-            profileBackup: StartupRemoteDomain<ProfileBackupContent>
+            profileBackup: StartupRemoteDomain<ProfileBackupContent>,
+            rideHistory: StartupRemoteDomain<RideHistoryBackupContent> = StartupRemoteDomain(latestSeenCreatedAt: nil, snapshot: nil)
         ) {
             self.profile = profile
             self.followedDrivers = followedDrivers
             self.profileBackup = profileBackup
+            self.rideHistory = rideHistory
         }
     }
 
@@ -53,10 +56,12 @@ public final class RoadflareDomainService: @unchecked Sendable {
         async let profile = fetchStartupProfileState()
         async let followedDrivers = fetchStartupFollowedDriversState()
         async let profileBackup = fetchStartupProfileBackupState()
+        async let rideHistory = fetchStartupRideHistoryState()
         return await StartupRemoteState(
             profile: profile,
             followedDrivers: followedDrivers,
-            profileBackup: profileBackup
+            profileBackup: profileBackup,
+            rideHistory: rideHistory
         )
     }
 
@@ -167,6 +172,16 @@ public final class RoadflareDomainService: @unchecked Sendable {
         return event
     }
 
+    public func publishRideHistoryBackup(_ content: RideHistoryBackupContent) async throws -> NostrEvent {
+        let event = try await RideshareEventBuilder.rideHistoryBackup(content: content, keypair: keypair)
+        _ = try await relayManager.publish(event)
+        return event
+    }
+
+    public func fetchLatestRideHistoryState() async -> StartupRemoteDomain<RideHistoryBackupContent> {
+        await fetchStartupRideHistoryState()
+    }
+
     // MARK: - Resolution
 
     public static func resolve(domain: RoadflareSyncDomain, metadata: RoadflareSyncMetadata, remoteCreatedAt: Int?) -> RoadflareSyncResolution {
@@ -237,6 +252,22 @@ public final class RoadflareDomainService: @unchecked Sendable {
             )
         } catch {
             RidestrLogger.warning("[RoadflareDomainService] Followed drivers fetch failed: \(error.localizedDescription)")
+            return StartupRemoteDomain(latestSeenCreatedAt: nil, snapshot: nil)
+        }
+    }
+
+    private func fetchStartupRideHistoryState() async -> StartupRemoteDomain<RideHistoryBackupContent> {
+        do {
+            let filter = NostrFilter.rideHistoryBackup(myPubkey: keypair.publicKeyHex)
+            let events = try await relayManager.fetchEvents(filter: filter, timeout: fetchTimeout)
+            return StartupRemoteDomain(
+                latestSeenCreatedAt: latestEvent(in: events)?.createdAt,
+                snapshot: latestDecodableSnapshot(in: events, parse: { event in
+                    try RideshareEventParser.parseRideHistoryBackup(event: event, keypair: keypair)
+                })
+            )
+        } catch {
+            RidestrLogger.warning("[RoadflareDomainService] Ride history fetch failed: \(error.localizedDescription)")
             return StartupRemoteDomain(latestSeenCreatedAt: nil, snapshot: nil)
         }
     }
