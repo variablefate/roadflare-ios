@@ -509,12 +509,8 @@ final class AppState {
         if resolution.source == .remote,
            let snapshot = remote.snapshot,
            snapshot.createdAt == remote.latestSeenCreatedAt {
-            // Remote is newer — merge rides (preserves local-only entries)
-            if rideHistory.rides.isEmpty {
-                rideHistory.restoreFromBackup(snapshot.value.rides)
-            } else {
-                rideHistory.mergeFromBackup(snapshot.value.rides)
-            }
+            // Remote is authoritative — full replace (matches other domain patterns)
+            rideHistory.restoreFromBackup(snapshot.value.rides)
             syncStore.markPublished(.rideHistory, at: snapshot.createdAt)
             if !snapshot.value.rides.isEmpty {
                 AppLogger.auth.info("Restored \(snapshot.value.rides.count) ride(s) from Nostr")
@@ -648,6 +644,17 @@ final class AppState {
         }
         if syncStore.metadata(for: .profileBackup).isDirty {
             await publishProfileBackup()
+        }
+        if syncStore.metadata(for: .rideHistory).isDirty, !rideHistory.rides.isEmpty {
+            do {
+                let content = RideHistoryBackupContent(rides: rideHistory.rides)
+                if let service = roadflareDomainService {
+                    let event = try await service.publishRideHistoryBackup(content)
+                    syncStore.markPublished(.rideHistory, at: event.createdAt)
+                }
+            } catch {
+                // Will retry on next reconnect
+            }
         }
     }
 
