@@ -58,8 +58,13 @@ struct RideTab: View {
                         fareEstimate: coordinator?.currentFareEstimate,
                         paymentMethods: coordinator?.activeRidePaymentMethods
                             ?? appState.settings.roadflarePaymentMethods,
-                        onCancel: { showCancelWarning = true },
+                        driverName: coordinator?.session.driverPubkey.flatMap {
+                            appState.driversRepository?.cachedDriverName(pubkey: $0)
+                        },
+                        pickupAddress: coordinator?.pickupLocation?.address,
+                        destinationAddress: coordinator?.destinationLocation?.address,
                         unreadChatCount: coordinator?.chat.unreadCount ?? 0,
+                        onCancel: { showCancelWarning = true },
                         onChat: {
                             coordinator?.chat.markRead()
                             showChat = true
