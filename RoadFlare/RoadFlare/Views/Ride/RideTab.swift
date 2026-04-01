@@ -63,8 +63,8 @@ struct RideTab: View {
                         },
                         pickupAddress: coordinator?.pickupLocation?.address,
                         destinationAddress: coordinator?.destinationLocation?.address,
-                        onCancel: { showCancelWarning = true },
                         unreadChatCount: coordinator?.chat.unreadCount ?? 0,
+                        onCancel: { showCancelWarning = true },
                         onChat: {
                             coordinator?.chat.markRead()
                             showChat = true
