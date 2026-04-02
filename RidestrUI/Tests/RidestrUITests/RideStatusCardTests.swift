@@ -15,6 +15,10 @@ struct RideStatusCardTests {
             pin: "1234",
             fareEstimate: fare,
             paymentMethods: ["venmo", "zelle"],
+            driverName: "Alice",
+            pickupAddress: "123 Main St",
+            destinationAddress: "456 Market St",
+            waitingTimeoutSeconds: 180,
             onCancel: {},
             onChat: {},
             onCloseRide: {}
@@ -23,6 +27,10 @@ struct RideStatusCardTests {
         #expect(card.pin == "1234")
         #expect(card.fareEstimate != nil)
         #expect(card.paymentMethods.count == 2)
+        #expect(card.driverName == "Alice")
+        #expect(card.pickupAddress == "123 Main St")
+        #expect(card.destinationAddress == "456 Market St")
+        #expect(card.waitingTimeoutSeconds == 180)
     }
 
     @Test("Init with minimal parameters")
@@ -32,6 +40,10 @@ struct RideStatusCardTests {
         #expect(card.pin == nil)
         #expect(card.fareEstimate == nil)
         #expect(card.paymentMethods.isEmpty)
+        #expect(card.driverName == nil)
+        #expect(card.pickupAddress == nil)
+        #expect(card.destinationAddress == nil)
+        #expect(card.waitingTimeoutSeconds == 120)
         #expect(card.onCancel == nil)
         #expect(card.onChat == nil)
         #expect(card.onCloseRide == nil)

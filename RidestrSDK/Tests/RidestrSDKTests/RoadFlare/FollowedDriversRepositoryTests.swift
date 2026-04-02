@@ -185,6 +185,21 @@ struct FollowedDriversRepositoryTests {
         #expect(repo.cachedDriverName(pubkey: "unknown") == nil)
     }
 
+    @Test func cachedDriverNameFallsBackToFollowedDriverName() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1", name: "Alice"))
+
+        #expect(repo.cachedDriverName(pubkey: "d1") == "Alice")
+    }
+
+    @Test func cachedDriverNamePrefersCachedProfileName() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1", name: "Alice"))
+        repo.cacheDriverName(pubkey: "d1", name: "Alice Display")
+
+        #expect(repo.cachedDriverName(pubkey: "d1") == "Alice Display")
+    }
+
     // MARK: - Driver Locations
 
     @Test func updateDriverLocation() {

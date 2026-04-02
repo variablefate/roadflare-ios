@@ -302,6 +302,13 @@ final class AppState {
         authState = .loggedOut
     }
 
+    private func detachRepositoryTrackingCallbacks() {
+        driversRepository?.onDriversChanged = nil
+        rideHistory.onRidesChanged = nil
+        savedLocations.onChange = nil
+        savedLocations.onFavoritesChanged = nil
+    }
+
     // MARK: - Private
 
     /// Fetch, resolve, and apply RoadFlare startup state using SDK-owned helpers.
@@ -666,16 +673,13 @@ final class AppState {
             syncStore?.clearAll()
         }
 
-        driversRepository?.onDriversChanged = nil
+        detachRepositoryTrackingCallbacks()
         driversRepository?.clearAll()
         if driversRepository == nil {
             driversPersistence.saveDrivers([])
             driversPersistence.saveDriverNames([:])
         }
-        rideHistory.onRidesChanged = nil
         rideHistory.clearAll()
-        savedLocations.onChange = nil
-        savedLocations.onFavoritesChanged = nil
         savedLocations.clearAll()
         settings.clearAll()
         profileBackupSettingsTemplate = SettingsBackupContent()

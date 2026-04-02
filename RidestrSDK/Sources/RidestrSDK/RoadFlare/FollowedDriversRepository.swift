@@ -163,9 +163,16 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         persistence.saveDriverNames(snapshot)
     }
 
-    /// Get the cached display name for a driver.
+    /// Get the best available display name for a driver.
+    ///
+    /// Prefers the cached Kind 0 profile display name when available, and falls back to the
+    /// locally stored followed-driver name so app surfaces don't regress to generic copy while
+    /// profile hydration is still catching up.
     public func cachedDriverName(pubkey: String) -> String? {
-        lock.withLock { driverNames[pubkey] }
+        lock.withLock {
+            driverNames[pubkey]
+                ?? drivers.first(where: { $0.pubkey == pubkey })?.name
+        }
     }
 
     /// Cache a driver's full profile from their Kind 0 event.

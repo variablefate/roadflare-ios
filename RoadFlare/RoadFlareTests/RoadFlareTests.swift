@@ -370,6 +370,54 @@ struct AppStateTests {
         #expect(backup.settings.defaultPaymentMethod == "cashu")
         #expect(backup.settings.mintUrl == "https://mint.example")
     }
+
+    @MainActor
+    @Test func logoutDetachesTrackedRepositoryCallbacksBeforeClearAll() async {
+        let appState = AppState()
+        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let syncStore = RoadflareSyncStateStore(defaults: defaults, namespace: UUID().uuidString)
+
+        appState.rideHistory.onRidesChanged = {
+            syncStore.markDirty(.rideHistory)
+        }
+        appState.savedLocations.onChange = {
+            syncStore.markDirty(.profileBackup)
+        }
+        appState.savedLocations.onFavoritesChanged = {
+            syncStore.markDirty(.profileBackup)
+        }
+
+        appState.rideHistory.addRide(
+            RideHistoryEntry(
+                id: "ride-1",
+                date: .now,
+                counterpartyPubkey: "driver",
+                pickupGeohash: "abc",
+                dropoffGeohash: "def",
+                pickup: Location(latitude: 40, longitude: -74),
+                destination: Location(latitude: 41, longitude: -73),
+                fare: 12.50,
+                paymentMethod: "zelle"
+            )
+        )
+        appState.savedLocations.save(
+            SavedLocation(
+                id: "home",
+                latitude: 36.17,
+                longitude: -115.14,
+                displayName: "Home",
+                addressLine: "123 Main St",
+                isPinned: true,
+                nickname: "Home"
+            )
+        )
+
+        syncStore.clearAll()
+        await appState.logout()
+
+        #expect(syncStore.metadata(for: .rideHistory).isDirty == false)
+        #expect(syncStore.metadata(for: .profileBackup).isDirty == false)
+    }
 }
 
 // MARK: - UserDefaultsDriversPersistence Tests
