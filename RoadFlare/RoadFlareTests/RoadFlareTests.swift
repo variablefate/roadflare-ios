@@ -304,30 +304,25 @@ struct AppStateTests {
 
     @MainActor
     @Test func profileBackupContentIncludesPinnedAndRecentLocations() {
-        let appState = AppState()
-        appState.settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
+        // SyncCoordinator owns buildProfileBackupContent, so test it directly
+        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
+        let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
+        let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
 
-        appState.savedLocations.save(SavedLocation(
-            id: "fav",
-            latitude: 36.17,
-            longitude: -115.14,
-            displayName: "Home",
-            addressLine: "123 Main St",
-            isPinned: true,
-            nickname: "Home",
-            timestampMs: 100
+        settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
+        savedLocations.save(SavedLocation(
+            id: "fav", latitude: 36.17, longitude: -115.14,
+            displayName: "Home", addressLine: "123 Main St",
+            isPinned: true, nickname: "Home", timestampMs: 100
         ))
-        appState.savedLocations.save(SavedLocation(
-            id: "recent",
-            latitude: 36.12,
-            longitude: -115.17,
-            displayName: "Airport",
-            addressLine: "Harry Reid Intl",
-            isPinned: false,
-            timestampMs: 200
+        savedLocations.save(SavedLocation(
+            id: "recent", latitude: 36.12, longitude: -115.17,
+            displayName: "Airport", addressLine: "Harry Reid Intl",
+            isPinned: false, timestampMs: 200
         ))
 
-        let backup = appState.buildProfileBackupContent()
+        let backup = sync.buildProfileBackupContent()
 
         #expect(backup.savedLocations.count == 2)
         #expect(backup.savedLocations.contains {
@@ -342,8 +337,12 @@ struct AppStateTests {
 
     @MainActor
     @Test func profileBackupContentPreservesImportedAndroidSettingsTemplate() {
-        let appState = AppState()
-        appState.preserveProfileBackupSettingsTemplate(
+        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
+        let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
+        let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
+
+        sync.preserveProfileBackupSettingsTemplate(
             SettingsBackupContent(
                 roadflarePaymentMethods: ["cash"],
                 notificationSoundEnabled: false,
@@ -356,9 +355,9 @@ struct AppStateTests {
                 mintUrl: "https://mint.example"
             )
         )
-        appState.settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
+        settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
 
-        let backup = appState.buildProfileBackupContent()
+        let backup = sync.buildProfileBackupContent()
 
         #expect(backup.settings.roadflarePaymentMethods == ["zelle", "venmo-business"])
         #expect(backup.settings.notificationSoundEnabled == false)
@@ -372,49 +371,48 @@ struct AppStateTests {
     }
 
     @MainActor
-    @Test func logoutDetachesTrackedRepositoryCallbacksBeforeClearAll() async {
-        let appState = AppState()
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let syncStore = RoadflareSyncStateStore(defaults: defaults, namespace: UUID().uuidString)
+    @Test func syncCoordinatorTeardownDetachesCallbacksBeforeClearAll() async {
+        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
+        let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
+        let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
 
-        appState.rideHistory.onRidesChanged = {
-            syncStore.markDirty(.rideHistory)
-        }
-        appState.savedLocations.onChange = {
-            syncStore.markDirty(.profileBackup)
-        }
-        appState.savedLocations.onFavoritesChanged = {
-            syncStore.markDirty(.profileBackup)
-        }
+        let testDefaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
+        let syncStore = RoadflareSyncStateStore(defaults: testDefaults, namespace: UUID().uuidString)
+        let relay = FakeRelayManager()
+        try? await relay.connect(to: DefaultRelays.all)
+        let keypair = try! NostrKeypair.generate()
+        let domainService = RoadflareDomainService(relayManager: relay, keypair: keypair)
+        sync.configure(syncStore: syncStore, domainService: domainService)
 
-        appState.rideHistory.addRide(
+        let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
+        sync.wireTrackingCallbacks(driversRepo: repo)
+
+        // Add data that would trigger callbacks on clearAll
+        rideHistory.addRide(
             RideHistoryEntry(
-                id: "ride-1",
-                date: .now,
-                counterpartyPubkey: "driver",
-                pickupGeohash: "abc",
-                dropoffGeohash: "def",
+                id: "ride-1", date: .now, counterpartyPubkey: "driver",
+                pickupGeohash: "abc", dropoffGeohash: "def",
                 pickup: Location(latitude: 40, longitude: -74),
                 destination: Location(latitude: 41, longitude: -73),
-                fare: 12.50,
-                paymentMethod: "zelle"
+                fare: 12.50, paymentMethod: "zelle"
             )
         )
-        appState.savedLocations.save(
+        savedLocations.save(
             SavedLocation(
-                id: "home",
-                latitude: 36.17,
-                longitude: -115.14,
-                displayName: "Home",
-                addressLine: "123 Main St",
-                isPinned: true,
-                nickname: "Home"
+                id: "home", latitude: 36.17, longitude: -115.14,
+                displayName: "Home", addressLine: "123 Main St",
+                isPinned: true, nickname: "Home"
             )
         )
 
+        // Clear the syncStore to reset dirty flags, then teardown + clearAll
         syncStore.clearAll()
-        await appState.logout()
+        sync.teardown(clearPersistedState: true)
+        rideHistory.clearAll()
+        savedLocations.clearAll()
 
+        // Callbacks were nil'd before clearAll, so no dirty flags should be set
         #expect(syncStore.metadata(for: .rideHistory).isDirty == false)
         #expect(syncStore.metadata(for: .profileBackup).isDirty == false)
     }
