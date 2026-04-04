@@ -59,8 +59,7 @@ final class AppState {
     private let keychainStorage = KeychainStorage(service: "com.roadflare.keys")
     private let driversPersistence = UserDefaultsDriversPersistence()
     private var roadflareSyncStore: RoadflareSyncStateStore?
-    private var connectionWatchdogTask: Task<Void, Never>?
-    private var isAutoReconnecting = false
+    private let connectionCoordinator = ConnectionCoordinator()
     private var isPublishingProfileBackup = false
     private var profileBackupRepublishRequested = false
     private var profileBackupSettingsTemplate = SettingsBackupContent()
@@ -562,7 +561,12 @@ final class AppState {
         )
         self.rideCoordinator = coordinator
         await coordinator.restoreLiveSubscriptions()
-        restartConnectionWatchdog()
+        connectionCoordinator.start(
+            interval: Self.connectionWatchdogInterval,
+            shouldReconnect: { [weak self] in self?.authState == .ready },
+            isConnected: { [weak self] in await self?.relayManager?.isConnected ?? false },
+            reconnect: { [weak self] in await self?.reconnectAndRestoreSession() }
+        )
     }
 
     private func setupServices(keypair: NostrKeypair) async {
@@ -602,7 +606,12 @@ final class AppState {
         self.rideCoordinator = coordinator
         AppLogger.auth.info("Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
         await coordinator.restoreLiveSubscriptions()
-        restartConnectionWatchdog()
+        connectionCoordinator.start(
+            interval: Self.connectionWatchdogInterval,
+            shouldReconnect: { [weak self] in self?.authState == .ready },
+            isConnected: { [weak self] in await self?.relayManager?.isConnected ?? false },
+            reconnect: { [weak self] in await self?.reconnectAndRestoreSession() }
+        )
     }
 
     private func configureDriversRepositoryTracking(
@@ -663,7 +672,7 @@ final class AppState {
     }
 
     private func prepareForIdentityReplacement(clearPersistedSyncState: Bool) async {
-        stopConnectionWatchdog()
+        connectionCoordinator.stop()
         await rideCoordinator?.stopAll()
         await relayManager?.disconnect()
 
@@ -696,31 +705,4 @@ final class AppState {
         bitcoinPrice.stop()
     }
 
-    private func restartConnectionWatchdog() {
-        connectionWatchdogTask?.cancel()
-        connectionWatchdogTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: Self.connectionWatchdogInterval)
-                guard let self else { return }
-                await self.autoReconnectIfNeeded()
-            }
-        }
-    }
-
-    private func stopConnectionWatchdog() {
-        connectionWatchdogTask?.cancel()
-        connectionWatchdogTask = nil
-        isAutoReconnecting = false
-    }
-
-    private func autoReconnectIfNeeded() async {
-        guard authState == .ready,
-              !isAutoReconnecting,
-              let rm = relayManager,
-              !(await rm.isConnected) else { return }
-
-        isAutoReconnecting = true
-        defer { isAutoReconnecting = false }
-        await reconnectAndRestoreSession()
-    }
 }
