@@ -138,7 +138,7 @@ final class AppState {
     func completeProfileSetup(name: String) async {
         settings.setProfileName(name)
         syncCoordinator?.markDirty(.profile)
-        await syncCoordinator?.publishProfile()
+        await publishProfile()
         authState = .paymentSetup
     }
 
@@ -146,23 +146,37 @@ final class AppState {
     func completePaymentSetup() async {
         settings.setProfileCompleted(true)
         syncCoordinator?.markDirty(.profileBackup)
-        await syncCoordinator?.saveAndPublishSettings()
+        await saveAndPublishSettings()
         authState = .ready
     }
 
-    // MARK: - Forwarding to SyncCoordinator
+    // MARK: - Forwarding to SDK (through SyncCoordinator)
 
-    func publishProfile() async { await syncCoordinator?.publishProfile() }
-    func publishProfileBackup() async { await syncCoordinator?.publishProfileBackup() }
-    func saveAndPublishSettings() async { await syncCoordinator?.saveAndPublishSettings() }
+    func publishProfile() async {
+        guard let service = roadflareDomainService,
+              let syncStore = syncCoordinator?.roadflareSyncStore else { return }
+        await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+    }
+
+    func publishProfileBackup() async {
+        await syncCoordinator?.profileBackupCoordinator?.publishAndMark(
+            settings: settings, savedLocations: savedLocations
+        )
+    }
+
+    func saveAndPublishSettings() async {
+        await publishProfile()
+        await publishProfileBackup()
+    }
 
     func buildProfileBackupContent() -> ProfileBackupContent {
-        syncCoordinator?.buildProfileBackupContent()
-            ?? ProfileBackupContent(savedLocations: [], settings: SettingsBackupContent())
+        syncCoordinator?.profileBackupCoordinator?.buildContent(
+            settings: settings, savedLocations: savedLocations
+        ) ?? ProfileBackupContent(savedLocations: [], settings: SettingsBackupContent())
     }
 
     func preserveProfileBackupSettingsTemplate(_ s: SettingsBackupContent) {
-        syncCoordinator?.preserveProfileBackupSettingsTemplate(s)
+        syncCoordinator?.profileBackupCoordinator?.preserveSettingsTemplate(s)
     }
 
     // MARK: - Driver Key Management

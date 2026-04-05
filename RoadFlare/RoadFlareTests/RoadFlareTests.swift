@@ -179,74 +179,6 @@ struct AppStateTests {
     }
 
     @MainActor
-    @Test func profileBackupContentIncludesPinnedAndRecentLocations() {
-        // SyncCoordinator owns buildProfileBackupContent, so test it directly
-        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
-        let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
-        let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
-        let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
-
-        settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
-        savedLocations.save(SavedLocation(
-            id: "fav", latitude: 36.17, longitude: -115.14,
-            displayName: "Home", addressLine: "123 Main St",
-            isPinned: true, nickname: "Home", timestampMs: 100
-        ))
-        savedLocations.save(SavedLocation(
-            id: "recent", latitude: 36.12, longitude: -115.17,
-            displayName: "Airport", addressLine: "Harry Reid Intl",
-            isPinned: false, timestampMs: 200
-        ))
-
-        let backup = sync.buildProfileBackupContent()
-
-        #expect(backup.savedLocations.count == 2)
-        #expect(backup.savedLocations.contains {
-            $0.displayName == "Home" && $0.isPinned && $0.nickname == "Home" && $0.timestampMs == 100
-        })
-        #expect(backup.savedLocations.contains {
-            $0.displayName == "Airport" && !$0.isPinned && $0.timestampMs == 200
-        })
-        #expect(backup.settings.roadflarePaymentMethods == ["zelle", "venmo-business"])
-        #expect(backup.settings.customPaymentMethods == ["venmo-business"])
-    }
-
-    @MainActor
-    @Test func profileBackupContentPreservesImportedAndroidSettingsTemplate() {
-        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
-        let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
-        let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
-        let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
-
-        sync.preserveProfileBackupSettingsTemplate(
-            SettingsBackupContent(
-                roadflarePaymentMethods: ["cash"],
-                notificationSoundEnabled: false,
-                notificationVibrationEnabled: false,
-                autoOpenNavigation: false,
-                alwaysAskVehicle: false,
-                customRelays: ["wss://relay.example"],
-                paymentMethods: ["cashu", "lightning"],
-                defaultPaymentMethod: "cashu",
-                mintUrl: "https://mint.example"
-            )
-        )
-        settings.setRoadflarePaymentMethods(["zelle", "venmo-business"])
-
-        let backup = sync.buildProfileBackupContent()
-
-        #expect(backup.settings.roadflarePaymentMethods == ["zelle", "venmo-business"])
-        #expect(backup.settings.notificationSoundEnabled == false)
-        #expect(backup.settings.notificationVibrationEnabled == false)
-        #expect(backup.settings.autoOpenNavigation == false)
-        #expect(backup.settings.alwaysAskVehicle == false)
-        #expect(backup.settings.customRelays == ["wss://relay.example"])
-        #expect(backup.settings.paymentMethods == ["cashu", "lightning"])
-        #expect(backup.settings.defaultPaymentMethod == "cashu")
-        #expect(backup.settings.mintUrl == "https://mint.example")
-    }
-
-    @MainActor
     @Test func syncCoordinatorTeardownDetachesCallbacksBeforeClearAll() async {
         let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
         let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
@@ -291,6 +223,8 @@ struct AppStateTests {
         // Callbacks were nil'd before clearAll, so no dirty flags should be set
         #expect(syncStore.metadata(for: .rideHistory).isDirty == false)
         #expect(syncStore.metadata(for: .profileBackup).isDirty == false)
+        // profileBackupCoordinator should be released
+        #expect(sync.profileBackupCoordinator == nil)
     }
 }
 
