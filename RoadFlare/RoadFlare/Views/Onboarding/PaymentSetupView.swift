@@ -62,7 +62,7 @@ struct PaymentMethodPicker: View {
         let message: String
     }
 
-    @Bindable var settings: UserSettings
+    let settings: UserSettingsRepository
     @State private var showAddCustom = false
     @State private var customName = ""
     @State private var customMethodError: CustomMethodError?

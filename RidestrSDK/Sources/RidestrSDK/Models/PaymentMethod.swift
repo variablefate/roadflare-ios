@@ -65,3 +65,10 @@ public enum PaymentMethod: String, Codable, Sendable, CaseIterable {
         )
     }
 }
+
+/// Result of attempting to add a custom payment method.
+public enum CustomPaymentMethodAddResult: Equatable, Sendable {
+    case added
+    case empty
+    case duplicate
+}
