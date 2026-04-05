@@ -1,0 +1,44 @@
+#!/bin/sh
+# Auto-reindex GitNexus after a commit so the knowledge graph stays fresh.
+#
+# Runs in the background and stays silent on success. If GitNexus is not
+# installed (e.g. on CI), this hook is a no-op. Preserves embeddings if the
+# existing index has them.
+
+set -eu
+
+hook_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$hook_dir/.." && pwd)
+
+# Skip during rebase/merge/cherry-pick to avoid redundant runs
+if [ -d "$repo_root/.git/rebase-merge" ] || \
+   [ -d "$repo_root/.git/rebase-apply" ] || \
+   [ -f "$repo_root/.git/CHERRY_PICK_HEAD" ] || \
+   [ -f "$repo_root/.git/MERGE_HEAD" ]; then
+  exit 0
+fi
+
+# Check if an index exists; if not, skip (first analyze should be manual)
+if [ ! -d "$repo_root/.gitnexus" ]; then
+  exit 0
+fi
+
+# Preserve embeddings if the prior index had them
+embeddings_flag=""
+meta="$repo_root/.gitnexus/meta.json"
+if [ -f "$meta" ]; then
+  count=$(sed -n 's/.*"embeddings"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$meta" | head -1)
+  if [ -n "${count:-}" ] && [ "$count" -gt 0 ] 2>/dev/null; then
+    embeddings_flag="--embeddings"
+  fi
+fi
+
+# Run in background, log to .gitnexus/reindex.log (gitignored)
+log="$repo_root/.gitnexus/reindex.log"
+(
+  cd "$repo_root"
+  # shellcheck disable=SC2086
+  npx -y gitnexus@1.5.3 analyze --force $embeddings_flag >"$log" 2>&1
+) &
+
+exit 0
