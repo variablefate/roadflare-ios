@@ -5,7 +5,7 @@ import RidestrSDK
 ///
 /// Owns iOS-specific legacy key migration (from `user_payment_methods` +
 /// `user_custom_payment_methods` to the unified `user_roadflare_payment_methods`).
-final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence {
+final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence, @unchecked Sendable {
     private let defaults: UserDefaults
 
     private static let roadflarePaymentMethodsKey = "user_roadflare_payment_methods"

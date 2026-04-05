@@ -26,7 +26,7 @@ struct RideCoordinatorTests {
         try await fake.connect(to: DefaultRelays.all)
 
         let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
-        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
         settings.setRoadflarePaymentMethods(roadflarePaymentMethods)
         let history = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
         let bitcoinPrice = BitcoinPriceService()

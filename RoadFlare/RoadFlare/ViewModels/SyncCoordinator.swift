@@ -28,7 +28,7 @@ final class SyncCoordinator {
 
     // MARK: - Injected References (owned by AppState)
 
-    private let settings: UserSettings
+    private let settings: UserSettingsRepository
     private let savedLocations: SavedLocationsRepository
     private let rideHistory: RideHistoryRepository
 
@@ -37,7 +37,7 @@ final class SyncCoordinator {
 
     // MARK: - Init
 
-    init(settings: UserSettings, savedLocations: SavedLocationsRepository,
+    init(settings: UserSettingsRepository, savedLocations: SavedLocationsRepository,
          rideHistory: RideHistoryRepository) {
         self.settings = settings
         self.savedLocations = savedLocations
@@ -267,7 +267,7 @@ final class SyncCoordinator {
            snapshot.createdAt == remote.latestSeenCreatedAt {
             let name = snapshot.value.displayName ?? snapshot.value.name ?? ""
             settings.performWithoutChangeTracking {
-                settings.profileName = name
+                _ = settings.setProfileName(name)
             }
             if !name.isEmpty {
                 AppLogger.auth.info("Restored profile name from Nostr: \(name)")

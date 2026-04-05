@@ -21,7 +21,7 @@ final class RideCoordinator {
     let chat: ChatCoordinator
     let session: RiderRideSession
 
-    private let settings: UserSettings
+    private let settings: UserSettingsRepository
     private let rideHistory: RideHistoryRepository
     private let bitcoinPrice: BitcoinPriceService
     private let roadflareDomainService: RoadflareDomainService?
@@ -50,7 +50,7 @@ final class RideCoordinator {
         relayManager: any RelayManagerProtocol,
         keypair: NostrKeypair,
         driversRepository: FollowedDriversRepository,
-        settings: UserSettings,
+        settings: UserSettingsRepository,
         rideHistory: RideHistoryRepository,
         bitcoinPrice: BitcoinPriceService? = nil,
         roadflareDomainService: RoadflareDomainService? = nil,

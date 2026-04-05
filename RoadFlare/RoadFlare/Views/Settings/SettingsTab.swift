@@ -380,7 +380,7 @@ struct EditProfileSheet: View {
         let trimmed = editedName.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         saveState = .saving
-        appState.settings.profileName = trimmed
+        appState.settings.setProfileName(trimmed)
         Task {
             await appState.saveAndPublishSettings()
             saveState = .saved

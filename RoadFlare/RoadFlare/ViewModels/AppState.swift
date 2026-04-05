@@ -48,7 +48,7 @@ final class AppState {
     // MARK: - User State
 
     private(set) var keypair: NostrKeypair?
-    let settings = UserSettings()
+    let settings = UserSettingsRepository(persistence: UserDefaultsUserSettingsPersistence())
 
     // MARK: - Sync State (for import flow UI)
 
@@ -129,14 +129,14 @@ final class AppState {
         } else if settings.roadflarePaymentMethods.isEmpty {
             authState = .paymentSetup
         } else {
-            settings.profileCompleted = true
+            settings.setProfileCompleted(true)
             authState = .ready
         }
     }
 
     /// Mark profile name as set, publish Kind 0 to Nostr, move to payment setup.
     func completeProfileSetup(name: String) async {
-        settings.profileName = name
+        settings.setProfileName(name)
         syncCoordinator?.markDirty(.profile)
         await syncCoordinator?.publishProfile()
         authState = .paymentSetup
@@ -144,7 +144,7 @@ final class AppState {
 
     /// Mark payment setup as done, finish onboarding. Publishes profile + settings backup.
     func completePaymentSetup() async {
-        settings.profileCompleted = true
+        settings.setProfileCompleted(true)
         syncCoordinator?.markDirty(.profileBackup)
         await syncCoordinator?.saveAndPublishSettings()
         authState = .ready

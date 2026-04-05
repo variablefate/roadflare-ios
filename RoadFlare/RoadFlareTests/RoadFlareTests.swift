@@ -3,130 +3,6 @@ import Foundation
 @testable import RoadFlare
 @testable import RidestrSDK
 
-// MARK: - UserSettings Tests
-
-@Suite("UserSettings Tests")
-struct UserSettingsTests {
-    @MainActor
-    @Test func defaultsEmpty() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let settings = UserSettings(defaults: defaults)
-        #expect(settings.paymentMethods.isEmpty)
-        #expect(settings.profileName.isEmpty)
-        #expect(!settings.profileCompleted)
-    }
-
-    @MainActor
-    @Test func togglePaymentMethod() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let settings = UserSettings(defaults: defaults)
-        settings.togglePaymentMethod(.zelle)
-        #expect(settings.isEnabled(.zelle))
-        settings.togglePaymentMethod(.zelle)
-        #expect(!settings.isEnabled(.zelle))
-        #expect(settings.isEnabled(.cash))  // Cash forced as fallback
-    }
-
-    @MainActor
-    @Test func cashForcedWhenAllRemoved() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let settings = UserSettings(defaults: defaults)
-        settings.togglePaymentMethod(.venmo)
-        settings.togglePaymentMethod(.venmo)
-        #expect(settings.isCashForced)
-        #expect(settings.paymentMethods == [.cash])
-    }
-
-    @MainActor
-    @Test func paymentMethodsPersist() {
-        let suiteName = "test_\(UUID().uuidString)"
-        let s1 = UserSettings(defaults: UserDefaults(suiteName: suiteName)!)
-        s1.togglePaymentMethod(.zelle)
-        s1.togglePaymentMethod(.venmo)
-
-        let s2 = UserSettings(defaults: UserDefaults(suiteName: suiteName)!)
-        #expect(s2.isEnabled(.zelle))
-        #expect(s2.isEnabled(.venmo))
-    }
-
-    @MainActor
-    @Test func legacyPaymentSettingsMigrateIntoUnifiedRoadflareOrder() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        defaults.set(["zelle", "cash"], forKey: "user_payment_methods")
-        defaults.set(["venmo-business"], forKey: "user_custom_payment_methods")
-
-        let settings = UserSettings(defaults: defaults)
-
-        #expect(settings.roadflarePaymentMethods == ["zelle", "cash", "venmo-business"])
-        #expect(settings.customPaymentMethods == ["venmo-business"])
-    }
-
-    @MainActor
-    @Test func roadflareSettingsPreserveBitcoinDuringMigration() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        defaults.set(["bitcoin", "cash"], forKey: "user_payment_methods")
-
-        let settings = UserSettings(defaults: defaults)
-
-        #expect(settings.roadflarePaymentMethods == ["bitcoin", "cash"])
-    }
-
-    @MainActor
-    @Test func roadflareSettingsKeepStoredBitcoinUnifiedMethods() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        defaults.set(["bitcoin"], forKey: "user_roadflare_payment_methods")
-
-        let settings = UserSettings(defaults: defaults)
-
-        #expect(settings.roadflarePaymentMethods == ["bitcoin"])
-        #expect(defaults.stringArray(forKey: "user_roadflare_payment_methods") == ["bitcoin"])
-    }
-
-    @MainActor
-    @Test func addCustomPaymentMethodCanonicalizesKnownBitcoinLabel() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let settings = UserSettings(defaults: defaults)
-
-        let result = settings.addCustomPaymentMethod("Bitcoin")
-
-        #expect(result == .added)
-        #expect(settings.roadflarePaymentMethods == ["bitcoin"])
-    }
-
-    @MainActor
-    @Test func addCustomPaymentMethodRejectsDuplicateKnownLabel() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let settings = UserSettings(defaults: defaults)
-        settings.setRoadflarePaymentMethods(["bitcoin"])
-
-        let result = settings.addCustomPaymentMethod("Bitcoin")
-
-        #expect(result == .duplicate)
-        #expect(settings.roadflarePaymentMethods == ["bitcoin"])
-    }
-
-    @MainActor
-    @Test func profileNamePersists() {
-        let suiteName = "test_\(UUID().uuidString)"
-        let s1 = UserSettings(defaults: UserDefaults(suiteName: suiteName)!)
-        s1.profileName = "Alice"
-        let s2 = UserSettings(defaults: UserDefaults(suiteName: suiteName)!)
-        #expect(s2.profileName == "Alice")
-    }
-
-    @MainActor
-    @Test func clearAll() {
-        let defaults = UserDefaults(suiteName: "test_\(UUID().uuidString)")!
-        let settings = UserSettings(defaults: defaults)
-        settings.togglePaymentMethod(.zelle)
-        settings.profileName = "Bob"
-        settings.profileCompleted = true
-        settings.clearAll()
-        #expect(settings.paymentMethods.isEmpty)
-        #expect(settings.profileName.isEmpty)
-        #expect(!settings.profileCompleted)
-    }
-}
 
 // MARK: - RideHistoryRepository Tests
 
@@ -295,8 +171,8 @@ struct AppStateTests {
     @MainActor
     @Test func localAuthStateRequiresRoadflareMethodsBeforeReady() {
         let appState = AppState()
-        appState.settings.profileName = "Alice"
-        appState.settings.profileCompleted = true
+        appState.settings.setProfileName("Alice")
+        appState.settings.setProfileCompleted(true)
         appState.settings.setRoadflarePaymentMethods([])
 
         #expect(appState.resolveLocalAuthState() == .paymentSetup)
@@ -305,7 +181,7 @@ struct AppStateTests {
     @MainActor
     @Test func profileBackupContentIncludesPinnedAndRecentLocations() {
         // SyncCoordinator owns buildProfileBackupContent, so test it directly
-        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
         let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
         let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
         let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
@@ -337,7 +213,7 @@ struct AppStateTests {
 
     @MainActor
     @Test func profileBackupContentPreservesImportedAndroidSettingsTemplate() {
-        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
         let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
         let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
         let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
@@ -372,7 +248,7 @@ struct AppStateTests {
 
     @MainActor
     @Test func syncCoordinatorTeardownDetachesCallbacksBeforeClearAll() async {
-        let settings = UserSettings(defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!)
+        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
         let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
         let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
         let sync = SyncCoordinator(settings: settings, savedLocations: savedLocations, rideHistory: rideHistory)
