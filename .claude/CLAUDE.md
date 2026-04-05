@@ -1,6 +1,17 @@
 # CLAUDE.md
 
-Project-specific guidance for roadflare-ios. For GitNexus tool usage, see the root `CLAUDE.md`.
+Project-specific guidance for roadflare-ios. For GitNexus tool usage, see the root `CLAUDE.md` (gitignored, auto-generated).
+
+## First-time setup
+
+Run once per machine to install GitNexus MCP server, hooks, skills, and generate the root `CLAUDE.md` / `AGENTS.md`:
+
+```bash
+npx -y gitnexus@1.5.3 setup
+npx -y gitnexus@1.5.3 analyze
+```
+
+The repo's `.githooks/post-commit` auto-reindexes after every terminal commit.
 
 ## Architecture Decision Records (ADRs)
 

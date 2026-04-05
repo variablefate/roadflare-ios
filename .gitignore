@@ -32,3 +32,7 @@ fastlane/Preview.html
 fastlane/screenshots
 fastlane/test_output
 .gitnexus
+# GitNexus auto-generates these with a symbol count that fluctuates between runs.
+# Contributors regenerate via `npx gitnexus@1.5.3 setup`.
+CLAUDE.md
+AGENTS.md
