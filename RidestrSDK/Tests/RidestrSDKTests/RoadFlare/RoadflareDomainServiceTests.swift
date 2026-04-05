@@ -325,4 +325,66 @@ struct RoadflareDomainServiceTests {
         #expect(profiles["driver-a"]?.value.name == "Older A")
         #expect(profiles["driver-a"]?.createdAt == 100)
     }
+
+    // MARK: - publishAndMark Convenience Helpers
+
+    @Test func publishProfileAndMarkMarksSyncStore() async throws {
+        let keypair = try NostrKeypair.generate()
+        let relay = FakeRelayManager()
+        try await relay.connect(to: [URL(string: "wss://fake")!])
+        let service = RoadflareDomainService(relayManager: relay, keypair: keypair)
+        let syncStore = RoadflareSyncStateStore(
+            defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!,
+            namespace: UUID().uuidString
+        )
+        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
+        _ = settings.setProfileName("Alice")
+
+        await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+
+        #expect(syncStore.metadata(for: .profile).lastSuccessfulPublishAt > 0)
+        #expect(relay.publishedEvents.count == 1)
+    }
+
+    @Test func publishFollowedDriversListAndMarkMarksSyncStore() async throws {
+        let keypair = try NostrKeypair.generate()
+        let relay = FakeRelayManager()
+        try await relay.connect(to: [URL(string: "wss://fake")!])
+        let service = RoadflareDomainService(relayManager: relay, keypair: keypair)
+        let syncStore = RoadflareSyncStateStore(
+            defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!,
+            namespace: UUID().uuidString
+        )
+        let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
+        repo.addDriver(FollowedDriver(pubkey: "d1", addedAt: 100, name: "Alice"))
+
+        await service.publishFollowedDriversListAndMark(from: repo, syncStore: syncStore)
+
+        #expect(syncStore.metadata(for: .followedDrivers).lastSuccessfulPublishAt > 0)
+        #expect(relay.publishedEvents.count == 1)
+    }
+
+    @Test func publishRideHistoryAndMarkMarksSyncStore() async throws {
+        let keypair = try NostrKeypair.generate()
+        let relay = FakeRelayManager()
+        try await relay.connect(to: [URL(string: "wss://fake")!])
+        let service = RoadflareDomainService(relayManager: relay, keypair: keypair)
+        let syncStore = RoadflareSyncStateStore(
+            defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!,
+            namespace: UUID().uuidString
+        )
+        let history = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
+        history.addRide(RideHistoryEntry(
+            id: "r1", date: .now, counterpartyPubkey: "driver",
+            pickupGeohash: "abc", dropoffGeohash: "def",
+            pickup: Location(latitude: 40, longitude: -74),
+            destination: Location(latitude: 41, longitude: -73),
+            fare: 10.0, paymentMethod: "zelle"
+        ))
+
+        await service.publishRideHistoryAndMark(from: history, syncStore: syncStore)
+
+        #expect(syncStore.metadata(for: .rideHistory).lastSuccessfulPublishAt > 0)
+        #expect(relay.publishedEvents.count == 1)
+    }
 }
