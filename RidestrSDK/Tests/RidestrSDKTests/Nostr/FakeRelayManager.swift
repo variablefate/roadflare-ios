@@ -44,6 +44,7 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     public var shouldFailPublish = false
     public var shouldFailSubscribe = false
     public var subscribeDelay: Duration?
+    public var publishDelay: Duration?
     private var _isConnected = false
 
     /// Events to return immediately from subscribe calls, keyed by subscription ID.
@@ -98,6 +99,9 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     public func publish(_ event: NostrEvent) async throws -> String {
         if shouldFailPublish {
             throw RidestrError.relay(.notConnected)
+        }
+        if let publishDelay {
+            try? await Task.sleep(for: publishDelay)
         }
         lock.withLock { _publishedEvents.append(event) }
         return event.id

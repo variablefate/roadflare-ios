@@ -1,11 +1,14 @@
 import SwiftUI
-import RidestrSDK
 
 @main
 struct RoadFlareApp: App {
     @State private var appState = AppState()
     @State private var isHandlingForeground = false
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        AppLogger.bootstrapSDKLogging()
+    }
 
     var body: some Scene {
         WindowGroup {

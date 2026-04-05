@@ -178,6 +178,55 @@ public final class RoadflareDomainService: @unchecked Sendable {
         return event
     }
 
+    // MARK: - Publish-and-Mark Convenience Helpers
+    //
+    // Each helper: reads from its repo → builds content → publishes → marks
+    // syncStore published on success. Throws swallowed by logging.
+
+    public func publishProfileAndMark(
+        from settings: UserSettingsRepository,
+        syncStore: RoadflareSyncStateStore
+    ) async {
+        let profile = UserProfileContent(
+            name: settings.profileName,
+            displayName: settings.profileName
+        )
+        do {
+            let event = try await publishProfile(profile)
+            syncStore.markPublished(.profile, at: event.createdAt)
+            RidestrLogger.info("[RoadflareDomainService] Published profile")
+        } catch {
+            RidestrLogger.info("[RoadflareDomainService] Failed to publish profile: \(error.localizedDescription)")
+        }
+    }
+
+    public func publishFollowedDriversListAndMark(
+        from repository: FollowedDriversRepository,
+        syncStore: RoadflareSyncStateStore
+    ) async {
+        do {
+            let event = try await publishFollowedDriversList(repository.drivers)
+            syncStore.markPublished(.followedDrivers, at: event.createdAt)
+            RidestrLogger.info("[RoadflareDomainService] Published followed drivers list")
+        } catch {
+            RidestrLogger.info("[RoadflareDomainService] Failed to publish followed drivers list: \(error.localizedDescription)")
+        }
+    }
+
+    public func publishRideHistoryAndMark(
+        from rideHistory: RideHistoryRepository,
+        syncStore: RoadflareSyncStateStore
+    ) async {
+        let content = RideHistoryBackupContent(rides: rideHistory.rides)
+        do {
+            let event = try await publishRideHistoryBackup(content)
+            syncStore.markPublished(.rideHistory, at: event.createdAt)
+            RidestrLogger.info("[RoadflareDomainService] Published ride history backup")
+        } catch {
+            RidestrLogger.info("[RoadflareDomainService] Failed to publish ride history backup: \(error.localizedDescription)")
+        }
+    }
+
     public func fetchLatestRideHistoryState() async -> StartupRemoteDomain<RideHistoryBackupContent> {
         await fetchStartupRideHistoryState()
     }
