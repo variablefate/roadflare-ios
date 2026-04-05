@@ -4,6 +4,24 @@ import Foundation
 @testable import RidestrSDK
 
 
+// MARK: - AppLogger Tests
+
+@Suite("AppLogger Tests")
+struct AppLoggerTests {
+    @Test func bootstrapSDKLoggingWiresRidestrLoggerHandler() {
+        // Save and restore the global handler so this test doesn't leak state.
+        let original = RidestrLogger.handler
+        defer { RidestrLogger.handler = original }
+
+        RidestrLogger.handler = nil
+        #expect(RidestrLogger.handler == nil)
+
+        AppLogger.bootstrapSDKLogging()
+
+        #expect(RidestrLogger.handler != nil)
+    }
+}
+
 // MARK: - RideHistoryRepository Tests
 
 @Suite("RideHistoryRepository Tests")
