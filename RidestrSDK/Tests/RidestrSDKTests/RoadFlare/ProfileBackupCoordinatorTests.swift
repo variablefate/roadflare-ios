@@ -151,9 +151,16 @@ struct ProfileBackupCoordinatorTests {
 
         await publishTask.value
 
-        // The new session should have published successfully.
-        // The invalidated old session's markPublished is skipped (stillValid=false).
+        // The new session's publish reached the relay.
         #expect(kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt > 0)
+
+        // The old session's markPublished was suppressed by the generation
+        // check: the published timestamp must match the SECOND publish, not
+        // the first. Since the second publish ran after the first completed,
+        // its event is the last one in the relay's ordered list.
+        #expect(kit.relay.publishedEvents.count == 2)
+        let lastEvent = kit.relay.publishedEvents.last!
+        #expect(kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt == lastEvent.createdAt)
     }
 
     @Test func publishAndMarkSecondCallAfterFirstCompletes() async throws {
