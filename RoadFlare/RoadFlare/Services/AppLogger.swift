@@ -11,4 +11,5 @@ enum AppLogger {
     static let ride = Logger(subsystem: subsystem, category: "ride")
     static let location = Logger(subsystem: subsystem, category: "location")
     static let auth = Logger(subsystem: subsystem, category: "auth")
+    static let sdk = Logger(subsystem: subsystem, category: "sdk")
 }
