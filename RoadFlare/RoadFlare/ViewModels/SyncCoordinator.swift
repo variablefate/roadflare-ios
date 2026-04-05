@@ -131,7 +131,7 @@ final class SyncCoordinator {
                 await MainActor.run {
                     let name = value.displayName ?? value.name ?? ""
                     settings.performWithoutChangeTracking {
-                        _ = settings.setProfileName(name, allowEmpty: true)
+                        _ = settings.setProfileName(name)
                     }
                     if !name.isEmpty {
                         AppLogger.auth.info("Restored profile name from Nostr: \(name)")
