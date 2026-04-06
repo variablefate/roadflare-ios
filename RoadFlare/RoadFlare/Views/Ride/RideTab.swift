@@ -23,8 +23,6 @@ struct RideTab: View {
     @State private var showProfile = false
     @State private var showConnectivity = false
     @State private var isOffline = false
-    @State private var showChat = false
-    @State private var showCancelWarning = false
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.session.stage ?? .idle }
@@ -48,43 +46,17 @@ struct RideTab: View {
                             fareError: $fareError
                         )
                     default:
-                        RideStatusCard(
-                            stage: stage,
-                            pin: coordinator?.session.pin,
-                            fareEstimate: coordinator?.currentFareEstimate,
-                            paymentMethods: coordinator?.activeRidePaymentMethods
-                                ?? appState.settings.roadflarePaymentMethods,
-                            driverName: coordinator?.session.driverPubkey.flatMap {
-                                appState.driversRepository?.cachedDriverName(pubkey: $0)
-                            },
-                            pickupAddress: coordinator?.pickupLocation?.address,
-                            destinationAddress: coordinator?.destinationLocation?.address,
-                            unreadChatCount: coordinator?.chat.unreadCount ?? 0,
-                            onCancel: { showCancelWarning = true },
-                            onChat: {
-                                coordinator?.chat.markRead()
-                                showChat = true
-                            },
-                            onCloseRide: {
-                                Task {
-                                    if coordinator?.session.stage == .completed {
-                                        await coordinator?.closeCompletedRide()
-                                    } else {
-                                        await coordinator?.forceEndRide()
-                                    }
-                                }
-                                selectedDriverPubkey = nil
-                                pickupAddress = ""
-                                destinationAddress = ""
-                                resolvedPickupCoord = nil
-                                resolvedDestCoord = nil
-                                fareError = nil
-                                coordinator?.currentFareEstimate = nil
-                                coordinator?.pickupLocation = nil
-                                coordinator?.destinationLocation = nil
-                            }
-                        )
-                        .environment(\.ridestrTheme, roadFlareTheme)
+                        ActiveRideView(onRideClosed: {
+                            selectedDriverPubkey = nil
+                            pickupAddress = ""
+                            destinationAddress = ""
+                            resolvedPickupCoord = nil
+                            resolvedDestCoord = nil
+                            fareError = nil
+                            coordinator?.currentFareEstimate = nil
+                            coordinator?.pickupLocation = nil
+                            coordinator?.destinationLocation = nil
+                        })
                     }
                 }
             }
@@ -92,10 +64,6 @@ struct RideTab: View {
             .navigationBarHidden(true)
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
-            .sheet(isPresented: $showChat) {
-                WiredChatView()
-                    .onDisappear { coordinator?.chat.markRead() }
-            }
             .task { await monitorConnection() }
             .onChange(of: stage) { oldStage, newStage in
                 switch newStage {
@@ -117,32 +85,7 @@ struct RideTab: View {
                     coordinator?.lastError = nil
                 }
             }
-            .alert("Cancel Ride?", isPresented: $showCancelWarning) {
-                Button("Cancel Ride", role: .destructive) {
-                    Task { await coordinator?.cancelRide(reason: "Cancelled by rider") }
-                }
-                Button("Go Back", role: .cancel) {}
-            } message: {
-                Text("Are you sure you want to cancel and close out this ride?")
-            }
         }
-    }
-
-    // MARK: - RoadFlare Theme for RidestrUI
-
-    private var roadFlareTheme: RidestrTheme {
-        RidestrTheme(
-            accentColor: .rfPrimary,
-            successColor: .rfOnline,
-            warningColor: .rfOnRide,
-            errorColor: .rfError,
-            surfaceColor: .rfSurface,
-            surfaceSecondaryColor: .rfSurfaceContainer,
-            onSurfaceColor: .rfOnSurface,
-            onSurfaceSecondaryColor: .rfOnSurfaceVariant,
-            cardCornerRadius: 16,
-            fontDesign: .rounded
-        )
     }
 
     private func monitorConnection() async {
