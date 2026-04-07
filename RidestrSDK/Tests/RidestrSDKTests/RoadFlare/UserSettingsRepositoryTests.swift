@@ -273,6 +273,47 @@ struct UserSettingsRepositoryTests {
         #expect(repo.allPaymentMethodNames.contains("custom-method"))
     }
 
+    @Test func paymentMethodsFiltersToKnownOnly() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle", "venmo-business", "cash"])
+        #expect(repo.paymentMethods == [.zelle, .cash])
+    }
+
+    @Test func customPaymentMethodsFiltersToUnknownOnly() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle", "venmo-business", "cash"])
+        #expect(repo.customPaymentMethods == ["venmo-business"])
+    }
+
+    @Test func roadflarePrimaryPaymentMethodReturnsFirstOrNil() {
+        let repo = makeRepo()
+        #expect(repo.roadflarePrimaryPaymentMethod == nil)
+        repo.setRoadflarePaymentMethods(["venmo", "zelle"])
+        #expect(repo.roadflarePrimaryPaymentMethod == "venmo")
+    }
+
+    @Test func roadflareMethodChoicesIncludesKnownAndCustom() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle", "venmo-business"])
+        let choices = repo.roadflareMethodChoices
+        #expect(choices == ["zelle", "paypal", "cash_app", "venmo", "strike", "bitcoin", "cash", "venmo-business"])
+    }
+
+    @Test func isEnabledReflectsCurrentMethods() {
+        let repo = makeRepo()
+        #expect(!repo.isEnabled(.zelle))
+        repo.togglePaymentMethod(.zelle)
+        #expect(repo.isEnabled(.zelle))
+    }
+
+    @Test func isRoadflareMethodEnabledCaseInsensitive() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["venmo-business"])
+        #expect(repo.isRoadflareMethodEnabled("Venmo-Business"))
+        #expect(repo.isRoadflareMethodEnabled("venmo-business"))
+        #expect(!repo.isRoadflareMethodEnabled("zelle"))
+    }
+
     // MARK: - performWithoutChangeTracking
 
     @Test func performWithoutChangeTrackingSuppressesCallbacks() {
