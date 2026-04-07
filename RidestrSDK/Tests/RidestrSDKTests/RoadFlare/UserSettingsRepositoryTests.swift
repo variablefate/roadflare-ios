@@ -459,11 +459,19 @@ struct UserSettingsRepositoryTests {
         #expect(persistence.load().profileName == "Alice")
     }
 
-    @Test func togglePaymentMethodPersists() {
+    @Test func togglePaymentMethodAddPersists() {
         let persistence = InMemoryUserSettingsPersistence()
         let repo = UserSettingsRepository(persistence: persistence)
         repo.togglePaymentMethod(.zelle)
         #expect(persistence.load().roadflarePaymentMethods == ["zelle"])
+    }
+
+    @Test func togglePaymentMethodRemovalPersistsCashFallback() {
+        let persistence = InMemoryUserSettingsPersistence()
+        let repo = UserSettingsRepository(persistence: persistence)
+        repo.togglePaymentMethod(.zelle)
+        repo.togglePaymentMethod(.zelle)
+        #expect(persistence.load().roadflarePaymentMethods == ["cash"])
     }
 
     @Test func setProfileCompletedPersists() {
