@@ -179,6 +179,15 @@ struct UserSettingsRepositoryTests {
         #expect(repo.isEnabled(.cash))  // Cash forced as fallback
     }
 
+    @Test func togglePaymentMethodRemoveOneOfMany() {
+        let repo = makeRepo()
+        repo.togglePaymentMethod(.zelle)
+        repo.togglePaymentMethod(.venmo)
+        repo.togglePaymentMethod(.venmo)
+        #expect(repo.roadflarePaymentMethods == ["zelle"])
+        #expect(!repo.isCashForced)
+    }
+
     @Test func cashForcedWhenAllRemoved() {
         let repo = makeRepo()
         repo.togglePaymentMethod(.venmo)
@@ -418,6 +427,31 @@ struct UserSettingsRepositoryTests {
         // After both blocks complete, callbacks should resume
         _ = repo.setProfileName("ResumedAfterNesting")
         #expect(profileChanged.count == 1)
+    }
+
+    @Test func performWithoutChangeTrackingStillPersists() {
+        let persistence = InMemoryUserSettingsPersistence()
+        let repo = UserSettingsRepository(persistence: persistence)
+        repo.performWithoutChangeTracking {
+            _ = repo.setProfileName("SyncRestore")
+            repo.setRoadflarePaymentMethods(["zelle"])
+        }
+        let snapshot = persistence.load()
+        #expect(snapshot.profileName == "SyncRestore")
+        #expect(snapshot.roadflarePaymentMethods == ["zelle"])
+    }
+
+    @Test func performWithoutChangeTrackingBackupCallbackResumes() {
+        let repo = makeRepo()
+        let backupChanged = CallbackCounter()
+        repo.onProfileBackupChanged = { backupChanged.increment() }
+        repo.performWithoutChangeTracking {
+            repo.setRoadflarePaymentMethods(["zelle"])
+        }
+        #expect(backupChanged.count == 0)
+        // After block, backup callback should fire normally
+        repo.setRoadflarePaymentMethods(["zelle", "venmo"])
+        #expect(backupChanged.count == 1)
     }
 
     // MARK: - clearAll
