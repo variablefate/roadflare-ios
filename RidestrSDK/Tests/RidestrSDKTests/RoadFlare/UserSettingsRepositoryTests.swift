@@ -337,7 +337,11 @@ struct UserSettingsRepositoryTests {
         let repo = makeRepo()
         repo.setRoadflarePaymentMethods(["zelle", "venmo-business"])
         let choices = repo.roadflareMethodChoices
-        #expect(choices == ["zelle", "paypal", "cash_app", "venmo", "strike", "bitcoin", "cash", "venmo-business"])
+        let knownCount = PaymentMethod.roadflareAlternates.count
+        // Known alternates appear first in canonical order
+        #expect(Array(choices.prefix(knownCount)) == PaymentMethod.roadflareAlternates.map(\.rawValue))
+        // Custom methods appended after known
+        #expect(Array(choices.dropFirst(knownCount)) == ["venmo-business"])
     }
 
     @Test func isEnabledReflectsCurrentMethods() {
@@ -459,6 +463,13 @@ struct UserSettingsRepositoryTests {
         let persistence = InMemoryUserSettingsPersistence()
         let repo = UserSettingsRepository(persistence: persistence)
         repo.togglePaymentMethod(.zelle)
-        #expect(persistence.load().roadflarePaymentMethods.contains("zelle"))
+        #expect(persistence.load().roadflarePaymentMethods == ["zelle"])
+    }
+
+    @Test func setProfileCompletedPersists() {
+        let persistence = InMemoryUserSettingsPersistence()
+        let repo = UserSettingsRepository(persistence: persistence)
+        repo.setProfileCompleted(true)
+        #expect(persistence.load().profileCompleted == true)
     }
 }
