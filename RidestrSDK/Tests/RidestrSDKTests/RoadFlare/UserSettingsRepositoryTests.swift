@@ -205,6 +205,12 @@ struct UserSettingsRepositoryTests {
         #expect(backupChanged.count == 0)
     }
 
+    @Test func setRoadflarePaymentMethodsDeduplicatesAndTrims() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle", " Zelle ", "venmo"])
+        #expect(repo.roadflarePaymentMethods == ["zelle", "venmo"])
+    }
+
     @Test func addCustomPaymentMethodAdds() {
         let repo = makeRepo()
         let result = repo.addCustomPaymentMethod("Bitcoin")
@@ -249,11 +255,46 @@ struct UserSettingsRepositoryTests {
         #expect(repo.roadflarePaymentMethods == ["cash", "zelle", "venmo"])
     }
 
+    @Test func moveRoadflarePaymentMethodsClampsOffset() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle", "venmo", "cash"])
+        // toOffset 99 exceeds array size after removal — implementation clamps via min()
+        repo.moveRoadflarePaymentMethods(fromOffsets: IndexSet(integer: 0), toOffset: 99)
+        #expect(repo.roadflarePaymentMethods == ["venmo", "cash", "zelle"])
+    }
+
     @Test func toggleRoadflarePaymentMethodCaseInsensitive() {
         let repo = makeRepo()
         repo.setRoadflarePaymentMethods(["custom-method"])
         repo.toggleRoadflarePaymentMethod("Custom-Method")
         #expect(!repo.roadflarePaymentMethods.contains("custom-method"))
+    }
+
+    @Test func toggleRoadflarePaymentMethodAddsWhenAbsent() {
+        let repo = makeRepo()
+        repo.toggleRoadflarePaymentMethod("zelle")
+        #expect(repo.roadflarePaymentMethods.contains("zelle"))
+    }
+
+    @Test func toggleRoadflarePaymentMethodCanonicalizesKnownName() {
+        let repo = makeRepo()
+        repo.toggleRoadflarePaymentMethod("Zelle")
+        #expect(repo.roadflarePaymentMethods == ["zelle"])
+    }
+
+    @Test func toggleRoadflarePaymentMethodIgnoresEmptyInput() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle"])
+        repo.toggleRoadflarePaymentMethod("   ")
+        #expect(repo.roadflarePaymentMethods == ["zelle"])
+    }
+
+    @Test func toggleRoadflarePaymentMethodForcesCashOnLastRemoval() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle"])
+        repo.toggleRoadflarePaymentMethod("Zelle")
+        #expect(repo.roadflarePaymentMethods == ["cash"])
+        #expect(repo.isCashForced)
     }
 
     // MARK: - Computed helpers
@@ -347,6 +388,34 @@ struct UserSettingsRepositoryTests {
         #expect(profileChanged.count == 0)
     }
 
+    @Test func performWithoutChangeTrackingCallbacksResumeAfter() {
+        let repo = makeRepo()
+        let profileChanged = CallbackCounter()
+        repo.onProfileChanged = { profileChanged.increment() }
+        repo.performWithoutChangeTracking {
+            _ = repo.setProfileName("Suppressed")
+        }
+        #expect(profileChanged.count == 0)
+        // After block, callbacks should fire normally
+        _ = repo.setProfileName("NotSuppressed")
+        #expect(profileChanged.count == 1)
+    }
+
+    @Test func performWithoutChangeTrackingNestedCallbacksResumeAfter() {
+        let repo = makeRepo()
+        let profileChanged = CallbackCounter()
+        repo.onProfileChanged = { profileChanged.increment() }
+        repo.performWithoutChangeTracking {
+            repo.performWithoutChangeTracking {
+                _ = repo.setProfileName("Inner")
+            }
+        }
+        #expect(profileChanged.count == 0)
+        // After both blocks complete, callbacks should resume
+        _ = repo.setProfileName("ResumedAfterNesting")
+        #expect(profileChanged.count == 1)
+    }
+
     // MARK: - clearAll
 
     @Test func clearAll() {
@@ -375,5 +444,21 @@ struct UserSettingsRepositoryTests {
         #expect(snapshot.profileName.isEmpty)
         #expect(snapshot.roadflarePaymentMethods.isEmpty)
         #expect(!snapshot.profileCompleted)
+    }
+
+    // MARK: - Persistence round-trips
+
+    @Test func setProfileNamePersists() {
+        let persistence = InMemoryUserSettingsPersistence()
+        let repo = UserSettingsRepository(persistence: persistence)
+        _ = repo.setProfileName("Alice")
+        #expect(persistence.load().profileName == "Alice")
+    }
+
+    @Test func togglePaymentMethodPersists() {
+        let persistence = InMemoryUserSettingsPersistence()
+        let repo = UserSettingsRepository(persistence: persistence)
+        repo.togglePaymentMethod(.zelle)
+        #expect(persistence.load().roadflarePaymentMethods.contains("zelle"))
     }
 }
