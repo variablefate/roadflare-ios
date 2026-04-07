@@ -94,6 +94,59 @@ struct UserSettingsRepositoryTests {
         #expect(changedCount.count == 0)
     }
 
+    // MARK: - Notification isolation
+
+    @Test func setProfileNameDoesNotFireBackupChanged() {
+        let repo = makeRepo()
+        let backupChanged = CallbackCounter()
+        repo.onProfileBackupChanged = { backupChanged.increment() }
+        _ = repo.setProfileName("Alice")
+        #expect(backupChanged.count == 0)
+    }
+
+    @Test func togglePaymentMethodFiresBackupChanged() {
+        let repo = makeRepo()
+        let backupChanged = CallbackCounter()
+        repo.onProfileBackupChanged = { backupChanged.increment() }
+        repo.togglePaymentMethod(.zelle)
+        #expect(backupChanged.count == 1)
+    }
+
+    @Test func togglePaymentMethodDoesNotFireProfileChanged() {
+        let repo = makeRepo()
+        let profileChanged = CallbackCounter()
+        repo.onProfileChanged = { profileChanged.increment() }
+        repo.togglePaymentMethod(.zelle)
+        #expect(profileChanged.count == 0)
+    }
+
+    @Test func addCustomPaymentMethodFiresBackupChanged() {
+        let repo = makeRepo()
+        let backupChanged = CallbackCounter()
+        repo.onProfileBackupChanged = { backupChanged.increment() }
+        let result = repo.addCustomPaymentMethod("litecoin")
+        #expect(result == .added)
+        #expect(backupChanged.count == 1)
+    }
+
+    @Test func removeCustomPaymentMethodFiresBackupChanged() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["venmo-business", "cash"])
+        let backupChanged = CallbackCounter()
+        repo.onProfileBackupChanged = { backupChanged.increment() }
+        repo.removeCustomPaymentMethod("venmo-business")
+        #expect(backupChanged.count == 1)
+    }
+
+    @Test func moveRoadflarePaymentMethodsFiresBackupChanged() {
+        let repo = makeRepo()
+        repo.setRoadflarePaymentMethods(["zelle", "venmo", "cash"])
+        let backupChanged = CallbackCounter()
+        repo.onProfileBackupChanged = { backupChanged.increment() }
+        repo.moveRoadflarePaymentMethods(fromOffsets: IndexSet(integer: 2), toOffset: 0)
+        #expect(backupChanged.count == 1)
+    }
+
     // MARK: - setProfileCompleted
 
     @Test func setProfileCompletedPersistsNoNotify() {
