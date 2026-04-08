@@ -49,7 +49,9 @@ Additionally, extract the Nostr key derivation formula from PasskeyManager into 
 
 **New SDK utility (`RidestrSDK/Sources/RidestrSDK/Nostr/`):**
 
-6. **`NostrKeypair.deriveFromSymmetricKey(_:)`** — Static method on the existing `NostrKeypair` type. Extracts the 7-line key derivation formula from PasskeyManager: `SymmetricKey → SHA256 → hex → NostrKeypair`. This is Nostr protocol key derivation, not iOS platform logic.
+6. **`NostrKeypair.deriveFromSymmetricKey(_:)`** — Static method on the existing `NostrKeypair` type. Extracts the key derivation formula from PasskeyManager: `SymmetricKey → SHA256 → hex → NostrKeypair`. This belongs in the SDK so that any app developer building on Ridestr can derive a Nostr keypair from arbitrary key material without needing to understand SHA256 → secp256k1 internals. The SDK abstracts the protocol — app developers shouldn't need to know how Nostr keys work.
+
+   Note: A standalone `nostr-passkey` package exists at `variablefate/nostr-passkey` with richer features (indexed keys, passphrase derivation). It's not production-ready yet (build issues, unverified tests — see nostr-passkey #1-3). When it's ready, roadflare-ios can adopt it and this SDK utility becomes the bridge between the passkey package and RidestrSDK's `NostrKeypair` type. For now, the SDK provides the minimal derivation utility.
 
 ### What stays in app
 
