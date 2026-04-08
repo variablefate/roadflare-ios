@@ -1,53 +1,30 @@
-# RideStatePersistence SDK Migration — Implementation Plan (v3)
+# RideStatePersistence SDK Migration — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate ride state persistence domain logic (expiration, stage filtering, legacy migration) from the iOS app layer to the SDK, following the proven UserSettingsRepository pattern. Also extract Nostr key derivation from PasskeyManager into the SDK.
 
-**Architecture:** SDK owns the persistence contract (`PersistedRideState`), validation/expiration logic (`RideStateRepository`), and abstract storage interface (`RideStatePersistence` protocol). App provides the iOS-specific `UserDefaultsRideStatePersistence` implementation. `RideCoordinator` constructs `RideStateRepository` internally from its `stageTimeouts`, deriving the restoration policy — matching the current pattern where timeouts influence persistence behavior.
+**Architecture:** SDK owns the persistence contract (`PersistedRideState`), validation/expiration logic (`RideStateRepository`), and abstract storage interface (`RideStatePersistence` protocol). App provides the iOS-specific `UserDefaultsRideStatePersistence` implementation. `RideCoordinator` receives an injected `RideStateRepository` instead of calling static methods.
 
-**Tech Stack:** Swift, RidestrSDK (SPM package), Swift Testing framework, `@unchecked Sendable` + `NSLock` pattern
+**Tech Stack:** Swift, RidestrSDK (SPM package), Swift Testing framework, `@unchecked Sendable` + `NSLock` pattern for thread safety
 
 ---
-
-## Review Findings Incorporated (v2)
-
-Issues found by three focused review agents and fixes applied:
-
-| Issue | Severity | Fix |
-|---|---|---|
-| `PersistedRideState: Equatable` won't compile (`RiderRideAction` not Equatable) | Critical | Remove `Equatable` conformance |
-| `import CryptoKit` missing from Task 4 code | Critical | Added to code block |
-| Tasks 5+6 commit broken build between them | Critical | Merged into single task |
-| Custom `stageTimeouts` no longer influences restore policy | Important | RideCoordinator constructs RideStateRepository internally with policy from stageTimeouts |
-| ~16 coordinator test lines call nonexistent `RideStatePersistence.load()` | Important | `makeCoordinator` returns persistence; tests assert via persistence/repo |
-| `RideStatePersistence.RestorePolicy` in coordinator tests | Important | Updated to `RideStateRestorationPolicy` |
-| Tests calling `save(session:...)` need helper | Important | Added `makePersistedState()` test helper |
-| Missing exact boundary timestamp test | Important | Added |
-| Test suite rename not in plan | Important | Added |
-| Protocol naming inconsistency | Design | Use `RideStatePersistence` (no Protocol suffix) |
-| `migrated()` verbose reinit | Design | Use copy-with-changes pattern |
-| `load()` policy param vs init-time | Design | Init-time (RideCoordinator constructs repo with derived policy) |
-| `prepareForIdentityReplacement` called before coordinator exists — nil reach-through silently skips clear | Important (Codex) | AppState owns a direct persistence handle for cleanup |
-| Unknown/corrupt stage passes SDK validation, never cleared | Medium (Codex) | SDK `load()` validates stage is a known `RiderStage` raw value |
-| Derivation test only checks length, not known output | Medium (Codex) | Compute actual SHA256 of test input and assert exact pubkey |
-| Expiration boundary tests flaky — two separate `Date.now` reads | Medium (Codex) | Pass explicit fixed `now:` to `repo.load(now:)` in boundary tests |
 
 ## File Structure
 
 | File | Change | Responsibility |
 |------|--------|---------------|
-| `RidestrSDK/.../Ride/PersistedRideState.swift` | CREATE | 28-field Codable struct + `migrated()` legacy normalization |
+| `RidestrSDK/.../Ride/PersistedRideState.swift` | CREATE | 24-field Codable struct + `migrated()` legacy normalization |
 | `RidestrSDK/.../Ride/RideStateRepository.swift` | CREATE | Repository class + `RideStatePersistence` protocol + `RideStateRestorationPolicy` + `InMemoryRideStatePersistence` |
 | `RidestrSDK/.../Nostr/NostrKeypair.swift` | MODIFY | Add `deriveFromSymmetricKey()` static method |
-| `RidestrSDK/Tests/.../Ride/RideStateRepositoryTests.swift` | CREATE | Expiration, stage filtering, legacy migration, boundary tests |
-| `RidestrSDK/Tests/.../Nostr/NostrKeypairTests.swift` | MODIFY | Add derivation determinism + known-output test |
+| `RidestrSDK/Tests/.../RideStateRepositoryTests.swift` | CREATE | Expiration, stage filtering, legacy migration, round-trip tests |
+| `RidestrSDK/Tests/.../NostrKeypairTests.swift` | MODIFY | Add derivation determinism test |
 | `RoadFlare/.../Services/RideStatePersistence.swift` | REWRITE | Thin UserDefaults wrapper implementing SDK protocol |
-| `RoadFlare/.../ViewModels/RideCoordinator.swift` | MODIFY | Accept persistence via init, construct RideStateRepository internally |
-| `RoadFlare/.../ViewModels/AppState.swift` | MODIFY | Create and pass persistence to RideCoordinator |
+| `RoadFlare/.../ViewModels/RideCoordinator.swift` | MODIFY | Accept injected `RideStateRepository`, remove static calls |
+| `RoadFlare/.../ViewModels/AppState.swift` | MODIFY | Create and inject `RideStateRepository` |
 | `RoadFlare/.../Services/PasskeyManager.swift` | MODIFY | Call `NostrKeypair.deriveFromSymmetricKey()` |
-| `RoadFlare/RoadFlareTests/RoadFlareTests.swift` | MODIFY | Rename suite, split: expiration → SDK, UserDefaults → app |
-| `RoadFlare/RoadFlareTests/RideCoordinatorTests.swift` | MODIFY | Use injected persistence, return from helper, update all 16 call sites |
+| `RoadFlare/RoadFlareTests/RoadFlareTests.swift` | MODIFY | Split persistence tests: expiration → SDK, UserDefaults → app |
+| `RoadFlare/RoadFlareTests/RideCoordinatorTests.swift` | MODIFY | Use injected persistence via `InMemoryRideStatePersistence` |
 
 ---
 
@@ -56,14 +33,17 @@ Issues found by three focused review agents and fixes applied:
 **Files:**
 - Create: `RidestrSDK/Sources/RidestrSDK/Ride/PersistedRideState.swift`
 
-- [ ] **Step 1: Create the file**
+Move the 24-field Codable struct from the app to the SDK. Add the `migrated()` method for legacy PIN timestamp normalization.
+
+- [ ] **Step 1: Create the file with the struct and migration method**
 
 ```swift
+// RidestrSDK/Sources/RidestrSDK/Ride/PersistedRideState.swift
 import Foundation
 
 /// Canonical persistence contract for active ride state.
 /// Both platforms (iOS/Android) agree on this shape.
-public struct PersistedRideState: Codable, Sendable {
+public struct PersistedRideState: Codable, Sendable, Equatable {
     public let stage: String
     public let offerEventId: String?
     public let acceptanceEventId: String?
@@ -95,33 +75,33 @@ public struct PersistedRideState: Codable, Sendable {
 
     public init(
         stage: String,
-        offerEventId: String? = nil,
-        acceptanceEventId: String? = nil,
-        confirmationEventId: String? = nil,
-        driverPubkey: String? = nil,
-        pin: String? = nil,
-        pinVerified: Bool = false,
-        paymentMethodRaw: String? = nil,
-        fiatPaymentMethodsRaw: [String] = [],
-        pickupLat: Double? = nil,
-        pickupLon: Double? = nil,
-        pickupAddress: String? = nil,
-        destLat: Double? = nil,
-        destLon: Double? = nil,
-        destAddress: String? = nil,
-        fareUSD: String? = nil,
-        fareDistanceMiles: Double? = nil,
-        fareDurationMinutes: Double? = nil,
-        savedAt: Int = Int(Date.now.timeIntervalSince1970),
-        processedPinActionKeys: [String]? = nil,
-        processedPinTimestamps: [Int]? = nil,
-        pinAttempts: Int? = nil,
-        precisePickupShared: Bool? = nil,
-        preciseDestinationShared: Bool? = nil,
-        lastDriverStatus: String? = nil,
-        lastDriverStateTimestamp: Int? = nil,
-        lastDriverActionCount: Int? = nil,
-        riderStateHistory: [RiderRideAction]? = nil
+        offerEventId: String?,
+        acceptanceEventId: String?,
+        confirmationEventId: String?,
+        driverPubkey: String?,
+        pin: String?,
+        pinVerified: Bool,
+        paymentMethodRaw: String?,
+        fiatPaymentMethodsRaw: [String],
+        pickupLat: Double?,
+        pickupLon: Double?,
+        pickupAddress: String?,
+        destLat: Double?,
+        destLon: Double?,
+        destAddress: String?,
+        fareUSD: String?,
+        fareDistanceMiles: Double?,
+        fareDurationMinutes: Double?,
+        savedAt: Int,
+        processedPinActionKeys: [String]?,
+        processedPinTimestamps: [Int]?,
+        pinAttempts: Int?,
+        precisePickupShared: Bool?,
+        preciseDestinationShared: Bool?,
+        lastDriverStatus: String?,
+        lastDriverStateTimestamp: Int?,
+        lastDriverActionCount: Int?,
+        riderStateHistory: [RiderRideAction]?
     ) {
         self.stage = stage
         self.offerEventId = offerEventId
@@ -156,36 +136,35 @@ public struct PersistedRideState: Codable, Sendable {
     /// Normalize legacy fields. Converts old `processedPinTimestamps` to
     /// `processedPinActionKeys` format. Called by `RideStateRepository.load()`.
     public func migrated() -> PersistedRideState {
-        guard processedPinActionKeys == nil, let timestamps = processedPinTimestamps else {
-            return self
+        if processedPinActionKeys == nil, let timestamps = processedPinTimestamps {
+            return PersistedRideState(
+                stage: stage, offerEventId: offerEventId,
+                acceptanceEventId: acceptanceEventId, confirmationEventId: confirmationEventId,
+                driverPubkey: driverPubkey, pin: pin, pinVerified: pinVerified,
+                paymentMethodRaw: paymentMethodRaw, fiatPaymentMethodsRaw: fiatPaymentMethodsRaw,
+                pickupLat: pickupLat, pickupLon: pickupLon, pickupAddress: pickupAddress,
+                destLat: destLat, destLon: destLon, destAddress: destAddress,
+                fareUSD: fareUSD, fareDistanceMiles: fareDistanceMiles,
+                fareDurationMinutes: fareDurationMinutes, savedAt: savedAt,
+                processedPinActionKeys: timestamps.map { "pin_submit:\($0)" },
+                processedPinTimestamps: processedPinTimestamps,
+                pinAttempts: pinAttempts, precisePickupShared: precisePickupShared,
+                preciseDestinationShared: preciseDestinationShared,
+                lastDriverStatus: lastDriverStatus,
+                lastDriverStateTimestamp: lastDriverStateTimestamp,
+                lastDriverActionCount: lastDriverActionCount,
+                riderStateHistory: riderStateHistory
+            )
         }
-        return PersistedRideState(
-            stage: stage, offerEventId: offerEventId,
-            acceptanceEventId: acceptanceEventId, confirmationEventId: confirmationEventId,
-            driverPubkey: driverPubkey, pin: pin, pinVerified: pinVerified,
-            paymentMethodRaw: paymentMethodRaw, fiatPaymentMethodsRaw: fiatPaymentMethodsRaw,
-            pickupLat: pickupLat, pickupLon: pickupLon, pickupAddress: pickupAddress,
-            destLat: destLat, destLon: destLon, destAddress: destAddress,
-            fareUSD: fareUSD, fareDistanceMiles: fareDistanceMiles,
-            fareDurationMinutes: fareDurationMinutes, savedAt: savedAt,
-            processedPinActionKeys: timestamps.map { "pin_submit:\($0)" },
-            processedPinTimestamps: processedPinTimestamps,
-            pinAttempts: pinAttempts, precisePickupShared: precisePickupShared,
-            preciseDestinationShared: preciseDestinationShared,
-            lastDriverStatus: lastDriverStatus,
-            lastDriverStateTimestamp: lastDriverStateTimestamp,
-            lastDriverActionCount: lastDriverActionCount,
-            riderStateHistory: riderStateHistory
-        )
+        return self
     }
 }
 ```
 
-Note: `Equatable` is intentionally omitted — `RiderRideAction` does not conform to `Equatable`. Init uses default parameter values to reduce boilerplate at test call sites.
-
 - [ ] **Step 2: Verify SDK builds**
 
 Run: `cd RidestrSDK && swift build 2>&1 | tail -5`
+
 Expected: Build complete
 
 - [ ] **Step 3: Commit**
@@ -202,16 +181,19 @@ git commit -m "feat: add PersistedRideState to SDK as persistence contract"
 **Files:**
 - Create: `RidestrSDK/Sources/RidestrSDK/Ride/RideStateRepository.swift`
 
+This file contains: the `RideStatePersistenceProtocol`, `RideStateRestorationPolicy`, `RideStateRepository` class, and `InMemoryRideStatePersistence` test double.
+
 - [ ] **Step 1: Create the file**
 
 ```swift
+// RidestrSDK/Sources/RidestrSDK/Ride/RideStateRepository.swift
 import Foundation
 
 // MARK: - Persistence Protocol
 
 /// Abstract storage for ride state. iOS implements with UserDefaults;
 /// tests use InMemoryRideStatePersistence.
-public protocol RideStatePersistence: Sendable {
+public protocol RideStatePersistenceProtocol: Sendable {
     func saveRaw(_ state: PersistedRideState)
     func loadRaw() -> PersistedRideState?
     func clear()
@@ -257,31 +239,29 @@ public struct RideStateRestorationPolicy: Sendable, Equatable {
 /// Manages ride state persistence with SDK-owned validation.
 /// The app never sees expired, idle, or legacy-format data.
 public final class RideStateRepository: @unchecked Sendable {
-    private let persistence: RideStatePersistence
+    private let persistence: RideStatePersistenceProtocol
     private let policy: RideStateRestorationPolicy
 
     public init(
-        persistence: RideStatePersistence,
+        persistence: RideStatePersistenceProtocol,
         policy: RideStateRestorationPolicy = .default
     ) {
         self.persistence = persistence
         self.policy = policy
     }
 
+    /// Save ride state. Delegates to persistence.
     public func save(_ state: PersistedRideState) {
         persistence.saveRaw(state)
     }
 
-    /// Load validated ride state. Returns nil if expired, idle, completed,
-    /// or has an unknown/corrupt stage. Applies legacy field migration.
+    /// Load validated ride state. Returns nil if:
+    /// - No data stored
+    /// - State has expired (age > policy window for its stage)
+    /// - Stage is idle or completed (not restorable)
+    /// Applies legacy field migration before returning.
     public func load(now: Date = .now) -> PersistedRideState? {
         guard let raw = persistence.loadRaw() else { return nil }
-
-        // Reject unknown/corrupt stages — SDK owns the full validation
-        guard let stage = RiderStage(rawValue: raw.stage) else {
-            persistence.clear()
-            return nil
-        }
 
         let age = Int(now.timeIntervalSince1970) - raw.savedAt
         guard age < policy.maxRestoreAge(for: raw.stage) else {
@@ -289,7 +269,8 @@ public final class RideStateRepository: @unchecked Sendable {
             return nil
         }
 
-        guard stage != .idle, stage != .completed else {
+        guard raw.stage != RiderStage.idle.rawValue,
+              raw.stage != RiderStage.completed.rawValue else {
             persistence.clear()
             return nil
         }
@@ -297,6 +278,7 @@ public final class RideStateRepository: @unchecked Sendable {
         return raw.migrated()
     }
 
+    /// Clear persisted ride state.
     public func clear() {
         persistence.clear()
     }
@@ -304,7 +286,8 @@ public final class RideStateRepository: @unchecked Sendable {
 
 // MARK: - In-Memory Test Double
 
-public final class InMemoryRideStatePersistence: RideStatePersistence, @unchecked Sendable {
+/// In-memory persistence for testing. Thread-safe via NSLock.
+public final class InMemoryRideStatePersistence: RideStatePersistenceProtocol, @unchecked Sendable {
     private let lock = NSLock()
     private var stored: PersistedRideState?
 
@@ -327,6 +310,7 @@ public final class InMemoryRideStatePersistence: RideStatePersistence, @unchecke
 - [ ] **Step 2: Verify SDK builds**
 
 Run: `cd RidestrSDK && swift build 2>&1 | tail -5`
+
 Expected: Build complete
 
 - [ ] **Step 3: Commit**
@@ -372,14 +356,18 @@ struct RideStateRepositoryTests {
     ) -> PersistedRideState {
         PersistedRideState(
             stage: stage, offerEventId: "offer123",
-            driverPubkey: "driver_pubkey_hex", pin: "1234",
+            acceptanceEventId: nil, confirmationEventId: nil,
+            driverPubkey: "driver_pubkey_hex", pin: "1234", pinVerified: false,
             paymentMethodRaw: "zelle", fiatPaymentMethodsRaw: ["zelle", "cash"],
             pickupLat: 40.71, pickupLon: -74.01, pickupAddress: "Penn Station",
             destLat: 40.76, destLon: -73.98, destAddress: "Central Park",
             fareUSD: "12.50", fareDistanceMiles: 5.5, fareDurationMinutes: 18,
             savedAt: savedAt,
             processedPinActionKeys: processedPinActionKeys,
-            processedPinTimestamps: processedPinTimestamps
+            processedPinTimestamps: processedPinTimestamps,
+            pinAttempts: nil, precisePickupShared: nil, preciseDestinationShared: nil,
+            lastDriverStatus: nil, lastDriverStateTimestamp: nil,
+            lastDriverActionCount: nil, riderStateHistory: nil
         )
     }
 
@@ -442,51 +430,39 @@ struct RideStateRepositoryTests {
 
     // MARK: - Expiration
 
-    @Test func waitingForAcceptanceExpiresAtExactBoundary() {
+    @Test func waitingForAcceptanceExpiresAtWindow() {
         let (repo, _) = makeRepo()
-        let now = Date.now
-        let savedAt = Int(now.timeIntervalSince1970) - Int(RideConstants.broadcastTimeoutSeconds)
-        repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: savedAt))
-        #expect(repo.load(now: now) == nil)  // age == window → expired (strict less-than)
-    }
-
-    @Test func waitingForAcceptanceSurvivesOneSecondBeforeBoundary() {
-        let (repo, _) = makeRepo()
-        let now = Date.now
-        let savedAt = Int(now.timeIntervalSince1970) - Int(RideConstants.broadcastTimeoutSeconds) + 1
-        repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: savedAt))
-        #expect(repo.load(now: now) != nil)  // age == window - 1 → alive
+        let past = Int(Date.now.timeIntervalSince1970) - 121  // 121s ago, window is 120s
+        repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: past))
+        #expect(repo.load() == nil)
     }
 
     @Test func waitingForAcceptanceSurvivesWithinWindow() {
         let (repo, _) = makeRepo()
-        let recent = Int(Date.now.timeIntervalSince1970) - 60
+        let recent = Int(Date.now.timeIntervalSince1970) - 60  // 60s ago, window is 120s
         repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: recent))
         #expect(repo.load() != nil)
     }
 
     @Test func driverAcceptedExpiresAtWindow() {
         let (repo, _) = makeRepo()
-        let now = Date.now
-        let past = Int(now.timeIntervalSince1970) - Int(RideConstants.confirmationTimeoutSeconds) - 1
+        let past = Int(Date.now.timeIntervalSince1970) - 31  // 31s ago, window is 30s
         repo.save(makeState(stage: RiderStage.driverAccepted.rawValue, savedAt: past))
-        #expect(repo.load(now: now) == nil)
+        #expect(repo.load() == nil)
     }
 
     @Test func postConfirmationExpiresAtEightHours() {
         let (repo, _) = makeRepo()
-        let now = Date.now
-        let past = Int(now.timeIntervalSince1970) - (8 * 3600 + 1)
+        let past = Int(Date.now.timeIntervalSince1970) - (8 * 3600 + 1)  // 8h + 1s ago
         repo.save(makeState(stage: RiderStage.enRoute.rawValue, savedAt: past))
-        #expect(repo.load(now: now) == nil)
+        #expect(repo.load() == nil)
     }
 
     @Test func postConfirmationSurvivesWithinWindow() {
         let (repo, _) = makeRepo()
-        let now = Date.now
-        let recent = Int(now.timeIntervalSince1970) - (4 * 3600)
+        let recent = Int(Date.now.timeIntervalSince1970) - (4 * 3600)  // 4h ago
         repo.save(makeState(stage: RiderStage.enRoute.rawValue, savedAt: recent))
-        #expect(repo.load(now: now) != nil)
+        #expect(repo.load() != nil)
     }
 
     @Test func customPolicyOverridesDefaults() {
@@ -494,32 +470,16 @@ struct RideStateRepositoryTests {
             waitingForAcceptance: 10, driverAccepted: 5, postConfirmation: 60
         )
         let (repo, _) = makeRepo(policy: policy)
-        let now = Date.now
-        let past = Int(now.timeIntervalSince1970) - 11
+        let past = Int(Date.now.timeIntervalSince1970) - 11  // 11s ago, custom window is 10s
         repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: past))
-        #expect(repo.load(now: now) == nil)
+        #expect(repo.load() == nil)
     }
 
     @Test func expirationClearsPersistence() {
         let (repo, persistence) = makeRepo()
-        let now = Date.now
-        let past = Int(now.timeIntervalSince1970) - 200
+        let past = Int(Date.now.timeIntervalSince1970) - 200
         repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: past))
-        _ = repo.load(now: now)
-        #expect(persistence.loadRaw() == nil)
-    }
-
-    @Test func unknownStageIsRejected() {
-        let (repo, persistence) = makeRepo()
-        repo.save(makeState(stage: "corrupt_garbage"))
-        #expect(repo.load() == nil)
-        #expect(persistence.loadRaw() == nil)
-    }
-
-    @Test func idleRejectionClearsPersistence() {
-        let (repo, persistence) = makeRepo()
-        repo.save(makeState(stage: RiderStage.idle.rawValue))
-        _ = repo.load()
+        _ = repo.load()  // triggers expiration
         #expect(persistence.loadRaw() == nil)
     }
 
@@ -547,7 +507,7 @@ struct RideStateRepositoryTests {
 
     @Test func noMigrationWhenBothNil() {
         let (repo, _) = makeRepo()
-        repo.save(makeState())
+        repo.save(makeState(processedPinActionKeys: nil, processedPinTimestamps: nil))
         let loaded = repo.load()
         #expect(loaded?.processedPinActionKeys == nil)
     }
@@ -557,6 +517,7 @@ struct RideStateRepositoryTests {
 - [ ] **Step 2: Run tests**
 
 Run: `cd RidestrSDK && swift test --filter RideStateRepository 2>&1 | tail -10`
+
 Expected: All tests pass
 
 - [ ] **Step 3: Commit**
@@ -572,21 +533,23 @@ git commit -m "test: add RideStateRepository tests for expiration, filtering, an
 
 **Files:**
 - Modify: `RidestrSDK/Sources/RidestrSDK/Nostr/NostrKeypair.swift`
-- Modify or create: NostrKeypair test file
+- Modify: `RidestrSDK/Tests/RidestrSDKTests/Nostr/NostrKeypairTests.swift` (or create if needed)
 
-- [ ] **Step 1: Add import and method to NostrKeypair.swift**
+- [ ] **Step 1: Add the derivation method to NostrKeypair**
 
-Add `import CryptoKit` at the top of the file (after `import Foundation` and `import NostrSDK`).
-
-Add this method inside the `NostrKeypair` struct, after the existing factory methods:
+Append to the existing `NostrKeypair` struct, after the existing factory methods:
 
 ```swift
+import CryptoKit
+
+// Add to NostrKeypair:
+
 /// Derive a Nostr keypair from arbitrary symmetric key material.
 /// Uses SHA-256 to produce a 32-byte secp256k1 private key.
 ///
-/// App developers can derive Nostr identities from authentication
-/// mechanisms (passkeys, secure enclaves) without understanding
-/// the underlying cryptography.
+/// This allows app developers to derive Nostr identities from
+/// authentication mechanisms (passkeys, secure enclaves) without
+/// needing to understand the underlying cryptography.
 public static func deriveFromSymmetricKey(_ key: SymmetricKey) throws -> NostrKeypair {
     let rawBytes = key.withUnsafeBytes { Data($0) }
     let digest = SHA256.hash(data: rawBytes)
@@ -595,13 +558,13 @@ public static func deriveFromSymmetricKey(_ key: SymmetricKey) throws -> NostrKe
 }
 ```
 
-- [ ] **Step 2: Add tests**
+Note: `CryptoKit` may already be imported. If not, add `import CryptoKit` at the top of the file.
 
-Find the existing NostrKeypair test file (`find RidestrSDK/Tests -name "*Keypair*"`) and add:
+- [ ] **Step 2: Add a determinism test**
+
+Add to the existing NostrKeypair test file (find it with `find RidestrSDK/Tests -name "*Keypair*"`):
 
 ```swift
-import CryptoKit
-
 @Test func deriveFromSymmetricKeyIsDeterministic() throws {
     let keyData = Data(repeating: 0xAB, count: 32)
     let key = SymmetricKey(data: keyData)
@@ -610,23 +573,12 @@ import CryptoKit
     #expect(keypair1.publicKeyHex == keypair2.publicKeyHex)
     #expect(!keypair1.publicKeyHex.isEmpty)
 }
-
-@Test func deriveFromSymmetricKeyProducesKnownOutput() throws {
-    // Known input: 32 bytes of 0xAB
-    // SHA256(0xAB * 32) = 9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885
-    // This is the private key hex fed to secp256k1. We can construct the expected
-    // keypair directly from this hex and compare public keys.
-    let keyData = Data(repeating: 0xAB, count: 32)
-    let key = SymmetricKey(data: keyData)
-    let derived = try NostrKeypair.deriveFromSymmetricKey(key)
-    let expected = try NostrKeypair.fromHex("9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885")
-    #expect(derived.publicKeyHex == expected.publicKeyHex)
-}
 ```
 
 - [ ] **Step 3: Run tests**
 
 Run: `cd RidestrSDK && swift test --filter NostrKeypair 2>&1 | tail -10`
+
 Expected: All tests pass
 
 - [ ] **Step 4: Commit**
@@ -642,16 +594,14 @@ material without understanding SHA256/secp256k1 internals."
 
 ---
 
-## Task 5: Rewrite app persistence + update all coordinator/AppState call sites (atomic)
+## Task 5: Rewrite app RideStatePersistence as thin UserDefaults wrapper
 
 **Files:**
 - Rewrite: `RoadFlare/RoadFlare/Services/RideStatePersistence.swift`
-- Modify: `RoadFlare/RoadFlare/ViewModels/RideCoordinator.swift`
-- Modify: `RoadFlare/RoadFlare/ViewModels/AppState.swift`
 
-This is a single atomic task — all three files must be updated together for the app to build.
+This file becomes a pure storage adapter implementing the SDK's `RideStatePersistenceProtocol`. No domain logic, no expiration, no migration.
 
-- [ ] **Step 1: Rewrite RideStatePersistence.swift as thin UserDefaults wrapper**
+- [ ] **Step 1: Rewrite the file**
 
 ```swift
 import Foundation
@@ -660,7 +610,7 @@ import RidestrSDK
 /// iOS-specific UserDefaults implementation of ride state persistence.
 /// Domain logic (expiration, migration, stage filtering) lives in the SDK's
 /// RideStateRepository. This class only handles storage.
-final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked Sendable {
+final class UserDefaultsRideStatePersistence: RideStatePersistenceProtocol, @unchecked Sendable {
     private static let key = "roadflare_active_ride_state"
 
     func saveRaw(_ state: PersistedRideState) {
@@ -683,16 +633,41 @@ final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked S
 }
 ```
 
-- [ ] **Step 2: Update RideCoordinator to construct RideStateRepository internally**
+- [ ] **Step 2: Verify app builds**
 
-Key changes to `RideCoordinator.swift`:
+Run: `cd RoadFlare && xcodebuild build -scheme RoadFlare -destination 'platform=iOS Simulator,name=iPhone 17 Pro' 2>&1 | tail -5`
 
-1. Replace `rideRestorePolicy` property with `rideStateRepository`:
+Expected: This will initially FAIL because RideCoordinator and AppState still reference the old `RideStatePersistence` type. That's expected — Task 6 fixes those call sites.
+
+- [ ] **Step 3: Commit (WIP — will break build until Task 6)**
+
+```bash
+git add RoadFlare/RoadFlare/Services/RideStatePersistence.swift
+git commit -m "refactor: rewrite RideStatePersistence as thin UserDefaults wrapper
+
+WIP: RideCoordinator and AppState still reference old static API.
+Next commit updates call sites."
+```
+
+---
+
+## Task 6: Update RideCoordinator to use injected RideStateRepository
+
+**Files:**
+- Modify: `RoadFlare/RoadFlare/ViewModels/RideCoordinator.swift`
+
+Replace all static `RideStatePersistence.load/save/clear()` calls with the injected `RideStateRepository`.
+
+- [ ] **Step 1: Add RideStateRepository to init and update all call sites**
+
+Changes to RideCoordinator:
+
+1. Add `rideStateRepository` property:
 ```swift
 let rideStateRepository: RideStateRepository
 ```
 
-2. Update init to accept persistence and construct the repo:
+2. Update `init` to accept it (add parameter after `stageTimeouts`):
 ```swift
 init(
     relayManager: any RelayManagerProtocol,
@@ -703,21 +678,14 @@ init(
     bitcoinPrice: BitcoinPriceService? = nil,
     roadflareDomainService: RoadflareDomainService? = nil,
     roadflareSyncStore: RoadflareSyncStateStore? = nil,
-    rideStatePersistence: RideStatePersistence,
+    rideStateRepository: RideStateRepository,
     stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault
-) {
-    // ... existing dependency assignment ...
-    let policy = RideStateRestorationPolicy(
-        waitingForAcceptance: max(0, Int(stageTimeouts.waitingForAcceptance.rounded(.up))),
-        driverAccepted: max(0, Int(stageTimeouts.driverAccepted.rounded(.up))),
-        postConfirmation: Int(EventExpiration.rideConfirmationHours * 3600)
-    )
-    self.rideStateRepository = RideStateRepository(persistence: rideStatePersistence, policy: policy)
-    // ... rest of init ...
-}
+)
 ```
 
-3. Update `StageTimeouts.interopDefault` to use SDK constants directly:
+3. Remove: `rideRestorePolicy` property and `Self.restorePolicy(for:)` method and `legacyPinActionKey()` — all moved to SDK.
+
+4. Remove: `StageTimeouts` interop constants referencing `RideStatePersistence.interopOfferVisibilitySeconds` — these now come from `RideConstants` directly. Update `StageTimeouts.interopDefault`:
 ```swift
 nonisolated static let interopDefault = StageTimeouts(
     waitingForAcceptance: RideConstants.broadcastTimeoutSeconds,
@@ -725,19 +693,25 @@ nonisolated static let interopDefault = StageTimeouts(
 )
 ```
 
-4. Remove: `restorePolicy(for:)` method, `legacyPinActionKey()` method, `rideRestorePolicy` property.
-
 5. Update `restoreRideState()`:
-   - Change `RideStatePersistence.load(restorePolicy:)` → `rideStateRepository.load()`
-   - Change `RideStatePersistence.clear()` → `rideStateRepository.clear()`
-   - The `RiderStage(rawValue:)` guard on the loaded state can stay as a safety check, but the SDK now rejects unknown stages in `load()` so it will never return corrupt data. Keep it as belt-and-suspenders.
-   - Remove `legacyPinActionKey` conversion from line 131 — migration now happens in SDK's `load()`. Change to: `processedPinActionKeys: Set(saved.processedPinActionKeys ?? [])`
+```swift
+func restoreRideState() {
+    guard let saved = rideStateRepository.load(),
+          let restoredStage = RiderStage(rawValue: saved.stage) else {
+        return
+    }
+    // ... rest unchanged, but remove the legacyPinActionKey conversion from
+    // the processedPinActionKeys line — migration now happens in SDK's load()
+    // Change line 131 from:
+    //   processedPinActionKeys: Set(saved.processedPinActionKeys ?? saved.processedPinTimestamps?.map(Self.legacyPinActionKey) ?? []),
+    // To:
+    //   processedPinActionKeys: Set(saved.processedPinActionKeys ?? []),
+}
+```
 
 6. Update `persistRideState()` to construct `PersistedRideState` and call `rideStateRepository.save()`:
 ```swift
 func persistRideState() {
-    let pickup = pickupLocation ?? session.precisePickup
-    let destination = destinationLocation ?? session.preciseDestination
     let state = PersistedRideState(
         stage: session.stage.rawValue,
         offerEventId: session.offerEventId,
@@ -748,12 +722,12 @@ func persistRideState() {
         pinVerified: session.pinVerified,
         paymentMethodRaw: session.paymentMethod,
         fiatPaymentMethodsRaw: session.fiatPaymentMethods,
-        pickupLat: pickup?.latitude,
-        pickupLon: pickup?.longitude,
-        pickupAddress: pickup?.address,
-        destLat: destination?.latitude,
-        destLon: destination?.longitude,
-        destAddress: destination?.address,
+        pickupLat: (pickupLocation ?? session.precisePickup)?.latitude,
+        pickupLon: (pickupLocation ?? session.precisePickup)?.longitude,
+        pickupAddress: (pickupLocation ?? session.precisePickup)?.address,
+        destLat: (destinationLocation ?? session.preciseDestination)?.latitude,
+        destLon: (destinationLocation ?? session.preciseDestination)?.longitude,
+        destAddress: (destinationLocation ?? session.preciseDestination)?.address,
         fareUSD: currentFareEstimate.map { "\($0.fareUSD)" },
         fareDistanceMiles: currentFareEstimate?.distanceMiles,
         fareDurationMinutes: currentFareEstimate?.durationMinutes,
@@ -772,65 +746,58 @@ func persistRideState() {
 }
 ```
 
-7. Update `forceEndRide()`: `RideStatePersistence.clear()` → `rideStateRepository.clear()`
+7. Update `forceEndRide()`: change `RideStatePersistence.clear()` → `rideStateRepository.clear()`
 
-8. Update `sessionShouldPersist()`: `RideStatePersistence.clear()` → `rideStateRepository.clear()`
+8. Update `sessionShouldPersist()`: change `RideStatePersistence.clear()` → `rideStateRepository.clear()`
 
-- [ ] **Step 3: Update AppState**
+- [ ] **Step 2: Update AppState to create and inject RideStateRepository**
 
-Add a stored property on AppState for direct persistence access:
-
-```swift
-private let rideStatePersistence = UserDefaultsRideStatePersistence()
-```
-
-At both `RideCoordinator(` call sites (~lines 303 and 350), pass this shared instance:
+In `AppState.swift`, at both `RideCoordinator(` call sites (lines ~303 and ~350):
 
 ```swift
+let rideStatePersistence = UserDefaultsRideStatePersistence()
+let rideStateRepo = RideStateRepository(persistence: rideStatePersistence)
+
 let coordinator = RideCoordinator(
     relayManager: rm, keypair: keypair,
     driversRepository: repo, settings: settings,
     rideHistory: rideHistory, bitcoinPrice: bitcoinPrice,
     roadflareDomainService: service,
     roadflareSyncStore: sync.roadflareSyncStore,
-    rideStatePersistence: rideStatePersistence
+    rideStateRepository: rideStateRepo
 )
 ```
 
-Update `prepareForIdentityReplacement()` (line ~391): change `RideStatePersistence.clear()` → `rideStatePersistence.clear()`
+Update `prepareForIdentityReplacement()`: change `RideStatePersistence.clear()` → `rideCoordinator?.rideStateRepository.clear()` (or keep a reference to the repo).
 
-This works even when `rideCoordinator` is nil (during `generateNewKey`/`importKey` before a coordinator exists). The persistence handle is app-owned, not reached through an optional coordinator.
-
-- [ ] **Step 4: Verify app builds**
+- [ ] **Step 3: Verify app builds**
 
 Run: `cd RoadFlare && xcodebuild build -scheme RoadFlare -destination 'platform=iOS Simulator,name=iPhone 17 Pro' 2>&1 | tail -5`
 
-Expected: BUILD SUCCEEDED (tests may not compile yet — that's Task 7)
+Expected: BUILD SUCCEEDED
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add RoadFlare/RoadFlare/Services/RideStatePersistence.swift
 git add RoadFlare/RoadFlare/ViewModels/RideCoordinator.swift
 git add RoadFlare/RoadFlare/ViewModels/AppState.swift
-git commit -m "refactor: wire RideCoordinator to SDK RideStateRepository
+git commit -m "refactor: update RideCoordinator and AppState to use injected RideStateRepository
 
 Replace all static RideStatePersistence calls with injected repository.
-Coordinator constructs RideStateRepository internally from stageTimeouts,
-preserving the current policy-from-timeouts derivation pattern.
-App's RideStatePersistence rewritten as thin UserDefaults wrapper."
+Remove RestorePolicy, legacyPinActionKey, and interop constants from
+coordinator — all moved to SDK."
 ```
 
 ---
 
-## Task 6: Update PasskeyManager to use SDK key derivation
+## Task 7: Update PasskeyManager to use SDK key derivation
 
 **Files:**
 - Modify: `RoadFlare/RoadFlare/Services/PasskeyManager.swift`
 
 - [ ] **Step 1: Replace inline derivation with SDK call**
 
-Remove the private `deriveNostrKey(from:)` method. Replace both call sites:
+Remove the private `deriveNostrKey(from:)` method (lines 115-121). Replace both call sites:
 
 ```swift
 // In createPasskeyAndDeriveKey():
@@ -842,115 +809,63 @@ let prfKey = try await authenticateWithPasskey()
 return try NostrKeypair.deriveFromSymmetricKey(prfKey)
 ```
 
-Ensure `import CryptoKit` is present (needed for `SymmetricKey` type in method signatures).
+Add `import RidestrSDK` if not already present (it likely already is for `NostrKeypair`).
 
 - [ ] **Step 2: Verify app builds**
 
 Run: `cd RoadFlare && xcodebuild build -scheme RoadFlare -destination 'platform=iOS Simulator,name=iPhone 17 Pro' 2>&1 | tail -5`
+
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add RoadFlare/RoadFlare/Services/PasskeyManager.swift
-git commit -m "refactor: use SDK NostrKeypair.deriveFromSymmetricKey() in PasskeyManager"
+git commit -m "refactor: use SDK NostrKeypair.deriveFromSymmetricKey() in PasskeyManager
+
+Remove inline key derivation. App developers no longer need to
+understand SHA256/secp256k1 internals for Nostr key derivation."
 ```
 
 ---
 
-## Task 7: Migrate app tests
+## Task 8: Migrate app tests
 
 **Files:**
 - Modify: `RoadFlare/RoadFlareTests/RoadFlareTests.swift`
 - Modify: `RoadFlare/RoadFlareTests/RideCoordinatorTests.swift`
 
-This is the largest task. Two test files need updating with ~40 call site changes.
+- [ ] **Step 1: Update RideStatePersistenceTests in RoadFlareTests.swift**
 
-- [ ] **Step 1: Rename and update RideStatePersistenceTests in RoadFlareTests.swift**
+The `RideStatePersistenceTests` suite needs to:
+1. Rename references from `RideStatePersistence.PersistedRideState` → `PersistedRideState` (now SDK type)
+2. Replace `RideStatePersistence.RestorePolicy` → `RideStateRestorationPolicy`
+3. The expiration tests that test domain logic (age windows, stage filtering) now live in SDK Task 3. The app tests should focus on UserDefaults round-trips only.
+4. Update `RideStatePersistence.save(session:...)` calls → construct `PersistedRideState` manually and call `UserDefaultsRideStatePersistence().saveRaw()`
+5. Update `RideStatePersistence.load()` → `UserDefaultsRideStatePersistence().loadRaw()` for raw storage tests, or use `RideStateRepository` for validated tests
+6. Update `RideStatePersistence.clear()` → `UserDefaultsRideStatePersistence().clear()`
 
-1. Rename the suite struct from `RideStatePersistenceTests` to `UserDefaultsRideStatePersistenceTests`. Also update the `@Suite("...")` display name to `@Suite("UserDefaultsRideStatePersistence Tests")`.
+The helper `setupAndSave()` needs to construct `PersistedRideState` directly instead of passing a `RiderRideSession`.
 
-2. Update `init()`: `RideStatePersistence.clear()` → `UserDefaultsRideStatePersistence().clear()`
+- [ ] **Step 2: Update RideCoordinatorTests makeCoordinator()**
 
-3. The persistence tests that test **UserDefaults round-trips** stay in the app (they test iOS storage, not domain logic):
-   - `saveAndLoad`, `savePersistsDriverStateCursorFromSession`, `clearRemovesData`, `saveWithoutLocations`, `pinSurvivesPersistence`, `pinAttemptsSurvivePersistence`
-
-4. The persistence tests that test **expiration/stage filtering** move to SDK Task 3 (already done). Remove from app tests:
-   - `loadIgnoresIdle`, `loadIgnoresCompleted`, `loadAcceptsWaitingForAcceptance`, `waitingForAcceptanceSurvivesShortRelaunchWithinOfferLifetime`, `waitingForAcceptanceExpiresWithDriverOfferVisibilityWindow`, `loadAcceptsDriverAccepted`, `driverAcceptedExpiresWithDriverConfirmationTimeout`, `loadAcceptsDriverArrived`, `loadAcceptsInProgress`
-
-5. Update remaining tests: replace all `RideStatePersistence.` calls with `UserDefaultsRideStatePersistence()` or `RideStateRepository` as appropriate.
-
-6. The `save(session:...)` convenience is gone. Tests that used it need to construct `PersistedRideState` manually and call `persistence.saveRaw()`. Add a helper:
+Change `makeCoordinator()` to inject `InMemoryRideStatePersistence`:
 
 ```swift
-private func makePersistedState(
-    session: RiderRideSession,
-    pickup: Location? = nil,
-    destination: Location? = nil,
-    fare: FareEstimate? = nil,
-    savedAt: Int = Int(Date.now.timeIntervalSince1970)
-) -> PersistedRideState {
-    let p = pickup ?? session.precisePickup
-    let d = destination ?? session.preciseDestination
-    return PersistedRideState(
-        stage: session.stage.rawValue,
-        offerEventId: session.offerEventId,
-        acceptanceEventId: session.acceptanceEventId,
-        confirmationEventId: session.confirmationEventId,
-        driverPubkey: session.driverPubkey,
-        pin: session.pin,
-        pinVerified: session.pinVerified,
-        paymentMethodRaw: session.paymentMethod,
-        fiatPaymentMethodsRaw: session.fiatPaymentMethods,
-        pickupLat: p?.latitude, pickupLon: p?.longitude, pickupAddress: p?.address,
-        destLat: d?.latitude, destLon: d?.longitude, destAddress: d?.address,
-        fareUSD: fare.map { "\($0.fareUSD)" },
-        fareDistanceMiles: fare?.distanceMiles,
-        fareDurationMinutes: fare?.durationMinutes,
-        savedAt: savedAt,
-        processedPinActionKeys: session.processedPinActionKeys.isEmpty ? nil : Array(session.processedPinActionKeys),
-        processedPinTimestamps: nil,
-        pinAttempts: session.pinAttempts > 0 ? session.pinAttempts : nil,
-        precisePickupShared: session.precisePickupShared ? true : nil,
-        preciseDestinationShared: session.preciseDestinationShared ? true : nil,
-        lastDriverStatus: session.lastDriverStatus,
-        lastDriverStateTimestamp: session.lastDriverStateTimestamp > 0 ? session.lastDriverStateTimestamp : nil,
-        lastDriverActionCount: session.lastDriverActionCount > 0 ? session.lastDriverActionCount : nil,
-        riderStateHistory: session.riderStateHistory.isEmpty ? nil : session.riderStateHistory
-    )
-}
-```
-
-- [ ] **Step 2: Update RideCoordinatorTests**
-
-1. Update `makeCoordinator()` to accept and return persistence:
-
-```swift
-@MainActor
 private func makeCoordinator(
     keypair existingKeypair: NostrKeypair? = nil,
     keepSubscriptionsAlive: Bool = false,
     clearRidePersistence: Bool = true,
     roadflarePaymentMethods: [String] = ["zelle"],
-    rideStatePersistence: InMemoryRideStatePersistence? = nil,
-    stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault
-) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryRepository, InMemoryRideStatePersistence) {
+    stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault,
+    rideStatePersistence: InMemoryRideStatePersistence? = nil
+) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryRepository) {
     let persistence = rideStatePersistence ?? InMemoryRideStatePersistence()
+    let rideStateRepo = RideStateRepository(persistence: persistence)
     if clearRidePersistence {
-        persistence.clear()
+        rideStateRepo.clear()
     }
-    let keypair = try existingKeypair ?? NostrKeypair.generate()
-    let fake = FakeRelayManager()
-    fake.keepSubscriptionsAlive = keepSubscriptionsAlive
-    try await fake.connect(to: DefaultRelays.all)
-
-    let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
-    let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
-    settings.setRoadflarePaymentMethods(roadflarePaymentMethods)
-    let history = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
-    let bitcoinPrice = BitcoinPriceService()
-    bitcoinPrice.btcPriceUsdForTesting = 100_000
-
+    // ... rest of setup ...
     let coordinator = RideCoordinator(
         relayManager: fake,
         keypair: keypair,
@@ -958,53 +873,14 @@ private func makeCoordinator(
         settings: settings,
         rideHistory: history,
         bitcoinPrice: bitcoinPrice,
-        rideStatePersistence: persistence,
+        rideStateRepository: rideStateRepo,
         stageTimeouts: stageTimeouts
     )
-    return (coordinator, fake, keypair, history, persistence)
+    return (coordinator, fake, keypair, history)
 }
 ```
 
-2. Add `makePersistedState()` helper (same as RoadFlareTests version above).
-
-3. Update ALL existing `makeCoordinator()` call sites to destructure 5-tuple:
-   - `let (coordinator, fake, keypair, history, _) = try await makeCoordinator(...)` — most tests don't need persistence
-   - `let (coordinator, fake, keypair, history, persistence) = try await makeCoordinator(...)` — restore/persist tests need it
-
-4. Update **restore tests** (lines 318-456): Replace `RideStatePersistence.save(session:...)` with:
-```swift
-let state = makePersistedState(session: savedSession, pickup: pickup, destination: destination, fare: fare)
-let persistence = InMemoryRideStatePersistence()
-persistence.saveRaw(state)
-let (coordinator, ..., _) = try await makeCoordinator(
-    keypair: keypair, clearRidePersistence: false,
-    rideStatePersistence: persistence
-)
-```
-
-5. Update **custom timeout test** (line 346): Replace `RideStatePersistence.RestorePolicy(...)` with custom `stageTimeouts`:
-```swift
-// The stageTimeouts: .init(waitingForAcceptance: 1, driverAccepted: 30) already drives
-// the policy via RideCoordinator's internal RideStateRestorationPolicy construction.
-// The test just needs to pass the custom stageTimeouts and use pre-populated persistence.
-let persistence = InMemoryRideStatePersistence()
-let state = makePersistedState(session: savedSession, ..., savedAt: Int(Date.now.timeIntervalSince1970) - 2)
-persistence.saveRaw(state)
-let (coordinator, ..., _) = try await makeCoordinator(
-    keypair: keypair, clearRidePersistence: false,
-    rideStatePersistence: persistence,
-    stageTimeouts: .init(waitingForAcceptance: 1, driverAccepted: 30)
-)
-#expect(coordinator.session.stage == .idle)
-```
-
-6. Update **assertion-side persistence checks** (7 call sites):
-   - `RideStatePersistence.load()?.stage` → `persistence.loadRaw()?.stage` or `coordinator.rideStateRepository.load()?.stage`
-   - `RideStatePersistence.load() == nil` → `persistence.loadRaw() == nil`
-
-7. Update **cleanup calls**:
-   - `RideStatePersistence.clear()` → `persistence.clear()` (where persistence is available)
-   - `defer { RideStatePersistence.clear() }` → `defer { persistence.clear() }`
+Tests that pre-populate persistence for restore testing need to save via the `InMemoryRideStatePersistence` instance before creating the coordinator.
 
 - [ ] **Step 3: Run all tests**
 
@@ -1017,16 +893,15 @@ Expected: All SDK tests pass, app builds
 
 ```bash
 git add RoadFlare/RoadFlareTests/
-git commit -m "test: migrate persistence tests to SDK types and injected persistence
+git commit -m "test: migrate persistence tests to use SDK types and injected persistence
 
-Rename suite to UserDefaultsRideStatePersistenceTests. Expiration tests
-now in SDK. Coordinator tests use injected InMemoryRideStatePersistence.
-Add makePersistedState() helper for 28-field construction."
+Expiration/migration tests live in SDK. App tests focus on
+UserDefaults round-trips and coordinator integration."
 ```
 
 ---
 
-## Task 8: Final verification and cleanup
+## Task 9: Final verification and cleanup
 
 **Files:**
 - No new files — verification only
@@ -1034,27 +909,26 @@ Add makePersistedState() helper for 28-field construction."
 - [ ] **Step 1: Run full SDK test suite**
 
 Run: `cd RidestrSDK && swift test 2>&1 | tail -20`
-Expected: All tests pass
+
+Expected: All tests pass (existing + new RideStateRepository + new keypair derivation)
 
 - [ ] **Step 2: Run full Xcode build**
 
 Run: `cd RoadFlare && xcodebuild build -scheme RoadFlare -destination 'platform=iOS Simulator,name=iPhone 17 Pro' 2>&1 | tail -5`
+
 Expected: BUILD SUCCEEDED
 
 - [ ] **Step 3: Verify no remaining references to old API**
 
-Run: `grep -r "RideStatePersistence\.\(load\|save\|clear\|RestorePolicy\|interop\)" RoadFlare/ --include="*.swift"`
-Expected: No results (all old static calls eliminated)
+Run: `grep -r "RideStatePersistence\." RoadFlare/RoadFlare/ --include="*.swift" | grep -v UserDefaultsRideStatePersistence`
+
+Expected: No results (all static calls eliminated)
 
 Run: `grep -r "legacyPinActionKey\|interopOfferVisibilitySeconds\|interopConfirmationWaitSeconds" RoadFlare/ --include="*.swift"`
+
 Expected: No results (constants moved to SDK)
 
-- [ ] **Step 4: Verify SDK protocol naming is clean**
-
-Run: `grep -r "RideStatePersistenceProtocol" RidestrSDK/ RoadFlare/ --include="*.swift"`
-Expected: No results (we use `RideStatePersistence` without `Protocol` suffix)
-
-- [ ] **Step 5: Commit if any cleanup needed**
+- [ ] **Step 4: Commit any cleanup**
 
 ```bash
 git commit -m "refactor: cleanup remaining old RideStatePersistence references" --allow-empty
@@ -1066,19 +940,16 @@ git commit -m "refactor: cleanup remaining old RideStatePersistence references" 
 
 After all tasks:
 
-- [ ] `PersistedRideState` lives in SDK (no `Equatable` — `RiderRideAction` doesn't conform)
+- [ ] `PersistedRideState` lives in SDK, not app
 - [ ] `RideStateRepository` owns expiration, stage filtering, legacy migration
-- [ ] `RideStatePersistence` protocol (no `Protocol` suffix) is the abstract storage interface
-- [ ] `UserDefaultsRideStatePersistence` is the thin iOS implementation
+- [ ] `RideStatePersistenceProtocol` is the abstract storage interface in SDK
+- [ ] `UserDefaultsRideStatePersistence` is the thin iOS implementation in app
 - [ ] `InMemoryRideStatePersistence` exists for SDK and coordinator tests
-- [ ] `RideCoordinator` accepts `RideStatePersistence` via init, constructs `RideStateRepository` internally with policy derived from `stageTimeouts`
-- [ ] `AppState` owns a stored `rideStatePersistence` property and passes it to coordinator
-- [ ] `NostrKeypair.deriveFromSymmetricKey()` exists in SDK with `import CryptoKit`
+- [ ] `RideCoordinator` receives `RideStateRepository` via injection
+- [ ] `AppState` creates and injects the repository
+- [ ] `NostrKeypair.deriveFromSymmetricKey()` exists in SDK
 - [ ] `PasskeyManager` uses SDK derivation, no inline crypto
-- [ ] No remaining `RideStatePersistence.load/save/clear()` static calls in app
-- [ ] All SDK tests pass (including exact boundary timestamp tests)
+- [ ] No remaining static `RideStatePersistence.load/save/clear()` calls in app
+- [ ] All SDK tests pass
 - [ ] Full Xcode build succeeds
-- [ ] Existing coordinator tests pass with injected persistence + 5-tuple destructure
-- [ ] Test suite renamed to `UserDefaultsRideStatePersistenceTests`
-- [ ] Expiration tests live in SDK, not app
-- [ ] `makePersistedState()` helper in both test files
+- [ ] Existing coordinator tests pass with injected persistence
