@@ -331,7 +331,7 @@ final class RideCoordinator {
         backupRideHistory()
     }
 
-    private func backupRideHistory() {
+    func backupRideHistory() {
         guard let service = roadflareDomainService,
               let syncStore = roadflareSyncStore else { return }
         Task {
