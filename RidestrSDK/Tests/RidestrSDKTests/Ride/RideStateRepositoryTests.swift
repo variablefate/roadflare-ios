@@ -109,9 +109,10 @@ struct RideStateRepositoryTests {
 
     @Test func waitingForAcceptanceSurvivesWithinWindow() {
         let (repo, _) = makeRepo()
-        let recent = Int(Date.now.timeIntervalSince1970) - 60
+        let now = Date.now
+        let recent = Int(now.timeIntervalSince1970) - 60
         repo.save(makeState(stage: RiderStage.waitingForAcceptance.rawValue, savedAt: recent))
-        #expect(repo.load() != nil)
+        #expect(repo.load(now: now) != nil)
     }
 
     @Test func driverAcceptedExpiresAtWindow() {
