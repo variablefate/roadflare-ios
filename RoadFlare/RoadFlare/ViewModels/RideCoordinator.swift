@@ -331,6 +331,8 @@ final class RideCoordinator {
         backupRideHistory()
     }
 
+    /// Publish the current ride history to Nostr as a backup event.
+    /// Fire-and-forget — marks dirty on failure so the next flush retries.
     func backupRideHistory() {
         guard let service = roadflareDomainService,
               let syncStore = roadflareSyncStore else { return }

@@ -217,7 +217,7 @@ final class SyncCoordinator {
             publishLocal: { @Sendable in
                 await service.publishRideHistoryAndMark(from: rideHistory, syncStore: syncStore)
             },
-            shouldPublishGuard: { @Sendable in true }
+            shouldPublishGuard: { @Sendable in true }  // Empty history is valid after deletion
         )
 
         if importFlow { onProgress?(.status("Restoring ride history...")) }
@@ -255,7 +255,7 @@ final class SyncCoordinator {
         if syncStore.metadata(for: .profileBackup).isDirty {
             await backupCoordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
         }
-        if syncStore.metadata(for: .rideHistory).isDirty {
+        if syncStore.metadata(for: .rideHistory).isDirty {  // Empty history is valid — may be a delete-all
             await service.publishRideHistoryAndMark(from: rideHistory, syncStore: syncStore)
         }
     }
