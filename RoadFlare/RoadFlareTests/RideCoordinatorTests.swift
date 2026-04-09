@@ -15,10 +15,12 @@ struct RideCoordinatorTests {
         keepSubscriptionsAlive: Bool = false,
         clearRidePersistence: Bool = true,
         roadflarePaymentMethods: [String] = ["zelle"],
+        rideStatePersistence: InMemoryRideStatePersistence? = nil,
         stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault
-    ) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryRepository) {
+    ) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryRepository, InMemoryRideStatePersistence) {
+        let persistence = rideStatePersistence ?? InMemoryRideStatePersistence()
         if clearRidePersistence {
-            RideStatePersistence.clear()
+            persistence.clear()
         }
         let keypair = try existingKeypair ?? NostrKeypair.generate()
         let fake = FakeRelayManager()
@@ -39,9 +41,10 @@ struct RideCoordinatorTests {
             settings: settings,
             rideHistory: history,
             bitcoinPrice: bitcoinPrice,
+            rideStatePersistence: persistence,
             stageTimeouts: stageTimeouts
         )
-        return (coordinator, fake, keypair, history)
+        return (coordinator, fake, keypair, history, persistence)
     }
 
     @MainActor
@@ -108,6 +111,44 @@ struct RideCoordinatorTests {
         return session
     }
 
+    @MainActor
+    private func makePersistedState(
+        session: RiderRideSession,
+        pickup: Location? = nil,
+        destination: Location? = nil,
+        fare: FareEstimate? = nil,
+        savedAt: Int = Int(Date.now.timeIntervalSince1970)
+    ) -> PersistedRideState {
+        let p = pickup ?? session.precisePickup
+        let d = destination ?? session.preciseDestination
+        return PersistedRideState(
+            stage: session.stage.rawValue,
+            offerEventId: session.offerEventId,
+            acceptanceEventId: session.acceptanceEventId,
+            confirmationEventId: session.confirmationEventId,
+            driverPubkey: session.driverPubkey,
+            pin: session.pin,
+            pinVerified: session.pinVerified,
+            paymentMethodRaw: session.paymentMethod,
+            fiatPaymentMethodsRaw: session.fiatPaymentMethods,
+            pickupLat: p?.latitude, pickupLon: p?.longitude, pickupAddress: p?.address,
+            destLat: d?.latitude, destLon: d?.longitude, destAddress: d?.address,
+            fareUSD: fare.map { "\($0.fareUSD)" },
+            fareDistanceMiles: fare?.distanceMiles,
+            fareDurationMinutes: fare?.durationMinutes,
+            savedAt: savedAt,
+            processedPinActionKeys: session.processedPinActionKeys.isEmpty ? nil : Array(session.processedPinActionKeys),
+            processedPinTimestamps: nil,
+            pinAttempts: session.pinAttempts > 0 ? session.pinAttempts : nil,
+            precisePickupShared: session.precisePickupShared ? true : nil,
+            preciseDestinationShared: session.preciseDestinationShared ? true : nil,
+            lastDriverStatus: session.lastDriverStatus,
+            lastDriverStateTimestamp: session.lastDriverStateTimestamp > 0 ? session.lastDriverStateTimestamp : nil,
+            lastDriverActionCount: session.lastDriverActionCount > 0 ? session.lastDriverActionCount : nil,
+            riderStateHistory: session.riderStateHistory.isEmpty ? nil : session.riderStateHistory
+        )
+    }
+
     private func makeDriverStateEvent(
         driverKeypair: NostrKeypair,
         riderPubkey: String,
@@ -134,7 +175,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func handleKeyShareUpdatesDriverAndPublishesAck() async throws {
-        let (coordinator, fake, riderKeypair, _) = try await makeCoordinator()
+        let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
         let roadflareKey = try NostrKeypair.generate()
 
@@ -174,7 +215,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func handleChatEventDeduplicatesAndSorts() async throws {
-        let (coordinator, _, riderKeypair, _) = try await makeCoordinator()
+        let (coordinator, _, riderKeypair, _, _) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
 
         let newer = try await RideshareEventBuilder.chatMessage(
@@ -205,7 +246,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sendRideOfferPublishesOfferTransitionsSessionAndPersists() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator()
+        let (coordinator, fake, _, _, persistence) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
         let fare = FareEstimate(distanceMiles: 5.0, durationMinutes: 15, fareUSD: 12.50)
         let pickup = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
@@ -221,12 +262,12 @@ struct RideCoordinatorTests {
         #expect(coordinator.session.stage == .waitingForAcceptance)
         #expect(coordinator.session.driverPubkey == driver.publicKeyHex)
         #expect(fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
-        #expect(RideStatePersistence.load()?.stage == RiderStage.waitingForAcceptance.rawValue)
+        #expect(persistence.loadRaw()?.stage == RiderStage.waitingForAcceptance.rawValue)
     }
 
     @MainActor
     @Test func sendRideOfferUsesOrderedRoadflarePaymentMethods() async throws {
-        let (coordinator, fake, riderKeypair, _) = try await makeCoordinator(
+        let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: ["venmo-business", "zelle", "cash"]
         )
         let driver = try NostrKeypair.generate()
@@ -253,7 +294,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sendRideOfferFailureSurfacesError() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator()
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
         fake.shouldFailPublish = true
 
         await coordinator.sendRideOffer(
@@ -272,7 +313,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sendRideOfferWhileNonIdleLeavesCurrentRideWiringUntouched() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator()
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
         let activeDriver = String(repeating: "d", count: 64)
         let replacementDriver = String(repeating: "e", count: 64)
         let existingPickup = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
@@ -328,11 +369,13 @@ struct RideCoordinatorTests {
         let pickup = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
         let destination = Location(latitude: 40.76, longitude: -73.98, address: "Central Park")
         let fare = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
-        RideStatePersistence.save(session: savedSession, pickup: pickup, destination: destination, fare: fare)
+        let persistence = InMemoryRideStatePersistence()
+        persistence.saveRaw(makePersistedState(session: savedSession, pickup: pickup, destination: destination, fare: fare))
 
-        let (coordinator, _, _, _) = try await makeCoordinator(
+        let (coordinator, _, _, _, _) = try await makeCoordinator(
             keypair: keypair,
-            clearRidePersistence: false
+            clearRidePersistence: false,
+            rideStatePersistence: persistence
         )
 
         #expect(coordinator.session.stage == .rideConfirmed)
@@ -344,37 +387,30 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func restoreRideStateRespectsConfiguredTimeoutWindow() async throws {
-        RideStatePersistence.clear()
-        defer { RideStatePersistence.clear() }
-
         let keypair = try NostrKeypair.generate()
         let savedSession = makeRestoredSession(
             keypair: keypair,
             stage: .waitingForAcceptance,
             driverPubkey: String(repeating: "d", count: 64)
         )
-        let restorePolicy = RideStatePersistence.RestorePolicy(
-            waitingForAcceptance: 1,
-            driverAccepted: 30,
-            postConfirmation: Int(EventExpiration.rideConfirmationHours * 3600)
-        )
-
-        RideStatePersistence.save(
+        let persistence = InMemoryRideStatePersistence()
+        persistence.saveRaw(makePersistedState(
             session: savedSession,
             pickup: Location(latitude: 40.71, longitude: -74.01, address: "Penn Station"),
             destination: Location(latitude: 40.76, longitude: -73.98, address: "Central Park"),
             fare: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5),
             savedAt: Int(Date.now.timeIntervalSince1970) - 2
-        )
+        ))
 
-        let (coordinator, _, _, _) = try await makeCoordinator(
+        let (coordinator, _, _, _, _) = try await makeCoordinator(
             keypair: keypair,
             clearRidePersistence: false,
+            rideStatePersistence: persistence,
             stageTimeouts: .init(waitingForAcceptance: 1, driverAccepted: 30)
         )
 
         #expect(coordinator.session.stage == .idle)
-        #expect(RideStatePersistence.load(restorePolicy: restorePolicy) == nil)
+        #expect(persistence.loadRaw() == nil)
     }
 
     @MainActor
@@ -388,17 +424,19 @@ struct RideCoordinatorTests {
             driverPubkey: driver.publicKeyHex,
             precisePickupShared: false
         )
-        RideStatePersistence.save(
+        let persistence = InMemoryRideStatePersistence()
+        persistence.saveRaw(makePersistedState(
             session: savedSession,
             pickup: Location(latitude: 40.71, longitude: -74.01, address: "Penn Station"),
             destination: Location(latitude: 40.76, longitude: -73.98, address: "Central Park"),
             fare: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
-        )
+        ))
 
-        let (coordinator, fake, _, _) = try await makeCoordinator(
+        let (coordinator, fake, _, _, _) = try await makeCoordinator(
             keypair: keypair,
             keepSubscriptionsAlive: true,
-            clearRidePersistence: false
+            clearRidePersistence: false,
+            rideStatePersistence: persistence
         )
         let confirmation = try await RideshareEventBuilder.rideConfirmation(
             driverPubkey: driver.publicKeyHex,
@@ -430,17 +468,19 @@ struct RideCoordinatorTests {
             stage: .rideConfirmed,
             driverPubkey: driver.publicKeyHex
         )
-        RideStatePersistence.save(
+        let persistence = InMemoryRideStatePersistence()
+        persistence.saveRaw(makePersistedState(
             session: savedSession,
             pickup: Location(latitude: 40.71, longitude: -74.01),
             destination: Location(latitude: 40.76, longitude: -73.98),
             fare: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
-        )
+        ))
 
-        let (coordinator, fake, _, _) = try await makeCoordinator(
+        let (coordinator, fake, _, _, _) = try await makeCoordinator(
             keypair: keypair,
             keepSubscriptionsAlive: true,
-            clearRidePersistence: false
+            clearRidePersistence: false,
+            rideStatePersistence: persistence
         )
 
         await coordinator.restoreLiveSubscriptions()
@@ -457,7 +497,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func restoreLiveSubscriptionsChecksForStaleKeysWhenDriversExist() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator()
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
         let roadflareKey = try NostrKeypair.generate()
 
@@ -487,7 +527,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidChangeStageEnteringActiveRideSubscribesChat() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator(keepSubscriptionsAlive: true)
+        let (coordinator, fake, _, _, _) = try await makeCoordinator(keepSubscriptionsAlive: true)
         coordinator.session.restore(
             stage: .rideConfirmed,
             offerEventId: "offer",
@@ -511,7 +551,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidChangeStageWithinActiveRideDoesNotResubscribeChat() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator(keepSubscriptionsAlive: true)
+        let (coordinator, fake, _, _, _) = try await makeCoordinator(keepSubscriptionsAlive: true)
         coordinator.session.restore(
             stage: .rideConfirmed,
             offerEventId: "offer",
@@ -537,7 +577,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidReachTerminalCompletedRecordsHistoryAndKeepsUI() async throws {
-        let (coordinator, _, _, history) = try await makeCoordinator()
+        let (coordinator, _, _, history, _) = try await makeCoordinator()
         coordinator.session.restore(
             stage: .completed,
             offerEventId: "offer",
@@ -565,7 +605,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func closeCompletedRideClearsUIAndResetsSession() async throws {
-        let (coordinator, _, _, _) = try await makeCoordinator()
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
         coordinator.session.restore(
             stage: .completed,
             offerEventId: "offer",
@@ -595,7 +635,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidReachTerminalCancelledByRiderClearsUIAndChatWithoutError() async throws {
-        let (coordinator, _, _, _) = try await makeCoordinator()
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
         coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
         coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98)
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
@@ -615,7 +655,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidReachTerminalCancelledByDriverSurfacesMessage() async throws {
-        let (coordinator, _, _, _) = try await makeCoordinator()
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
         coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
         coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98)
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
@@ -635,7 +675,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidReachTerminalExpiredSetsTimeoutMessage() async throws {
-        let (coordinator, _, _, _) = try await makeCoordinator()
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
         coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
         coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98)
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
@@ -655,7 +695,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionDidReachTerminalBruteForcePinSetsMessage() async throws {
-        let (coordinator, _, _, _) = try await makeCoordinator()
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
         coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01)
         coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98)
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
@@ -675,7 +715,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func sessionShouldPersistSavesActiveSessionAndClearsIdleOrCompleted() async throws {
-        let (coordinator, _, _, _) = try await makeCoordinator()
+        let (coordinator, _, _, _, persistence) = try await makeCoordinator()
         coordinator.session.restore(
             stage: .waitingForAcceptance,
             offerEventId: "offer",
@@ -692,11 +732,11 @@ struct RideCoordinatorTests {
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
 
         coordinator.sessionShouldPersist()
-        #expect(RideStatePersistence.load()?.stage == RiderStage.waitingForAcceptance.rawValue)
+        #expect(persistence.loadRaw()?.stage == RiderStage.waitingForAcceptance.rawValue)
 
         coordinator.session.reset()
         coordinator.sessionShouldPersist()
-        #expect(RideStatePersistence.load() == nil)
+        #expect(persistence.loadRaw() == nil)
 
         coordinator.session.restore(
             stage: .completed,
@@ -710,14 +750,14 @@ struct RideCoordinatorTests {
             fiatPaymentMethods: ["zelle"]
         )
         coordinator.sessionShouldPersist()
-        #expect(RideStatePersistence.load() == nil)
+        #expect(persistence.loadRaw() == nil)
     }
 
     // MARK: - Ride actions
 
     @MainActor
     @Test func cancelRidePublishesTerminationAndClearsPersistence() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator()
+        let (coordinator, fake, _, _, persistence) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
 
         await coordinator.sendRideOffer(
@@ -730,13 +770,13 @@ struct RideCoordinatorTests {
         await coordinator.cancelRide(reason: "Changed plans")
 
         #expect(coordinator.session.stage == .idle)
-        #expect(RideStatePersistence.load() == nil)
+        #expect(persistence.loadRaw() == nil)
         #expect(fake.publishedEvents.contains { $0.kind == EventKind.deletion.rawValue })
     }
 
     @MainActor
     @Test func sendChatMessagePublishesWhenRideIsActive() async throws {
-        let (coordinator, fake, _, _) = try await makeCoordinator()
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
         coordinator.session.restore(
             stage: .rideConfirmed,
             offerEventId: "offer",
@@ -758,7 +798,7 @@ struct RideCoordinatorTests {
 
     @MainActor
     @Test func driverStateCompletionRecordsHistoryViaDelegateFlow() async throws {
-        let (coordinator, fake, riderKeypair, history) = try await makeCoordinator(keepSubscriptionsAlive: true)
+        let (coordinator, fake, riderKeypair, history, persistence) = try await makeCoordinator(keepSubscriptionsAlive: true)
         let driver = try NostrKeypair.generate()
 
         coordinator.session.restore(
@@ -787,7 +827,7 @@ struct RideCoordinatorTests {
         #expect(fake.injectEvent(completionEvent, subscriptionId: "driver-state-\(rideCoordinatorConfirmationEventId)"))
         let completed = await eventually { coordinator.session.stage == .completed }
         let recorded = await eventually { history.rides.count == 1 }
-        let cleared = await eventually { RideStatePersistence.load() == nil }
+        let cleared = await eventually { persistence.loadRaw() == nil }
 
         #expect(completed)
         #expect(recorded)

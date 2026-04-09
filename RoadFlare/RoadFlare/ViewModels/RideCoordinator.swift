@@ -12,8 +12,8 @@ final class RideCoordinator {
         let driverAccepted: TimeInterval
 
         nonisolated static let interopDefault = StageTimeouts(
-            waitingForAcceptance: TimeInterval(RideStatePersistence.interopOfferVisibilitySeconds),
-            driverAccepted: TimeInterval(RideStatePersistence.interopConfirmationWaitSeconds)
+            waitingForAcceptance: RideConstants.broadcastTimeoutSeconds,
+            driverAccepted: RideConstants.confirmationTimeoutSeconds
         )
     }
 
@@ -26,7 +26,7 @@ final class RideCoordinator {
     private let bitcoinPrice: BitcoinPriceService
     private let roadflareDomainService: RoadflareDomainService?
     private let roadflareSyncStore: RoadflareSyncStateStore?
-    private let rideRestorePolicy: RideStatePersistence.RestorePolicy
+    let rideStateRepository: RideStateRepository
 
     var currentFareEstimate: FareEstimate?
     var selectedPaymentMethod: String?
@@ -55,6 +55,7 @@ final class RideCoordinator {
         bitcoinPrice: BitcoinPriceService? = nil,
         roadflareDomainService: RoadflareDomainService? = nil,
         roadflareSyncStore: RoadflareSyncStateStore? = nil,
+        rideStatePersistence: RideStatePersistence,
         stageTimeouts: StageTimeouts = .interopDefault
     ) {
         self.settings = settings
@@ -62,7 +63,12 @@ final class RideCoordinator {
         self.bitcoinPrice = bitcoinPrice ?? BitcoinPriceService()
         self.roadflareDomainService = roadflareDomainService
         self.roadflareSyncStore = roadflareSyncStore
-        self.rideRestorePolicy = Self.restorePolicy(for: stageTimeouts)
+        let policy = RideStateRestorationPolicy(
+            waitingForAcceptance: max(0, Int(stageTimeouts.waitingForAcceptance.rounded(.up))),
+            driverAccepted: max(0, Int(stageTimeouts.driverAccepted.rounded(.up))),
+            postConfirmation: Int(EventExpiration.rideConfirmationHours * 3600)
+        )
+        self.rideStateRepository = RideStateRepository(persistence: rideStatePersistence, policy: policy)
         self.location = LocationCoordinator(
             relayManager: relayManager,
             keypair: keypair,
@@ -95,7 +101,7 @@ final class RideCoordinator {
     func checkForStaleKeys() async { await location.checkForStaleKeys() }
 
     func restoreRideState() {
-        guard let saved = RideStatePersistence.load(restorePolicy: rideRestorePolicy),
+        guard let saved = rideStateRepository.load(),
               let restoredStage = RiderStage(rawValue: saved.stage) else {
             return
         }
@@ -128,14 +134,14 @@ final class RideCoordinator {
             lastDriverStateTimestamp: saved.lastDriverStateTimestamp ?? 0,
             lastDriverActionCount: saved.lastDriverActionCount ?? 0,
             riderStateHistory: saved.riderStateHistory ?? [],
-            processedPinActionKeys: Set(saved.processedPinActionKeys ?? saved.processedPinTimestamps?.map(Self.legacyPinActionKey) ?? []),
+            processedPinActionKeys: Set(saved.processedPinActionKeys ?? []),
             precisePickup: pickup,
             preciseDestination: destination,
             savedAt: saved.savedAt
         )
 
         guard session.stage == restoredStage else {
-            RideStatePersistence.clear()
+            rideStateRepository.clear()
             return
         }
 
@@ -152,12 +158,39 @@ final class RideCoordinator {
     }
 
     func persistRideState() {
-        RideStatePersistence.save(
-            session: session,
-            pickup: pickupLocation,
-            destination: destinationLocation,
-            fare: currentFareEstimate
+        let pickup = pickupLocation ?? session.precisePickup
+        let destination = destinationLocation ?? session.preciseDestination
+        let state = PersistedRideState(
+            stage: session.stage.rawValue,
+            offerEventId: session.offerEventId,
+            acceptanceEventId: session.acceptanceEventId,
+            confirmationEventId: session.confirmationEventId,
+            driverPubkey: session.driverPubkey,
+            pin: session.pin,
+            pinVerified: session.pinVerified,
+            paymentMethodRaw: session.paymentMethod,
+            fiatPaymentMethodsRaw: session.fiatPaymentMethods,
+            pickupLat: pickup?.latitude,
+            pickupLon: pickup?.longitude,
+            pickupAddress: pickup?.address,
+            destLat: destination?.latitude,
+            destLon: destination?.longitude,
+            destAddress: destination?.address,
+            fareUSD: currentFareEstimate.map { "\($0.fareUSD)" },
+            fareDistanceMiles: currentFareEstimate?.distanceMiles,
+            fareDurationMinutes: currentFareEstimate?.durationMinutes,
+            savedAt: Int(Date.now.timeIntervalSince1970),
+            processedPinActionKeys: session.processedPinActionKeys.isEmpty ? nil : Array(session.processedPinActionKeys),
+            processedPinTimestamps: nil,
+            pinAttempts: session.pinAttempts > 0 ? session.pinAttempts : nil,
+            precisePickupShared: session.precisePickupShared ? true : nil,
+            preciseDestinationShared: session.preciseDestinationShared ? true : nil,
+            lastDriverStatus: session.lastDriverStatus,
+            lastDriverStateTimestamp: session.lastDriverStateTimestamp > 0 ? session.lastDriverStateTimestamp : nil,
+            lastDriverActionCount: session.lastDriverActionCount > 0 ? session.lastDriverActionCount : nil,
+            riderStateHistory: session.riderStateHistory.isEmpty ? nil : session.riderStateHistory
         )
+        rideStateRepository.save(state)
     }
 
     /// Safe to call repeatedly after launch or reconnect.
@@ -242,7 +275,7 @@ final class RideCoordinator {
         recordRideHistory()
         await session.forceEndRide()
         clearCoordinatorUIState()
-        RideStatePersistence.clear()
+        rideStateRepository.clear()
     }
 
     func stopAll() async {
@@ -316,18 +349,6 @@ final class RideCoordinator {
         .milliseconds(Int64((seconds * 1000).rounded()))
     }
 
-    private static func restorePolicy(for stageTimeouts: StageTimeouts) -> RideStatePersistence.RestorePolicy {
-        RideStatePersistence.RestorePolicy(
-            waitingForAcceptance: max(0, Int(stageTimeouts.waitingForAcceptance.rounded(.up))),
-            driverAccepted: max(0, Int(stageTimeouts.driverAccepted.rounded(.up))),
-            postConfirmation: Int(EventExpiration.rideConfirmationHours * 3600)
-        )
-    }
-
-    private static func legacyPinActionKey(_ timestamp: Int) -> String {
-        "pin_submit:\(timestamp)"
-    }
-
     private func terminalMessage(for outcome: RideSessionTerminalOutcome) -> String? {
         switch outcome {
         case .completed:
@@ -382,7 +403,7 @@ extension RideCoordinator: RiderRideSessionDelegate {
 
     func sessionShouldPersist() {
         if session.stage == .idle || session.stage == .completed {
-            RideStatePersistence.clear()
+            rideStateRepository.clear()
         } else {
             persistRideState()
         }

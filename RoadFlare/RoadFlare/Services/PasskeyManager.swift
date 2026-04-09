@@ -28,13 +28,13 @@ final class PasskeyManager: NSObject,
     @available(iOS 18.0, *)
     func createPasskeyAndDeriveKey() async throws -> NostrKeypair {
         let prfKey = try await createPasskey()
-        return try deriveNostrKey(from: prfKey)
+        return try NostrKeypair.deriveFromSymmetricKey(prfKey)
     }
 
     @available(iOS 18.0, *)
     func authenticateAndDeriveKey() async throws -> NostrKeypair {
         let prfKey = try await authenticateWithPasskey()
-        return try deriveNostrKey(from: prfKey)
+        return try NostrKeypair.deriveFromSymmetricKey(prfKey)
     }
 
     // MARK: - Registration
@@ -108,16 +108,6 @@ final class PasskeyManager: NSObject,
             self.assertionContinuation = continuation
             controller.performRequests()
         }
-    }
-
-    // MARK: - Key Derivation
-
-    private func deriveNostrKey(from symmetricKey: SymmetricKey) throws -> NostrKeypair {
-        // Extract raw bytes from SymmetricKey, then SHA256 for a clean 32-byte private key
-        let rawBytes = symmetricKey.withUnsafeBytes { Data($0) }
-        let digest = SHA256.hash(data: rawBytes)
-        let privateKeyHex = digest.compactMap { String(format: "%02x", $0) }.joined()
-        return try NostrKeypair.fromHex(privateKeyHex)
     }
 
     // MARK: - ASAuthorizationControllerDelegate

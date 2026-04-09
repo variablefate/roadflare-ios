@@ -61,6 +61,7 @@ final class AppState {
 
     private let keychainStorage = KeychainStorage(service: "com.roadflare.keys")
     private let driversPersistence = UserDefaultsDriversPersistence()
+    private let rideStatePersistence = UserDefaultsRideStatePersistence()
     private var syncCoordinator: SyncCoordinator?
     private let connectionCoordinator = ConnectionCoordinator()
 
@@ -305,7 +306,8 @@ final class AppState {
             driversRepository: repo, settings: settings,
             rideHistory: rideHistory, bitcoinPrice: bitcoinPrice,
             roadflareDomainService: service,
-            roadflareSyncStore: sync.roadflareSyncStore
+            roadflareSyncStore: sync.roadflareSyncStore,
+            rideStatePersistence: rideStatePersistence
         )
         self.rideCoordinator = coordinator
         await coordinator.restoreLiveSubscriptions()
@@ -352,7 +354,8 @@ final class AppState {
             driversRepository: repo, settings: settings,
             rideHistory: rideHistory, bitcoinPrice: bitcoinPrice,
             roadflareDomainService: service,
-            roadflareSyncStore: sync.roadflareSyncStore
+            roadflareSyncStore: sync.roadflareSyncStore,
+            rideStatePersistence: rideStatePersistence
         )
         self.rideCoordinator = coordinator
         AppLogger.auth.info("Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
@@ -388,7 +391,7 @@ final class AppState {
         rideHistory.clearAll()
         savedLocations.clearAll()
         settings.clearAll()
-        RideStatePersistence.clear()
+        rideStatePersistence.clear()
 
         // 5. UI state
         requestRideDriverPubkey = nil

@@ -1,4 +1,6 @@
 import Testing
+import Foundation
+import CryptoKit
 @testable import RidestrSDK
 
 @Suite("NostrKeypair Tests")
@@ -73,5 +75,23 @@ struct NostrKeypairTests {
         let different = try NostrKeypair.generate()
         #expect(keypair == same)
         #expect(keypair != different)
+    }
+
+    @Test func deriveFromSymmetricKeyIsDeterministic() throws {
+        let keyData = Data(repeating: 0xAB, count: 32)
+        let key = SymmetricKey(data: keyData)
+        let keypair1 = try NostrKeypair.deriveFromSymmetricKey(key)
+        let keypair2 = try NostrKeypair.deriveFromSymmetricKey(key)
+        #expect(keypair1.publicKeyHex == keypair2.publicKeyHex)
+        #expect(!keypair1.publicKeyHex.isEmpty)
+    }
+
+    @Test func deriveFromSymmetricKeyProducesKnownOutput() throws {
+        // SHA256(0xAB * 32) = 9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885
+        let keyData = Data(repeating: 0xAB, count: 32)
+        let key = SymmetricKey(data: keyData)
+        let derived = try NostrKeypair.deriveFromSymmetricKey(key)
+        let expected = try NostrKeypair.fromHex("9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885")
+        #expect(derived.publicKeyHex == expected.publicKeyHex)
     }
 }
