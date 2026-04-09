@@ -1,4 +1,5 @@
 import Foundation
+import os
 import RidestrSDK
 
 /// iOS-specific UserDefaults implementation of ride state persistence.
@@ -8,8 +9,11 @@ final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked S
     private static let key = "roadflare_active_ride_state"
 
     func saveRaw(_ state: PersistedRideState) {
-        if let data = try? JSONEncoder().encode(state) {
+        do {
+            let data = try JSONEncoder().encode(state)
             UserDefaults.standard.set(data, forKey: Self.key)
+        } catch {
+            AppLogger.ride.error("Failed to encode persisted ride state: \(error)")
         }
     }
 
