@@ -217,9 +217,7 @@ final class SyncCoordinator {
             publishLocal: { @Sendable in
                 await service.publishRideHistoryAndMark(from: rideHistory, syncStore: syncStore)
             },
-            shouldPublishGuard: { @Sendable in
-                await MainActor.run { !rideHistory.rides.isEmpty }
-            }
+            shouldPublishGuard: { @Sendable in true }
         )
 
         if importFlow { onProgress?(.status("Restoring ride history...")) }
