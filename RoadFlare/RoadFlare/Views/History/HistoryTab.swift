@@ -37,6 +37,7 @@ struct HistoryTab: View {
                                     withAnimation {
                                         appState.rideHistory.removeRide(id: ride.id)
                                     }
+                                    appState.rideCoordinator?.backupRideHistory()
                                 } content: {
                                     RideHistoryCard(ride: ride)
                                 }
