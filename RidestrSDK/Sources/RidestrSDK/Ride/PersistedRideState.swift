@@ -18,12 +18,12 @@ public struct PersistedRideState: Codable, Sendable {
     public let destLat: Double?
     public let destLon: Double?
     public let destAddress: String?
-    public let fareUSD: String?
+    public let fareUSD: String?  // Decimal as string to avoid floating-point rounding
     public let fareDistanceMiles: Double?
     public let fareDurationMinutes: Double?
     public let savedAt: Int
     public let processedPinActionKeys: [String]?
-    public let processedPinTimestamps: [Int]?
+    public let processedPinTimestamps: [Int]?  // Legacy dedup format — read-only, never written by new code
     public let pinAttempts: Int?
     public let precisePickupShared: Bool?
     public let preciseDestinationShared: Bool?

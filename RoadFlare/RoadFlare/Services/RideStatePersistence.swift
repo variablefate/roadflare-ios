@@ -18,11 +18,15 @@ final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked S
     }
 
     func loadRaw() -> PersistedRideState? {
-        guard let data = UserDefaults.standard.data(forKey: Self.key),
-              let state = try? JSONDecoder().decode(PersistedRideState.self, from: data) else {
+        guard let data = UserDefaults.standard.data(forKey: Self.key) else {
             return nil
         }
-        return state
+        do {
+            return try JSONDecoder().decode(PersistedRideState.self, from: data)
+        } catch {
+            AppLogger.ride.error("Failed to decode persisted ride state: \(error)")
+            return nil
+        }
     }
 
     func clear() {
