@@ -111,6 +111,7 @@ struct RideCoordinatorTests {
         return session
     }
 
+    @MainActor
     private func makePersistedState(
         session: RiderRideSession,
         pickup: Location? = nil,
