@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import NostrSDK
 
 /// A Nostr identity keypair. Stores hex strings for Sendable compliance.
@@ -49,6 +50,19 @@ public struct NostrKeypair: Sendable, Equatable {
         } catch {
             throw RidestrError.crypto(.invalidKey("Invalid nsec: \(error)"))
         }
+    }
+
+    /// Derive a Nostr keypair from arbitrary symmetric key material.
+    /// Uses SHA-256 to produce a 32-byte secp256k1 private key.
+    ///
+    /// App developers can derive Nostr identities from authentication
+    /// mechanisms (passkeys, secure enclaves) without understanding
+    /// the underlying cryptography.
+    public static func deriveFromSymmetricKey(_ key: SymmetricKey) throws -> NostrKeypair {
+        let rawBytes = key.withUnsafeBytes { Data($0) }
+        let digest = SHA256.hash(data: rawBytes)
+        let privateKeyHex = digest.compactMap { String(format: "%02x", $0) }.joined()
+        return try fromHex(privateKeyHex)
     }
 
     /// Import a keypair from a hex private key (64 characters).
