@@ -257,7 +257,7 @@ final class SyncCoordinator {
         if syncStore.metadata(for: .profileBackup).isDirty {
             await backupCoordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
         }
-        if syncStore.metadata(for: .rideHistory).isDirty, !rideHistory.rides.isEmpty {
+        if syncStore.metadata(for: .rideHistory).isDirty {
             await service.publishRideHistoryAndMark(from: rideHistory, syncStore: syncStore)
         }
     }
