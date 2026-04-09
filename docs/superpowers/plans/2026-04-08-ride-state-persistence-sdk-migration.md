@@ -615,24 +615,15 @@ import CryptoKit
 
 @Test func deriveFromSymmetricKeyProducesKnownOutput() throws {
     // Known input: 32 bytes of 0xAB
-    // SHA256("ab"*32) = 9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885
-    // This is the private key fed to secp256k1. The public key is deterministic from it.
-    // We capture the expected pubkey on first run and assert it remains stable.
+    // SHA256(0xAB * 32) = 9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885
+    // This is the private key hex fed to secp256k1. We can construct the expected
+    // keypair directly from this hex and compare public keys.
     let keyData = Data(repeating: 0xAB, count: 32)
     let key = SymmetricKey(data: keyData)
-    let keypair = try NostrKeypair.deriveFromSymmetricKey(key)
-    #expect(keypair.publicKeyHex.count == 64)
-    // After first successful run, replace this with the actual captured value:
-    // #expect(keypair.publicKeyHex == "<captured_value>")
-    // For now, verify it's stable across runs and differs from a different input
-    let differentKey = SymmetricKey(data: Data(repeating: 0xCD, count: 32))
-    let differentKeypair = try NostrKeypair.deriveFromSymmetricKey(differentKey)
-    #expect(keypair.publicKeyHex != differentKeypair.publicKeyHex)
+    let derived = try NostrKeypair.deriveFromSymmetricKey(key)
+    let expected = try NostrKeypair.fromHex("9a2db2e23f1504cd056606553ac049c5e718e8f9ce9233876df1a7a1821af885")
+    #expect(derived.publicKeyHex == expected.publicKeyHex)
 }
-
-// NOTE TO IMPLEMENTER: After the first successful test run, capture the actual
-// publicKeyHex value from the 0xAB input and hardcode it as a regression assertion.
-// This ensures any accidental change to the derivation algorithm is caught.
 ```
 
 - [ ] **Step 3: Run tests**
