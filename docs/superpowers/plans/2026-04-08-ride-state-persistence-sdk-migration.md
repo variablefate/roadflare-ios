@@ -159,8 +159,6 @@ public struct PersistedRideState: Codable, Sendable {
         guard processedPinActionKeys == nil, let timestamps = processedPinTimestamps else {
             return self
         }
-        var copy = self
-        // Use a mutable wrapper to avoid re-listing all 28 fields
         return PersistedRideState(
             stage: stage, offerEventId: offerEventId,
             acceptanceEventId: acceptanceEventId, confirmationEventId: confirmationEventId,
@@ -870,7 +868,7 @@ This is the largest task. Two test files need updating with ~40 call site change
 
 - [ ] **Step 1: Rename and update RideStatePersistenceTests in RoadFlareTests.swift**
 
-1. Rename the suite struct from `RideStatePersistenceTests` to `UserDefaultsRideStatePersistenceTests`.
+1. Rename the suite struct from `RideStatePersistenceTests` to `UserDefaultsRideStatePersistenceTests`. Also update the `@Suite("...")` display name to `@Suite("UserDefaultsRideStatePersistence Tests")`.
 
 2. Update `init()`: `RideStatePersistence.clear()` → `UserDefaultsRideStatePersistence().clear()`
 
@@ -1074,7 +1072,7 @@ After all tasks:
 - [ ] `UserDefaultsRideStatePersistence` is the thin iOS implementation
 - [ ] `InMemoryRideStatePersistence` exists for SDK and coordinator tests
 - [ ] `RideCoordinator` accepts `RideStatePersistence` via init, constructs `RideStateRepository` internally with policy derived from `stageTimeouts`
-- [ ] `AppState` passes `UserDefaultsRideStatePersistence()` to coordinator
+- [ ] `AppState` owns a stored `rideStatePersistence` property and passes it to coordinator
 - [ ] `NostrKeypair.deriveFromSymmetricKey()` exists in SDK with `import CryptoKit`
 - [ ] `PasskeyManager` uses SDK derivation, no inline crypto
 - [ ] No remaining `RideStatePersistence.load/save/clear()` static calls in app
