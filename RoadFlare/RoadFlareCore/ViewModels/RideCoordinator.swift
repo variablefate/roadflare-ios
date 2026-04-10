@@ -1,43 +1,42 @@
 import Foundation
 import RidestrSDK
-import RoadFlareCore
 
 /// Thin app-layer adapter around `RiderRideSession`.
 /// The SDK owns ride protocol/runtime behavior; the app owns UI state,
 /// chat/location coordinators, and persistence mapping.
 @Observable
 @MainActor
-final class RideCoordinator {
-    struct StageTimeouts: Equatable, Sendable {
-        let waitingForAcceptance: TimeInterval
-        let driverAccepted: TimeInterval
+public final class RideCoordinator {
+    public struct StageTimeouts: Equatable, Sendable {
+        public let waitingForAcceptance: TimeInterval
+        public let driverAccepted: TimeInterval
 
-        nonisolated static let interopDefault = StageTimeouts(
+        public nonisolated static let interopDefault = StageTimeouts(
             waitingForAcceptance: RideConstants.broadcastTimeoutSeconds,
             driverAccepted: RideConstants.confirmationTimeoutSeconds
         )
     }
 
     let location: LocationCoordinator
-    let chat: ChatCoordinator
-    let session: RiderRideSession
+    public let chat: ChatCoordinator
+    public let session: RiderRideSession
 
     private let settings: UserSettingsRepository
     private let rideHistory: RideHistoryRepository
     private let bitcoinPrice: BitcoinPriceService
     private let roadflareDomainService: RoadflareDomainService?
     private let roadflareSyncStore: RoadflareSyncStateStore?
-    let rideStateRepository: RideStateRepository
+    public let rideStateRepository: RideStateRepository
 
-    var currentFareEstimate: FareEstimate?
-    var selectedPaymentMethod: String?
-    var pickupLocation: Location?
-    var destinationLocation: Location?
-    var lastError: String?
+    public var currentFareEstimate: FareEstimate?
+    public var selectedPaymentMethod: String?
+    public var pickupLocation: Location?
+    public var destinationLocation: Location?
+    public var lastError: String?
 
-    var driversRepository: FollowedDriversRepository { location.driversRepository }
-    var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] { chat.chatMessages }
-    var activeRidePaymentMethods: [String] {
+    public var driversRepository: FollowedDriversRepository { location.driversRepository }
+    public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] { chat.chatMessages }
+    public var activeRidePaymentMethods: [String] {
         if !session.fiatPaymentMethods.isEmpty {
             return session.fiatPaymentMethods
         }
@@ -47,7 +46,7 @@ final class RideCoordinator {
         return []
     }
 
-    init(
+    public init(
         relayManager: any RelayManagerProtocol,
         keypair: NostrKeypair,
         driversRepository: FollowedDriversRepository,
@@ -95,13 +94,13 @@ final class RideCoordinator {
         restoreRideState()
     }
 
-    func startLocationSubscriptions() { location.startLocationSubscriptions() }
-    func startKeyShareSubscription() { location.startKeyShareSubscription() }
-    func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
-    func requestKeyRefresh(driverPubkey: String) async { await location.requestKeyRefresh(driverPubkey: driverPubkey) }
-    func checkForStaleKeys() async { await location.checkForStaleKeys() }
+    public func startLocationSubscriptions() { location.startLocationSubscriptions() }
+    public func startKeyShareSubscription() { location.startKeyShareSubscription() }
+    public func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
+    public func requestKeyRefresh(driverPubkey: String) async { await location.requestKeyRefresh(driverPubkey: driverPubkey) }
+    public func checkForStaleKeys() async { await location.checkForStaleKeys() }
 
-    func restoreRideState() {
+    public func restoreRideState() {
         guard let saved = rideStateRepository.load(),
               let restoredStage = RiderStage(rawValue: saved.stage) else {
             return
@@ -158,7 +157,7 @@ final class RideCoordinator {
         }
     }
 
-    func persistRideState() {
+    public func persistRideState() {
         let pickup = pickupLocation ?? session.precisePickup
         let destination = destinationLocation ?? session.preciseDestination
         let state = PersistedRideState(
@@ -195,7 +194,7 @@ final class RideCoordinator {
     }
 
     /// Safe to call repeatedly after launch or reconnect.
-    func restoreLiveSubscriptions() async {
+    public func restoreLiveSubscriptions() async {
         await chat.cleanup()
         location.startLocationSubscriptions()
         location.startKeyShareSubscription()
@@ -208,7 +207,7 @@ final class RideCoordinator {
         _ = await staleKeyRefresh
     }
 
-    func sendRideOffer(
+    public func sendRideOffer(
         driverPubkey: String,
         pickup: Location,
         destination: Location,
@@ -255,11 +254,11 @@ final class RideCoordinator {
         currentFareEstimate = fareEstimate
     }
 
-    func cancelRide(reason: String? = nil) async {
+    public func cancelRide(reason: String? = nil) async {
         await session.cancelRide(reason: reason)
     }
 
-    func sendChatMessage(_ text: String) async {
+    public func sendChatMessage(_ text: String) async {
         guard let driverPubkey = session.driverPubkey,
               let confirmationId = session.confirmationEventId else {
             return
@@ -267,19 +266,19 @@ final class RideCoordinator {
         await chat.sendChatMessage(text, driverPubkey: driverPubkey, confirmationEventId: confirmationId)
     }
 
-    func closeCompletedRide() async {
+    public func closeCompletedRide() async {
         await session.dismissCompletedRide()
         clearCoordinatorUIState()
     }
 
-    func forceEndRide() async {
+    public func forceEndRide() async {
         recordRideHistory()
         await session.forceEndRide()
         clearCoordinatorUIState()
         rideStateRepository.clear()
     }
 
-    func stopAll() async {
+    public func stopAll() async {
         await chat.cleanup()
         await session.teardownAll()
         await location.stopAll()
@@ -334,7 +333,7 @@ final class RideCoordinator {
 
     /// Publish the current ride history to Nostr as a backup event.
     /// Fire-and-forget — marks dirty on failure so the next flush retries.
-    func backupRideHistory() {
+    public func backupRideHistory() {
         guard let service = roadflareDomainService,
               let syncStore = roadflareSyncStore else { return }
         Task {
@@ -379,7 +378,7 @@ final class RideCoordinator {
 }
 
 extension RideCoordinator: RiderRideSessionDelegate {
-    func sessionDidReachTerminal(_ outcome: RideSessionTerminalOutcome) {
+    public func sessionDidReachTerminal(_ outcome: RideSessionTerminalOutcome) {
         if case .completed = outcome {
             recordRideHistory()
         } else {
@@ -389,11 +388,11 @@ extension RideCoordinator: RiderRideSessionDelegate {
         }
     }
 
-    func sessionDidEncounterError(_ error: Error) {
+    public func sessionDidEncounterError(_ error: Error) {
         lastError = error.localizedDescription
     }
 
-    func sessionDidChangeStage(from: RiderStage, to: RiderStage) {
+    public func sessionDidChangeStage(from: RiderStage, to: RiderStage) {
         if !from.isActiveRide && to.isActiveRide,
            let driverPubkey = session.driverPubkey,
            let confirmationId = session.confirmationEventId {
@@ -404,7 +403,7 @@ extension RideCoordinator: RiderRideSessionDelegate {
         }
     }
 
-    func sessionShouldPersist() {
+    public func sessionShouldPersist() {
         if session.stage == .idle || session.stage == .completed {
             rideStateRepository.clear()
         } else {

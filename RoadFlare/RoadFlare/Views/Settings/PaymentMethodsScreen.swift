@@ -1,5 +1,6 @@
 import SwiftUI
 import RidestrSDK
+import RoadFlareCore
 
 /// Full-screen payment methods management. Navigated from Settings.
 struct PaymentMethodsScreen: View {

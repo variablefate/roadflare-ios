@@ -1,5 +1,6 @@
 import SwiftUI
 import RidestrSDK
+import RoadFlareCore
 
 struct PaymentSetupView: View {
     @Environment(AppState.self) private var appState

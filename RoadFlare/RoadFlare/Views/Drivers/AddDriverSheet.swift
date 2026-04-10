@@ -1,5 +1,6 @@
 import SwiftUI
 import RidestrSDK
+import RoadFlareCore
 
 /// Sheet for adding a new driver by QR scan, npub, or hex pubkey.
 /// After scanning or pasting a valid key, fetches the driver's profile from Nostr

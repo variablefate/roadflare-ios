@@ -1,4 +1,5 @@
 import SwiftUI
+import RoadFlareCore
 
 struct WiredChatView: View {
     @Environment(AppState.self) private var appState

@@ -1,7 +1,6 @@
 import Foundation
 import os
 import RidestrSDK
-import RoadFlareCore
 
 /// Progress updates from startup sync, consumed by AppState for UI.
 enum SyncProgress {

@@ -1,6 +1,7 @@
 import SwiftUI
 import RidestrSDK
 import RidestrUI
+import RoadFlareCore
 
 struct ActiveRideView: View {
     @Environment(AppState.self) private var appState
