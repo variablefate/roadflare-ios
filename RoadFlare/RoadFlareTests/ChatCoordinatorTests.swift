@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import RoadFlare
+@testable import RoadFlareCore
 @testable import RidestrSDK
 
 @Suite("ChatCoordinator Tests")

@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import RoadFlare
+@testable import RoadFlareCore
 @testable import RidestrSDK
 
 @Suite("UserDefaultsUserSettingsPersistence Tests")

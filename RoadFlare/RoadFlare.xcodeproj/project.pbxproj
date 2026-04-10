@@ -13,6 +13,7 @@
 		35BB0E4FC68C44AA9ADD6A31 /* RoadFlareCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; };
 		656F9E8C132646F7A9C94EBA /* RoadFlareCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C26E03BE7AB841449A27B6B4 /* RoadFlareCore.framework in Frameworks (Tests) */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; };
+		5BB5367DFED64FC287D9D3FB /* RidestrSDK in Frameworks (RoadFlareTests) */ = {isa = PBXBuildFile; productRef = DBAD821719F24CCCB787C053 /* RidestrSDK */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +99,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C26E03BE7AB841449A27B6B4 /* RoadFlareCore.framework in Frameworks (Tests) */,
+				5BB5367DFED64FC287D9D3FB /* RidestrSDK in Frameworks (RoadFlareTests) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -188,6 +190,7 @@
 			);
 			name = RoadFlareTests;
 			packageProductDependencies = (
+				DBAD821719F24CCCB787C053 /* RidestrSDK */,
 			);
 			productName = RoadFlareTests;
 			productReference = 0B3B2BDC2F6AFAAF00892751 /* RoadFlareTests.xctest */;
@@ -257,6 +260,7 @@
 					};
 					0B3B2BDB2F6AFAAF00892751 = {
 						CreatedOnToolsVersion = 26.3;
+						TestTargetID = F3A75687158A4C8D97F05930;
 					};
 					0B3B2BE52F6AFAAF00892751 = {
 						CreatedOnToolsVersion = 26.3;
@@ -579,12 +583,16 @@
 		0B3B2BF42F6AFAAF00892751 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6Y98438M9X;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/Frameworks",
+					"$(BUILT_PRODUCTS_DIR)",
+				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.roadflare.RoadFlareTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -594,19 +602,22 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RoadFlare.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RoadFlare";
 			};
 			name = Debug;
 		};
 		0B3B2BF52F6AFAAF00892751 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6Y98438M9X;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/Frameworks",
+					"$(BUILT_PRODUCTS_DIR)",
+				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.roadflare.RoadFlareTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -616,7 +627,6 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/RoadFlare.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/RoadFlare";
 			};
 			name = Release;
 		};
@@ -785,6 +795,10 @@
 			productName = RidestrUI;
 		};
 		3523092F0FF141CCBEA5F27D /* RidestrSDK (RoadFlareCore) */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RidestrSDK;
+		};
+		DBAD821719F24CCCB787C053 /* RidestrSDK (RoadFlareTests) */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RidestrSDK;
 		};
