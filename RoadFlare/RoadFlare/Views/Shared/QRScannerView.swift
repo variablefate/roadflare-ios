@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import RoadFlareCore
 
 /// Camera-based QR code scanner that returns the scanned string.
 struct QRScannerView: UIViewControllerRepresentable {

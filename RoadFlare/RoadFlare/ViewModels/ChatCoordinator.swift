@@ -1,5 +1,6 @@
 import Foundation
 import RidestrSDK
+import RoadFlareCore
 
 /// Manages in-ride chat messaging (Kind 3178).
 @Observable

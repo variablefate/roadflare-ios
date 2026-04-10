@@ -1,6 +1,7 @@
 import SwiftUI
 import os
 import RidestrSDK
+import RoadFlareCore
 
 /// App-level authentication state.
 enum AuthState {

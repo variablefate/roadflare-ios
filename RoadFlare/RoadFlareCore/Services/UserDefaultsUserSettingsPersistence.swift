@@ -5,7 +5,7 @@ import RidestrSDK
 ///
 /// Owns iOS-specific legacy key migration (from `user_payment_methods` +
 /// `user_custom_payment_methods` to the unified `user_roadflare_payment_methods`).
-final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence, @unchecked Sendable {
+public final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence, @unchecked Sendable {
     private let defaults: UserDefaults
 
     private static let roadflarePaymentMethodsKey = "user_roadflare_payment_methods"
@@ -16,11 +16,11 @@ final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence, @unche
     private static let legacyPaymentMethodsKey = "user_payment_methods"
     private static let legacyCustomPaymentMethodsKey = "user_custom_payment_methods"
 
-    init(defaults: UserDefaults = .standard) {
+    public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
-    func load() -> UserSettingsSnapshot {
+    public func load() -> UserSettingsSnapshot {
         UserSettingsSnapshot(
             profileName: defaults.string(forKey: Self.profileNameKey) ?? "",
             roadflarePaymentMethods: loadRoadflarePaymentMethods(),
@@ -28,7 +28,7 @@ final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence, @unche
         )
     }
 
-    func save(_ snapshot: UserSettingsSnapshot) {
+    public func save(_ snapshot: UserSettingsSnapshot) {
         defaults.set(snapshot.profileName, forKey: Self.profileNameKey)
         defaults.set(snapshot.profileCompleted, forKey: Self.profileCompletedKey)
         if snapshot.roadflarePaymentMethods.isEmpty {
@@ -38,7 +38,7 @@ final class UserDefaultsUserSettingsPersistence: UserSettingsPersistence, @unche
         }
     }
 
-    func clearAll() {
+    public func clearAll() {
         [Self.roadflarePaymentMethodsKey,
          Self.legacyPaymentMethodsKey,
          Self.legacyCustomPaymentMethodsKey,

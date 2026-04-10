@@ -1,6 +1,7 @@
 import Foundation
 import os
 import RidestrSDK
+import RoadFlareCore
 
 /// Manages RoadFlare driver location broadcasts (Kind 30014) and key shares (Kind 3186).
 ///

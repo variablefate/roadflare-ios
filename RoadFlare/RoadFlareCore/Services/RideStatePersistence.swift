@@ -5,10 +5,12 @@ import RidestrSDK
 /// iOS-specific UserDefaults implementation of ride state persistence.
 /// Domain logic (expiration, migration, stage filtering) lives in the SDK's
 /// RideStateRepository. This class only handles storage.
-final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked Sendable {
+public final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked Sendable {
     private static let key = "roadflare_active_ride_state"
 
-    func saveRaw(_ state: PersistedRideState) {
+    public init() {}
+
+    public func saveRaw(_ state: PersistedRideState) {
         do {
             let data = try JSONEncoder().encode(state)
             UserDefaults.standard.set(data, forKey: Self.key)
@@ -17,7 +19,7 @@ final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked S
         }
     }
 
-    func loadRaw() -> PersistedRideState? {
+    public func loadRaw() -> PersistedRideState? {
         guard let data = UserDefaults.standard.data(forKey: Self.key) else {
             return nil
         }
@@ -29,7 +31,7 @@ final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked S
         }
     }
 
-    func clear() {
+    public func clear() {
         UserDefaults.standard.removeObject(forKey: Self.key)
     }
 }

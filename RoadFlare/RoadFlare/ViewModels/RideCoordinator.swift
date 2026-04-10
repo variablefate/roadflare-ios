@@ -1,5 +1,6 @@
 import Foundation
 import RidestrSDK
+import RoadFlareCore
 
 /// Thin app-layer adapter around `RiderRideSession`.
 /// The SDK owns ride protocol/runtime behavior; the app owns UI state,

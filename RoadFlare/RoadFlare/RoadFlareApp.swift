@@ -1,4 +1,5 @@
 import SwiftUI
+import RoadFlareCore
 
 @main
 struct RoadFlareApp: App {
