@@ -155,7 +155,7 @@ public final class AppState {
 
     // MARK: - Forwarding to SDK (through SyncCoordinator)
 
-    public func publishProfile() async {
+    func publishProfile() async {
         guard let service = roadflareDomainService,
               let syncStore = syncCoordinator?.roadflareSyncStore else { return }
         await service.publishProfileAndMark(from: settings, syncStore: syncStore)
@@ -172,13 +172,13 @@ public final class AppState {
         await publishProfileBackup()
     }
 
-    public func buildProfileBackupContent() -> ProfileBackupContent {
+    func buildProfileBackupContent() -> ProfileBackupContent {
         syncCoordinator?.profileBackupCoordinator?.buildContent(
             settings: settings, savedLocations: savedLocations
         ) ?? ProfileBackupContent(savedLocations: [], settings: SettingsBackupContent())
     }
 
-    public func preserveProfileBackupSettingsTemplate(_ s: SettingsBackupContent) {
+    func preserveProfileBackupSettingsTemplate(_ s: SettingsBackupContent) {
         syncCoordinator?.profileBackupCoordinator?.preserveSettingsTemplate(s)
     }
 

@@ -16,7 +16,7 @@ public final class BitcoinPriceService {
     public private(set) var btcPriceUsd: Int?
 
     /// Test-only setter for btcPriceUsd.
-    public var btcPriceUsdForTesting: Int? {
+    var btcPriceUsdForTesting: Int? {
         get { btcPriceUsd }
         set { btcPriceUsd = newValue }
     }

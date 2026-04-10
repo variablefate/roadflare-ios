@@ -8,7 +8,7 @@ public final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var completion: ((CLLocation) -> Void)?
     private var failure: (() -> Void)?
-    public var permissionDenied = false
+    public private(set) var permissionDenied = false
 
     public override init() {
         super.init()

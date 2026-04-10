@@ -28,7 +28,7 @@ public final class ChatCoordinator {
 
     // MARK: - Subscribe
 
-    public func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
+    func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
         let previous = takeActiveSubscription()
         subscriptionStartTime = Int(Date.now.timeIntervalSince1970)
         let subId = SubscriptionID("chat-\(confirmationEventId)")
@@ -73,7 +73,7 @@ public final class ChatCoordinator {
 
     // MARK: - Handle Incoming
 
-    public func handleChatEvent(
+    func handleChatEvent(
         _ event: NostrEvent,
         expectedConfirmationEventId: String? = nil,
         expectedSenderPubkey: String? = nil
@@ -140,7 +140,7 @@ public final class ChatCoordinator {
 
     // MARK: - Cleanup
 
-    public func cleanup() async {
+    func cleanup() async {
         let previous = takeActiveSubscription()
         previous?.task.cancel()
         if let id = previous?.id {
@@ -148,7 +148,7 @@ public final class ChatCoordinator {
         }
     }
 
-    public func cleanupAsync() {
+    func cleanupAsync() {
         let previous = takeActiveSubscription()
         guard let previous else { return }
 
@@ -162,7 +162,7 @@ public final class ChatCoordinator {
         unreadCount = 0
     }
 
-    public func reset() {
+    func reset() {
         chatMessages = []
         chatMessageIds = []
         unreadCount = 0

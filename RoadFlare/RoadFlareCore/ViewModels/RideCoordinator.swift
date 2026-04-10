@@ -26,7 +26,7 @@ public final class RideCoordinator {
     private let bitcoinPrice: BitcoinPriceService
     private let roadflareDomainService: RoadflareDomainService?
     private let roadflareSyncStore: RoadflareSyncStateStore?
-    public let rideStateRepository: RideStateRepository
+    let rideStateRepository: RideStateRepository
 
     public var currentFareEstimate: FareEstimate?
     public var selectedPaymentMethod: String?
@@ -34,7 +34,7 @@ public final class RideCoordinator {
     public var destinationLocation: Location?
     public var lastError: String?
 
-    public var driversRepository: FollowedDriversRepository { location.driversRepository }
+    var driversRepository: FollowedDriversRepository { location.driversRepository }
     public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] { chat.chatMessages }
     public var activeRidePaymentMethods: [String] {
         if !session.fiatPaymentMethods.isEmpty {
@@ -95,12 +95,12 @@ public final class RideCoordinator {
     }
 
     public func startLocationSubscriptions() { location.startLocationSubscriptions() }
-    public func startKeyShareSubscription() { location.startKeyShareSubscription() }
+    func startKeyShareSubscription() { location.startKeyShareSubscription() }
     public func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
     public func requestKeyRefresh(driverPubkey: String) async { await location.requestKeyRefresh(driverPubkey: driverPubkey) }
     public func checkForStaleKeys() async { await location.checkForStaleKeys() }
 
-    public func restoreRideState() {
+    func restoreRideState() {
         guard let saved = rideStateRepository.load(),
               let restoredStage = RiderStage(rawValue: saved.stage) else {
             return
@@ -157,7 +157,7 @@ public final class RideCoordinator {
         }
     }
 
-    public func persistRideState() {
+    func persistRideState() {
         let pickup = pickupLocation ?? session.precisePickup
         let destination = destinationLocation ?? session.preciseDestination
         let state = PersistedRideState(

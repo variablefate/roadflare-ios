@@ -14,11 +14,11 @@ public final class PasskeyManager: NSObject,
     ASAuthorizationControllerDelegate,
     ASAuthorizationControllerPresentationContextProviding
 {
-    public static let relyingPartyID = "roadflare.app"
-    public static let prfSalt = "nostr-key-v1".data(using: .utf8)!
+    static let relyingPartyID = "roadflare.app"
+    static let prfSalt = "nostr-key-v1".data(using: .utf8)!
 
-    public var isProcessing = false
-    public var error: String?
+    var isProcessing = false
+    var error: String?
 
     private var registrationContinuation: CheckedContinuation<SymmetricKey, Error>?
     private var assertionContinuation: CheckedContinuation<SymmetricKey, Error>?
