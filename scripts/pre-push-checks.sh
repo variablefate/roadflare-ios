@@ -20,7 +20,7 @@ run "Running full RidestrSDK package tests" \
 run "Running full RidestrUI package tests" \
     swift test --package-path "$repo_root/RidestrUI"
 
-run "Running RoadFlare app unit tests" \
+run "Running RoadFlare logic unit tests (non-hosted)" \
     xcodebuild \
     -project "$repo_root/RoadFlare/RoadFlare.xcodeproj" \
     -scheme RoadFlareTests \
