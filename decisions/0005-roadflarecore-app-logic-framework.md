@@ -49,6 +49,7 @@ testability fix — the problematic symbols are all in `Services/` and `ViewMode
 - `RoadFlare` app embeds `RoadFlareCore.framework`.
 - `RoadFlareTests` no longer appears nested under `RoadFlare.app/PlugIns/`.
 - `.xctestrun` for `RoadFlareTests` will no longer contain `IsAppHostedTestBundle = true`.
+- Test fixtures and bundled resources used by RoadFlareTests must live in RoadFlareCore (or be loaded explicitly by path), not the RoadFlare app's Assets.xcassets, since the test bundle is no longer app-hosted.
 - `Views/` still lives in the app target and uses `import RoadFlareCore`.
 - Future addition: consider promoting `RoadFlareCore` to a local SPM package once
   the framework split is stable and the boundary is well-understood.
