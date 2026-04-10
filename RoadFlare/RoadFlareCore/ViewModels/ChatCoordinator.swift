@@ -5,7 +5,7 @@ import RidestrSDK
 @Observable
 @MainActor
 public final class ChatCoordinator {
-    public let relayManager: any RelayManagerProtocol
+    private let relayManager: any RelayManagerProtocol
     private let keypair: NostrKeypair
 
     public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
