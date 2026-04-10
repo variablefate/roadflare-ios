@@ -23,8 +23,7 @@ run "Running full RidestrUI package tests" \
 run "Running RoadFlare app unit tests" \
     xcodebuild \
     -project "$repo_root/RoadFlare/RoadFlare.xcodeproj" \
-    -scheme RoadFlare \
+    -scheme RoadFlareTests \
     -destination "$destination" \
     -parallel-testing-enabled NO \
-    -only-testing:RoadFlareTests \
     test
