@@ -1,5 +1,6 @@
 import SwiftUI
 import RidestrSDK
+import RoadFlareCore
 
 /// Detail view for a followed driver.
 struct DriverDetailSheet: View {

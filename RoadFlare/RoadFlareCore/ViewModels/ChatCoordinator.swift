@@ -4,12 +4,12 @@ import RidestrSDK
 /// Manages in-ride chat messaging (Kind 3178).
 @Observable
 @MainActor
-final class ChatCoordinator {
-    let relayManager: any RelayManagerProtocol
+public final class ChatCoordinator {
+    private let relayManager: any RelayManagerProtocol
     private let keypair: NostrKeypair
 
-    var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
-    var unreadCount: Int = 0
+    public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
+    public var unreadCount: Int = 0
     private var chatMessageIds: Set<String> = []
     private var subscriptionStartTime: Int = 0
     private struct ActiveSubscription {
@@ -19,9 +19,9 @@ final class ChatCoordinator {
     }
     private var activeSubscription: ActiveSubscription?
 
-    var lastError: String?
+    public var lastError: String?
 
-    init(relayManager: any RelayManagerProtocol, keypair: NostrKeypair) {
+    public init(relayManager: any RelayManagerProtocol, keypair: NostrKeypair) {
         self.relayManager = relayManager
         self.keypair = keypair
     }
@@ -111,7 +111,7 @@ final class ChatCoordinator {
 
     // MARK: - Send
 
-    func sendChatMessage(_ text: String, driverPubkey: String, confirmationEventId: String) async {
+    public func sendChatMessage(_ text: String, driverPubkey: String, confirmationEventId: String) async {
         do {
             let event = try await RideshareEventBuilder.chatMessage(
                 recipientPubkey: driverPubkey,
@@ -158,7 +158,7 @@ final class ChatCoordinator {
         }
     }
 
-    func markRead() {
+    public func markRead() {
         unreadCount = 0
     }
 

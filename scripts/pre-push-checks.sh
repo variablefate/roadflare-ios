@@ -20,11 +20,17 @@ run "Running full RidestrSDK package tests" \
 run "Running full RidestrUI package tests" \
     swift test --package-path "$repo_root/RidestrUI"
 
-run "Running RoadFlare app unit tests" \
+run "Building RoadFlare app target (catches app-level concurrency errors)" \
     xcodebuild \
     -project "$repo_root/RoadFlare/RoadFlare.xcodeproj" \
     -scheme RoadFlare \
     -destination "$destination" \
+    build
+
+run "Running RoadFlare logic unit tests (non-hosted)" \
+    xcodebuild \
+    -project "$repo_root/RoadFlare/RoadFlare.xcodeproj" \
+    -scheme RoadFlareTests \
+    -destination "$destination" \
     -parallel-testing-enabled NO \
-    -only-testing:RoadFlareTests \
     test

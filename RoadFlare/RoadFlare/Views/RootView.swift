@@ -1,4 +1,5 @@
 import SwiftUI
+import RoadFlareCore
 
 /// Root view that switches between auth states.
 struct RootView: View {

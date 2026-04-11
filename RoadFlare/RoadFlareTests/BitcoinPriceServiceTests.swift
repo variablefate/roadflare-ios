@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import RoadFlare
+@testable import RoadFlareCore
 
 @Suite("BitcoinPriceService")
 @MainActor

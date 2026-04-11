@@ -8,6 +8,8 @@ import RidestrSDK
 final class UserDefaultsRideStatePersistence: RideStatePersistence, @unchecked Sendable {
     private static let key = "roadflare_active_ride_state"
 
+    init() {}
+
     func saveRaw(_ state: PersistedRideState) {
         do {
             let data = try JSONEncoder().encode(state)

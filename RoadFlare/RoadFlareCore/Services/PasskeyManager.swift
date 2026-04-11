@@ -10,7 +10,7 @@ import RidestrSDK
 /// 2. On any device: authenticate with passkey → same PRF output → same Nostr key
 /// 3. Passkey syncs via iCloud Keychain automatically
 @MainActor @Observable
-final class PasskeyManager: NSObject,
+public final class PasskeyManager: NSObject,
     ASAuthorizationControllerDelegate,
     ASAuthorizationControllerPresentationContextProviding
 {
@@ -23,16 +23,20 @@ final class PasskeyManager: NSObject,
     private var registrationContinuation: CheckedContinuation<SymmetricKey, Error>?
     private var assertionContinuation: CheckedContinuation<SymmetricKey, Error>?
 
+    public override init() {
+        super.init()
+    }
+
     // MARK: - Public API
 
     @available(iOS 18.0, *)
-    func createPasskeyAndDeriveKey() async throws -> NostrKeypair {
+    public func createPasskeyAndDeriveKey() async throws -> NostrKeypair {
         let prfKey = try await createPasskey()
         return try NostrKeypair.deriveFromSymmetricKey(prfKey)
     }
 
     @available(iOS 18.0, *)
-    func authenticateAndDeriveKey() async throws -> NostrKeypair {
+    public func authenticateAndDeriveKey() async throws -> NostrKeypair {
         let prfKey = try await authenticateWithPasskey()
         return try NostrKeypair.deriveFromSymmetricKey(prfKey)
     }
@@ -112,7 +116,7 @@ final class PasskeyManager: NSObject,
 
     // MARK: - ASAuthorizationControllerDelegate
 
-    nonisolated func authorizationController(
+    public nonisolated func authorizationController(
         controller: ASAuthorizationController,
         didCompleteWithAuthorization authorization: ASAuthorization
     ) {
@@ -150,7 +154,7 @@ final class PasskeyManager: NSObject,
         }
     }
 
-    nonisolated func authorizationController(
+    public nonisolated func authorizationController(
         controller: ASAuthorizationController,
         didCompleteWithError error: Error
     ) {
@@ -170,21 +174,21 @@ final class PasskeyManager: NSObject,
 
     // MARK: - Presentation
 
-    nonisolated func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+    public nonisolated func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         let scenes = UIApplication.shared.connectedScenes
         let windowScene = scenes.first as? UIWindowScene
         return windowScene?.windows.first ?? ASPresentationAnchor()
     }
 }
 
-enum PasskeyError: Error, LocalizedError {
+public enum PasskeyError: Error, LocalizedError {
     case prfNotAvailable
     case prfNotSupported
     case prfOutputMissing
     case unexpectedCredentialType
     case authenticationFailed(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .prfNotAvailable: "Passkey login requires iOS 18 or later. Use \"Create Without Passkey\" instead."
         case .prfNotSupported: "Your device doesn't support passkey login. Use the backup key option instead."

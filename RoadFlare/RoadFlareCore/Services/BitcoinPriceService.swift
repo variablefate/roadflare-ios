@@ -11,9 +11,9 @@ import os
 /// - sats → USD: `sats * btcPriceUsd / 100_000_000`
 @Observable
 @MainActor
-final class BitcoinPriceService {
+public final class BitcoinPriceService {
     /// BTC price in whole USD (e.g., 90610 means $90,610 per BTC).
-    private(set) var btcPriceUsd: Int?
+    public private(set) var btcPriceUsd: Int?
 
     /// Test-only setter for btcPriceUsd.
     var btcPriceUsdForTesting: Int? {
@@ -23,8 +23,10 @@ final class BitcoinPriceService {
     private var refreshTask: Task<Void, Never>?
     private static let refreshInterval: TimeInterval = 3600  // 1 hour
 
+    public init() {}
+
     /// Fetch price immediately and start hourly refresh. Retries on failure.
-    func start() {
+    public func start() {
         refreshTask?.cancel()
         refreshTask = Task {
             // Initial fetch with retry
@@ -48,14 +50,14 @@ final class BitcoinPriceService {
         }
     }
 
-    func stop() {
+    public func stop() {
         refreshTask?.cancel()
         refreshTask = nil
     }
 
     /// Convert USD dollars to satoshis. Returns nil if price not available.
     /// Uses Double arithmetic (matching Android) to avoid Decimal encoding issues.
-    func usdToSats(_ dollars: Decimal) -> Int? {
+    public func usdToSats(_ dollars: Decimal) -> Int? {
         guard let price = btcPriceUsd, price > 0 else { return nil }
         let usd = NSDecimalNumber(decimal: dollars).doubleValue
         let sats = usd * 100_000_000.0 / Double(price)
@@ -63,7 +65,7 @@ final class BitcoinPriceService {
     }
 
     /// Convert satoshis to USD dollars. Returns nil if price not available.
-    func satsToUsd(_ sats: Int) -> Decimal? {
+    public func satsToUsd(_ sats: Int) -> Decimal? {
         guard let price = btcPriceUsd, price > 0 else { return nil }
         let usd = Double(sats) * Double(price) / 100_000_000.0
         return Decimal(usd)

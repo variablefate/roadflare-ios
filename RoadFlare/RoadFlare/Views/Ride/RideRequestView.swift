@@ -2,6 +2,7 @@ import SwiftUI
 import CoreLocation
 import RidestrSDK
 import RidestrUI
+import RoadFlareCore
 
 struct RideRequestView: View {
     @Environment(AppState.self) private var appState

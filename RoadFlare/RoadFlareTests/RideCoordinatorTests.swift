@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import RoadFlare
+@testable import RoadFlareCore
 @testable import RidestrSDK
 
 private let rideCoordinatorAcceptanceEventId = String(repeating: "a", count: 64)

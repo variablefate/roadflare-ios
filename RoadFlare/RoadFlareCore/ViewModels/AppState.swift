@@ -3,7 +3,7 @@ import os
 import RidestrSDK
 
 /// App-level authentication state.
-enum AuthState {
+public enum AuthState {
     case loading
     case loggedOut
     case syncing  // Restoring data from Nostr after key import
@@ -18,44 +18,44 @@ enum AuthState {
 /// is delegated to `SyncCoordinator`; connection watchdog to `ConnectionCoordinator`.
 @Observable
 @MainActor
-final class AppState {
+public final class AppState {
     private static let connectionWatchdogInterval: Duration = .seconds(10)
 
     // MARK: - Auth
 
-    var authState: AuthState = .loading
+    public var authState: AuthState = .loading
 
     // MARK: - Navigation
 
     /// Set by DriverDetailSheet to navigate to ride tab with driver pre-selected.
-    var requestRideDriverPubkey: String?
+    public var requestRideDriverPubkey: String?
     /// Set to switch tabs programmatically.
-    var selectedTab: Int = 0
+    public var selectedTab: Int = 0
 
     // MARK: - SDK Services
 
-    private(set) var keyManager: KeyManager?
-    private(set) var relayManager: RelayManager?
-    private(set) var roadflareDomainService: RoadflareDomainService?
-    private(set) var driversRepository: FollowedDriversRepository?
-    private(set) var rideCoordinator: RideCoordinator?
-    private(set) var fareCalculator: FareCalculator?
-    private(set) var remoteConfigManager: RemoteConfigManager?
-    let rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
-    let savedLocations = SavedLocationsRepository(persistence: UserDefaultsSavedLocationsPersistence())
-    let bitcoinPrice = BitcoinPriceService()
+    public private(set) var keyManager: KeyManager?
+    public private(set) var relayManager: RelayManager?
+    public private(set) var roadflareDomainService: RoadflareDomainService?
+    public private(set) var driversRepository: FollowedDriversRepository?
+    public private(set) var rideCoordinator: RideCoordinator?
+    public private(set) var fareCalculator: FareCalculator?
+    public private(set) var remoteConfigManager: RemoteConfigManager?
+    public let rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
+    public let savedLocations = SavedLocationsRepository(persistence: UserDefaultsSavedLocationsPersistence())
+    public let bitcoinPrice = BitcoinPriceService()
 
     // MARK: - User State
 
-    private(set) var keypair: NostrKeypair?
-    let settings = UserSettingsRepository(persistence: UserDefaultsUserSettingsPersistence())
+    public private(set) var keypair: NostrKeypair?
+    public let settings = UserSettingsRepository(persistence: UserDefaultsUserSettingsPersistence())
 
     // MARK: - Sync State (for import flow UI)
 
-    var syncStatus: String = ""
-    var syncRestoredDrivers: Int = 0
-    var syncRestoredLocations: Int = 0
-    var syncRestoredName: Bool = false
+    public var syncStatus: String = ""
+    public var syncRestoredDrivers: Int = 0
+    public var syncRestoredLocations: Int = 0
+    public var syncRestoredName: Bool = false
 
     // MARK: - Private Coordinators & Storage
 
@@ -69,9 +69,11 @@ final class AppState {
 
     private static let hasLaunchedKey = "roadflare_has_launched"
 
+    public init() {}
+
     /// Initialize on app launch. Checks for existing keys.
     /// Handles Keychain persistence across reinstalls by checking UserDefaults.
-    func initialize() async {
+    public func initialize() async {
         let km = KeyManager(storage: keychainStorage)
         self.keyManager = km
 
@@ -94,7 +96,7 @@ final class AppState {
     // MARK: - Auth Actions
 
     /// Generate a new keypair.
-    func generateNewKey() async throws {
+    public func generateNewKey() async throws {
         guard let km = keyManager else { return }
         let kp = try await km.generate()
         await prepareForIdentityReplacement(clearPersistedSyncState: false)
@@ -104,7 +106,7 @@ final class AppState {
     }
 
     /// Import an existing key from nsec or hex. Shows sync screen during restore.
-    func importKey(_ input: String) async throws {
+    public func importKey(_ input: String) async throws {
         guard let km = keyManager else { return }
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         let kp: NostrKeypair
@@ -136,7 +138,7 @@ final class AppState {
     }
 
     /// Mark profile name as set, publish Kind 0 to Nostr, move to payment setup.
-    func completeProfileSetup(name: String) async {
+    public func completeProfileSetup(name: String) async {
         settings.setProfileName(name)
         syncCoordinator?.markDirty(.profile)
         await publishProfile()
@@ -144,7 +146,7 @@ final class AppState {
     }
 
     /// Mark payment setup as done, finish onboarding. Publishes profile + settings backup.
-    func completePaymentSetup() async {
+    public func completePaymentSetup() async {
         settings.setProfileCompleted(true)
         syncCoordinator?.markDirty(.profileBackup)
         await saveAndPublishSettings()
@@ -159,13 +161,13 @@ final class AppState {
         await service.publishProfileAndMark(from: settings, syncStore: syncStore)
     }
 
-    func publishProfileBackup() async {
+    public func publishProfileBackup() async {
         await syncCoordinator?.profileBackupCoordinator?.publishAndMark(
             settings: settings, savedLocations: savedLocations
         )
     }
 
-    func saveAndPublishSettings() async {
+    public func saveAndPublishSettings() async {
         await publishProfile()
         await publishProfileBackup()
     }
@@ -183,7 +185,7 @@ final class AppState {
     // MARK: - Driver Key Management
 
     /// Try to restore a specific driver's key from our Kind 30011 backup on the relay.
-    func restoreKeyFromBackup(driverPubkey: String) async {
+    public func restoreKeyFromBackup(driverPubkey: String) async {
         guard let service = roadflareDomainService,
               let repo = driversRepository else { return }
         let remote = await service.fetchLatestFollowedDriversState()
@@ -210,7 +212,7 @@ final class AppState {
     }
 
     /// Send Kind 3187 follow notification to a driver (real-time nudge).
-    func sendFollowNotification(driverPubkey: String) async {
+    public func sendFollowNotification(driverPubkey: String) async {
         guard let kp = keypair, let rm = relayManager,
               !settings.profileName.isEmpty else { return }
         do {
@@ -229,12 +231,12 @@ final class AppState {
     // MARK: - Connection & Foreground
 
     /// Called when app returns to foreground. Reconnects relays and restarts subscriptions if needed.
-    func handleForeground() async {
+    public func handleForeground() async {
         guard authState == .ready else { return }
         await reconnectAndRestoreSession()
     }
 
-    func reconnectAndRestoreSession() async {
+    public func reconnectAndRestoreSession() async {
         guard let rm = relayManager else { return }
         await rm.reconnectIfNeeded()
         guard await rm.isConnected else { return }
@@ -244,7 +246,7 @@ final class AppState {
 
     // MARK: - Auth Helpers
 
-    func resolveLocalAuthState() -> AuthState {
+    public func resolveLocalAuthState() -> AuthState {
         if settings.profileName.isEmpty {
             return .profileIncomplete
         }
@@ -255,7 +257,7 @@ final class AppState {
     }
 
     /// Log out: clear all data.
-    func logout() async {
+    public func logout() async {
         await prepareForIdentityReplacement(clearPersistedSyncState: true)
         try? await keyManager?.deleteKeys()
         keypair = nil

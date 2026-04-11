@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import RidestrSDK
+import RoadFlareCore
 
 /// Settings screen for managing saved locations (favorites + recents).
 struct SavedLocationsView: View {

@@ -4,13 +4,13 @@ import CoreLocation
 /// Used for "Use My Current Location" in the pickup address field.
 @Observable
 @MainActor
-final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
+public final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
     private let manager = CLLocationManager()
     private var completion: ((CLLocation) -> Void)?
     private var failure: (() -> Void)?
-    var permissionDenied = false
+    public private(set) var permissionDenied = false
 
-    override init() {
+    public override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBest
@@ -18,7 +18,7 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
 
     /// Request a single location fix. Calls completion with the location.
     /// Requests permission if not yet granted. Sets permissionDenied if user denied.
-    func requestLocation(
+    public func requestLocation(
         completion: @escaping (CLLocation) -> Void,
         onFailure: @escaping () -> Void = {}
     ) {
@@ -45,7 +45,7 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
 
     // MARK: - CLLocationManagerDelegate
 
-    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    public nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         Task { @MainActor in
             completion?(location)
@@ -54,7 +54,7 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    public nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
             completion = nil
             failure?()
@@ -62,7 +62,7 @@ final class RiderLocationManager: NSObject, CLLocationManagerDelegate {
         }
     }
 
-    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    public nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             switch manager.authorizationStatus {
             case .authorizedWhenInUse, .authorizedAlways:

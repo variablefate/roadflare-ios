@@ -1,6 +1,7 @@
 import SwiftUI
 import Security
 import RidestrSDK
+import RoadFlareCore
 
 struct SettingsTab: View {
     @Environment(AppState.self) private var appState

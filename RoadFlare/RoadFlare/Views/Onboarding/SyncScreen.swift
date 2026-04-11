@@ -1,5 +1,6 @@
 import SwiftUI
 import RidestrSDK
+import RoadFlareCore
 
 /// Shown during key import while data is being restored from Nostr.
 struct SyncScreen: View {
