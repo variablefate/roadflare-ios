@@ -157,7 +157,7 @@ final class LocationCoordinator {
                 startLocationSubscriptions()
             }
         } catch {
-            AppLogger.location.info("Key share handling failed: \(error)")
+            AppLogger.location.info("Key share handling failed from \(event.pubkey.prefix(8)): \(error)")
         }
     }
 

@@ -365,4 +365,13 @@ struct LocationSyncCoordinatorTests {
         #expect(relay.publishedEvents.count == 1)
         #expect(relay.publishedEvents[0].kind == EventKind.followedDriversList.rawValue)
     }
+
+    @Test func publishFollowedDriversListThrowsOnRelayFailure() async throws {
+        let kit = try await makeKit()
+        kit.relay.shouldFailPublish = true
+
+        await #expect(throws: (any Error).self) {
+            try await kit.coordinator.publishFollowedDriversList()
+        }
+    }
 }
