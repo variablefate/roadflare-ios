@@ -12,6 +12,7 @@ import Foundation
 /// This is pure Nostr protocol logic with no iOS dependencies. The app-layer
 /// `LocationCoordinator` is a thin subscription manager that creates this
 /// coordinator in its `init` and delegates all protocol steps to it.
+// @unchecked Sendable: all stored properties are let-bound — no mutable state.
 public final class LocationSyncCoordinator: @unchecked Sendable {
     private let relayManager: any RelayManagerProtocol
     private let keypair: NostrKeypair
@@ -125,7 +126,7 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
                     driversRepository.clearKeyStale(pubkey: driver.pubkey)
                 }
             } catch {
-                // Non-fatal — will retry on next check
+                RidestrLogger.info("[LocationSyncCoordinator] checkForStaleKeys: relay fetch failed for \(driver.pubkey.prefix(8)): \(error)")
             }
         }
     }

@@ -109,7 +109,7 @@ struct LocationSyncCoordinatorTests {
         #expect(storedKey?.version == 1)
     }
 
-    @Test func processKeyShareSendsAckWithReceivedStatus() async throws {
+    @Test func processKeySharePublishesAckAddressedToDriver() async throws {
         let kit = try await makeKit()
         kit.driversRepo.addDriver(FollowedDriver(
             pubkey: kit.driverKeypair.publicKeyHex, addedAt: 1000
