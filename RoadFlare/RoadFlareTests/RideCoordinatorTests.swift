@@ -214,6 +214,58 @@ struct RideCoordinatorTests {
     }
 
     @MainActor
+    @Test func locationSubscriptionRestartsAfterAppliedNewerKeyShare() async throws {
+        // keepSubscriptionsAlive: true — stream stays open until unsubscribe() fires it.
+        // This means the old subscription Task is genuinely live when the restart tears it down,
+        // matching real-world behavior (vs. the default where the stream closes immediately).
+        let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(keepSubscriptionsAlive: true)
+        let driver = try NostrKeypair.generate()
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: driver.publicKeyHex))
+
+        // Step 1: establish initial location subscription so there is something to tear down.
+        coordinator.location.startLocationSubscriptions()
+        let initialSubscribed = await eventually {
+            fake.subscribeCalls.filter { $0.id.rawValue == "roadflare-locations" }.count >= 1
+        }
+        #expect(initialSubscribed, "initial subscribe must be established before key share arrives")
+
+        // Step 2: send a key share that returns .appliedNewer, triggering startLocationSubscriptions().
+        let roadflareKey = RoadflareKey(
+            privateKeyHex: "aabbccdd1", publicKeyHex: "eeff00111",
+            version: 1, keyUpdatedAt: 1700000000
+        )
+        let content = KeyShareContent(
+            roadflareKey: roadflareKey, keyUpdatedAt: 1700000000,
+            driverPubKey: driver.publicKeyHex
+        )
+        let plaintext = String(data: try JSONEncoder().encode(content), encoding: .utf8)!
+        let encrypted = try NIP44.encrypt(
+            plaintext: plaintext,
+            senderPrivateKeyHex: driver.privateKeyHex,
+            recipientPublicKeyHex: riderKeypair.publicKeyHex
+        )
+        let event = NostrEvent(
+            id: UUID().uuidString, pubkey: driver.publicKeyHex,
+            createdAt: Int(Date.now.timeIntervalSince1970),
+            kind: EventKind.keyShare.rawValue,
+            tags: [["p", riderKeypair.publicKeyHex],
+                   ["expiration", "\(Int(Date.now.timeIntervalSince1970) + 43200)"]],
+            content: encrypted, sig: "sig"
+        )
+        await coordinator.location.handleKeyShareEvent(event)
+
+        // Step 3: assert RESTART — second subscribe AND at least one unsubscribe.
+        // count >= 2 proves startLocationSubscriptions() fired twice.
+        // unsubscribeCalls proves the old subscription was torn down first (LocationCoordinator.swift:71).
+        let restarted = await eventually {
+            fake.subscribeCalls.filter { $0.id.rawValue == "roadflare-locations" }.count >= 2
+        }
+        #expect(restarted, "startLocationSubscriptions() must fire a second time after appliedNewer")
+        let unsubscribed = fake.unsubscribeCalls.contains { $0.rawValue == "roadflare-locations" }
+        #expect(unsubscribed, "old location subscription must be torn down before the new one starts")
+    }
+
+    @MainActor
     @Test func handleChatEventDeduplicatesAndSorts() async throws {
         let (coordinator, _, riderKeypair, _, _) = try await makeCoordinator()
         let driver = try NostrKeypair.generate()
