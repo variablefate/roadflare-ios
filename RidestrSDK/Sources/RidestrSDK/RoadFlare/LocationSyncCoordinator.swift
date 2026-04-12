@@ -74,10 +74,9 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
         }
 
         // Clear stale flag for any accepted key (.appliedNewer or .duplicateCurrent).
-        // Preserves existing app behavior (LocationCoordinator.swift:176): the current code clears
-        // stale for every outcome that isn't .ignoredOlder, so a duplicate key share also clears
-        // the "Key Outdated" badge. This is intentional — if the driver re-sent their current key,
-        // the stale detection was a false alarm (their key hasn't actually changed).
+        // A duplicate key share means the driver confirmed their current key; the stale
+        // detection was a false alarm (their key hasn't actually changed). Intentionally
+        // matches pre-refactor behavior: stale was cleared for every outcome != .ignoredOlder.
         driversRepository.clearKeyStale(pubkey: keyShare.driverPubkey)
 
         // Send acknowledgement (Kind 3188) for both duplicate and newer keys
@@ -91,7 +90,11 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
         _ = try await relayManager.publish(ackEvent)
 
         if updateOutcome == .appliedNewer {
-            await publishFollowedDriversList()
+            do {
+                try await publishFollowedDriversList()
+            } catch {
+                RidestrLogger.info("[LocationSyncCoordinator] publishFollowedDriversList failed after key apply: \(error)")
+            }
             return .appliedNewer
         }
 
@@ -156,23 +159,20 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
 
     /// Publish the followed drivers list to Nostr. Called internally after a
     /// key update; also available for external callers (e.g. app-layer delegate).
-    public func publishFollowedDriversList() async {
+    /// Throws on relay or event-building failure — callers decide how to surface the error.
+    public func publishFollowedDriversList() async throws {
         roadflareSyncStore?.markDirty(.followedDrivers)
-        do {
-            let event: NostrEvent
-            if let roadflareDomainService {
-                event = try await roadflareDomainService.publishFollowedDriversList(driversRepository.drivers)
-            } else {
-                event = try await RideshareEventBuilder.followedDriversList(
-                    drivers: driversRepository.drivers,
-                    keypair: keypair
-                )
-                _ = try await relayManager.publish(event)
-            }
-            roadflareSyncStore?.markPublished(.followedDrivers, at: event.createdAt)
-        } catch {
-            RidestrLogger.info("[LocationSyncCoordinator] Failed to publish followed drivers list: \(error)")
+        let event: NostrEvent
+        if let roadflareDomainService {
+            event = try await roadflareDomainService.publishFollowedDriversList(driversRepository.drivers)
+        } else {
+            event = try await RideshareEventBuilder.followedDriversList(
+                drivers: driversRepository.drivers,
+                keypair: keypair
+            )
+            _ = try await relayManager.publish(event)
         }
+        roadflareSyncStore?.markPublished(.followedDrivers, at: event.createdAt)
     }
 }
 

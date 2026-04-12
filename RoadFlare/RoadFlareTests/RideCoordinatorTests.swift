@@ -263,6 +263,8 @@ struct RideCoordinatorTests {
         #expect(restarted, "startLocationSubscriptions() must fire a second time after appliedNewer")
         let unsubscribed = fake.unsubscribeCalls.contains { $0.rawValue == "roadflare-locations" }
         #expect(unsubscribed, "old location subscription must be torn down before the new one starts")
+        #expect(fake.publishedEvents.contains { $0.kind == EventKind.followedDriversList.rawValue },
+                "appliedNewer key share must republish the followed-drivers list (Kind 30011)")
     }
 
     @MainActor

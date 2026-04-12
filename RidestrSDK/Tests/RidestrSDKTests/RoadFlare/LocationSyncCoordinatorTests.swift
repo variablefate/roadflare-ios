@@ -339,7 +339,7 @@ struct LocationSyncCoordinatorTests {
             pubkey: kit.driverKeypair.publicKeyHex, addedAt: 1000
         ))
 
-        await kit.coordinator.publishFollowedDriversList()
+        try await kit.coordinator.publishFollowedDriversList()
 
         #expect(kit.relay.publishedEvents.count == 1)
         #expect(kit.relay.publishedEvents[0].kind == EventKind.followedDriversList.rawValue)
@@ -360,7 +360,7 @@ struct LocationSyncCoordinatorTests {
             driversRepository: driversRepo
         )
 
-        await coordinator.publishFollowedDriversList()
+        try await coordinator.publishFollowedDriversList()
 
         #expect(relay.publishedEvents.count == 1)
         #expect(relay.publishedEvents[0].kind == EventKind.followedDriversList.rawValue)

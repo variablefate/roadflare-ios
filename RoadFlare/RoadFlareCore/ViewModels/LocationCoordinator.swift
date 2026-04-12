@@ -164,7 +164,11 @@ final class LocationCoordinator {
     // MARK: - Delegates to SDK
 
     func publishFollowedDriversList() async {
-        await locationSync.publishFollowedDriversList()
+        do {
+            try await locationSync.publishFollowedDriversList()
+        } catch {
+            lastError = "Failed to publish driver list: \(error.localizedDescription)"
+        }
     }
 
     func checkForStaleKeys() async {
