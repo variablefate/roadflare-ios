@@ -10,8 +10,9 @@ enum SyncProgress {
     case locationsRestored(count: Int)
 }
 
-/// Owns Nostr sync orchestration: startup resolution, callback wiring, and
-/// teardown. Publish wrappers and state machines live in the SDK (see
+/// Owns Nostr sync orchestration: startup resolution, change-tracking delegation,
+/// and teardown. Change-tracking callback wiring is delegated to `SyncDomainTracker`
+/// (SDK). Publish wrappers and state machines live in the SDK (see
 /// `ProfileBackupCoordinator` and `RoadflareDomainService.publishXAndMark`
 /// helpers). This class is pure wiring between AppState-owned state and
 /// SDK-provided sync primitives.
@@ -55,7 +56,7 @@ final class SyncCoordinator {
 
     // MARK: - Tracking Callbacks
 
-    /// Wire ALL change-tracking callbacks: settings + repositories.
+    /// Delegate change-tracking callback wiring to a fresh `SyncDomainTracker`.
     /// MUST be called after configure() so roadflareSyncStore is set.
     func wireTrackingCallbacks(driversRepo: FollowedDriversRepository) {
         guard let store = roadflareSyncStore else { return }
