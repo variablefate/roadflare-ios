@@ -241,8 +241,9 @@ struct AppStateTests {
         // Callbacks were nil'd before clearAll, so no dirty flags should be set
         #expect(syncStore.metadata(for: .rideHistory).isDirty == false)
         #expect(syncStore.metadata(for: .profileBackup).isDirty == false)
-        // profileBackupCoordinator should be released
+        // Both coordinators/tracker should be released
         #expect(sync.profileBackupCoordinator == nil)
+        #expect(sync.syncDomainTracker == nil)
     }
 }
 
