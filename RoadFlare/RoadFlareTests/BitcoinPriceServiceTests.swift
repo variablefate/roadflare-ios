@@ -109,4 +109,15 @@ struct BitcoinPriceServiceTests {
         #expect(sats != nil)
         #expect(sats! > 700_000)
     }
+
+    @Test("usdToSats rounds to nearest sat instead of truncating")
+    func usdToSatsRounding() {
+        let service = BitcoinPriceService()
+        // At $97,560 BTC: $12.30 * 100_000_000 / 97_560 ≈ 12,607.626
+        // Int(12607.626) = 12607 (truncated — the bug)
+        // Int(12607.626.rounded()) = 12608 (correct)
+        service.btcPriceUsdForTesting = 97_560
+        let sats = service.usdToSats(Decimal(string: "12.30")!)
+        #expect(sats == 12_608)
+    }
 }
