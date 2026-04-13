@@ -110,12 +110,12 @@ struct RideHistorySyncCoordinatorTests {
 
     @Test func publishAndMark_snapshotsRidesAtCallTime() async throws {
         let kit = try await makeKit()
-        kit.relay.publishDelay = .milliseconds(150)
+        kit.relay.publishDelay = .milliseconds(50)
         kit.rideHistory.addRide(makeEntry(id: "ride1"))
 
         kit.coordinator.publishAndMark(from: kit.rideHistory)  // captures [ride1] at call time
         kit.rideHistory.addRide(makeEntry(id: "ride2"))         // added AFTER Task fires
-        try await Task.sleep(for: .milliseconds(400))
+        try await Task.sleep(for: .milliseconds(600))
 
         // Only one publish was fired (not a second one triggered by addRide)
         #expect(kit.relay.publishedEvents.count == 1)
