@@ -119,7 +119,7 @@ struct SyncDomainTrackerTests {
         #expect(!store.metadata(for: .followedDrivers).isDirty)
     }
 
-    @Test func onRidesChanged_marksRideHistoryDirty() {
+    @Test func restoreFromBackup_doesNotMarkRideHistoryDirty() {
         let store = makeSyncStore()
         let rideHistory = makeRideHistory()
         let tracker = SyncDomainTracker(
@@ -129,11 +129,12 @@ struct SyncDomainTrackerTests {
             rideHistory: rideHistory,
             savedLocations: makeSavedLocations()
         )
-        _ = tracker
+        _ = tracker  // keep alive
 
+        // restoreFromBackup simulates startup sync — relay is authoritative, not a user action.
+        // After removing the onRidesChanged wiring, this must NOT mark .rideHistory dirty.
+        rideHistory.restoreFromBackup([makeEntry()])
         #expect(!store.metadata(for: .rideHistory).isDirty)
-        rideHistory.addRide(makeEntry())
-        #expect(store.metadata(for: .rideHistory).isDirty)
     }
 
     @Test func savedLocationsOnChange_marksProfileBackupDirty() {

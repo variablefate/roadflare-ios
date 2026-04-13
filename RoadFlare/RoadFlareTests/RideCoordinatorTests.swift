@@ -16,7 +16,8 @@ struct RideCoordinatorTests {
         clearRidePersistence: Bool = true,
         roadflarePaymentMethods: [String] = ["zelle"],
         rideStatePersistence: InMemoryRideStatePersistence? = nil,
-        stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault
+        stageTimeouts: RideCoordinator.StageTimeouts = .interopDefault,
+        withRideHistorySync: Bool = false
     ) async throws -> (RideCoordinator, FakeRelayManager, NostrKeypair, RideHistoryRepository, InMemoryRideStatePersistence) {
         let persistence = rideStatePersistence ?? InMemoryRideStatePersistence()
         if clearRidePersistence {
@@ -44,6 +45,19 @@ struct RideCoordinatorTests {
             rideStatePersistence: persistence,
             stageTimeouts: stageTimeouts
         )
+
+        if withRideHistorySync {
+            let domainService = RoadflareDomainService(relayManager: fake, keypair: keypair)
+            let syncStore = RoadflareSyncStateStore(
+                defaults: UserDefaults(suiteName: "rctest_\(UUID().uuidString)")!,
+                namespace: UUID().uuidString
+            )
+            coordinator.rideHistorySyncCoordinator = RideHistorySyncCoordinator(
+                domainService: domainService,
+                syncStore: syncStore
+            )
+        }
+
         return (coordinator, fake, keypair, history, persistence)
     }
 
@@ -887,5 +901,18 @@ struct RideCoordinatorTests {
         #expect(recorded)
         #expect(cleared)
         await coordinator.stopAll()
+    }
+
+    // MARK: - Backup bridge
+
+    @MainActor
+    @Test func backupRideHistoryBridgeDelegatesToSyncCoordinator() async throws {
+        let (coordinator, fake, _, _, _) = try await makeCoordinator(withRideHistorySync: true)
+        let publishedBefore = fake.publishedEvents.count
+
+        coordinator.backupRideHistory()
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(fake.publishedEvents.count > publishedBefore)
     }
 }

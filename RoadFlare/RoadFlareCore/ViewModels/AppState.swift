@@ -312,6 +312,7 @@ public final class AppState {
             rideStatePersistence: rideStatePersistence
         )
         self.rideCoordinator = coordinator
+        coordinator.rideHistorySyncCoordinator = sync.rideHistorySyncCoordinator
         await coordinator.restoreLiveSubscriptions()
         connectionCoordinator.start(
             interval: Self.connectionWatchdogInterval,
@@ -360,6 +361,7 @@ public final class AppState {
             rideStatePersistence: rideStatePersistence
         )
         self.rideCoordinator = coordinator
+        coordinator.rideHistorySyncCoordinator = sync.rideHistorySyncCoordinator
         AppLogger.auth.info("Starting subscriptions... (\(repo.drivers.count) drivers loaded)")
         await coordinator.restoreLiveSubscriptions()
         connectionCoordinator.start(

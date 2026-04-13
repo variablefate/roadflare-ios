@@ -13,9 +13,9 @@ enum SyncProgress {
 /// Owns Nostr sync orchestration: startup resolution, change-tracking delegation,
 /// and teardown. Change-tracking callback wiring is delegated to `SyncDomainTracker`
 /// (SDK). Publish wrappers and state machines live in the SDK (see
-/// `ProfileBackupCoordinator` and `RoadflareDomainService.publishXAndMark`
-/// helpers). This class is pure wiring between AppState-owned state and
-/// SDK-provided sync primitives.
+/// `ProfileBackupCoordinator`, `RideHistorySyncCoordinator`, and
+/// `RoadflareDomainService.publishXAndMark` helpers). This class is pure wiring
+/// between AppState-owned state and SDK-provided sync primitives.
 @MainActor
 final class SyncCoordinator {
     // MARK: - Owned State
@@ -23,6 +23,7 @@ final class SyncCoordinator {
     private(set) var roadflareSyncStore: RoadflareSyncStateStore?
     private(set) var roadflareDomainService: RoadflareDomainService?
     private(set) var profileBackupCoordinator: ProfileBackupCoordinator?
+    private(set) var rideHistorySyncCoordinator: RideHistorySyncCoordinator?
     private(set) var syncDomainTracker: SyncDomainTracker?
 
     // MARK: - Injected References (owned by AppState)
@@ -45,6 +46,9 @@ final class SyncCoordinator {
         self.roadflareSyncStore = syncStore
         self.roadflareDomainService = domainService
         self.profileBackupCoordinator = ProfileBackupCoordinator(
+            domainService: domainService, syncStore: syncStore
+        )
+        self.rideHistorySyncCoordinator = RideHistorySyncCoordinator(
             domainService: domainService, syncStore: syncStore
         )
     }
@@ -86,6 +90,9 @@ final class SyncCoordinator {
 
         profileBackupCoordinator?.clearAll()
         profileBackupCoordinator = nil
+
+        rideHistorySyncCoordinator?.clearAll()
+        rideHistorySyncCoordinator = nil
 
         if clearPersistedState {
             roadflareSyncStore?.clearAll()

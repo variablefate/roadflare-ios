@@ -9,6 +9,10 @@ import Foundation
 /// `SyncCoordinator` always calls `detach()` before releasing the tracker,
 /// so callbacks are already nil by the time `deinit` fires.
 ///
+/// Note: `.rideHistory` is NOT wired here. `RideHistorySyncCoordinator`
+/// calls `markDirty(.rideHistory)` on publish failure; passive wiring via
+/// `onRidesChanged` caused a false-dirty on `restoreFromBackup` at startup.
+///
 /// `@unchecked Sendable`: all `let` properties are themselves `@unchecked
 /// Sendable`. `driversRepo` is `weak var` written only in `wireCallbacks()`
 /// and `_detachUnchecked()`, both called exclusively from `@MainActor`
@@ -34,7 +38,9 @@ public final class SyncDomainTracker: @unchecked Sendable {
     ///   - driversRepo: Followed drivers repository (stored weakly). Only
     ///     `.local` mutations dirty `.followedDrivers`; `.sync` mutations are
     ///     ignored — they originate from the relay, not from local edits.
-    ///   - rideHistory: Ride history repository (rideHistory domain).
+    ///   - rideHistory: Ride history repository — accepted so `detach()` can nil
+    ///     its `onRidesChanged` callback. `.rideHistory` dirty marking is handled
+    ///     by `RideHistorySyncCoordinator`, not this tracker (see class-level note).
     ///   - savedLocations: Saved locations repository (profileBackup domain).
     public init(
         store: RoadflareSyncStateStore,
@@ -93,9 +99,6 @@ public final class SyncDomainTracker: @unchecked Sendable {
         driversRepo?.onDriversChanged = { [weak store] source in
             guard source == .local else { return }
             store?.markDirty(.followedDrivers)
-        }
-        rideHistory.onRidesChanged = { [weak store] in
-            store?.markDirty(.rideHistory)
         }
         savedLocations.onChange = { [weak store] in
             store?.markDirty(.profileBackup)
