@@ -1,4 +1,5 @@
 import Foundation
+import os
 import RidestrSDK
 
 /// Thin app-layer adapter around `RiderRideSession`.
