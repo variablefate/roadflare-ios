@@ -81,9 +81,10 @@ struct RideHistorySyncCoordinatorTests {
         kit.relay.publishDelay = .milliseconds(150)
         kit.rideHistory.addRide(makeEntry())
 
-        kit.coordinator.publishAndMark(from: kit.rideHistory)  // Task is mid-await in relay
-        kit.coordinator.clearAll()                              // bumps generation before publish completes
-        try await Task.sleep(for: .milliseconds(400))           // let Task try to complete
+        kit.coordinator.publishAndMark(from: kit.rideHistory)
+        try await Task.sleep(for: .milliseconds(30))   // let Task start and suspend inside relay publishDelay
+        kit.coordinator.clearAll()                     // bumps generation while Task is mid-await
+        try await Task.sleep(for: .milliseconds(400))  // let Task try to complete after relay returns
 
         // Generation mismatch — Task exits without touching store
         #expect(kit.syncStore.metadata(for: .rideHistory).lastSuccessfulPublishAt == 0)
