@@ -4,7 +4,7 @@
 
 **Goal:** Unify the two ride-history sync paths (passive `onRidesChanged → markDirty` via `SyncDomainTracker`, and active fire-and-forget publish via `RideCoordinator.backupRideHistory()`) into a single SDK class `RideHistorySyncCoordinator`, parallel to `ProfileBackupCoordinator`. Eliminate the redundant `markDirty` wiring from `SyncDomainTracker` and give the publish logic an SDK home with tests.
 
-**Architecture:** `RideHistorySyncCoordinator` lives in `RidestrSDK/Sources/RidestrSDK/RoadFlare/` alongside `ProfileBackupCoordinator`. It owns the fire-and-forget publish Task (with `markDirty`-on-failure), a `clearAll()` for teardown, and a generation counter to safely handle identity replacement. `SyncCoordinator` owns the coordinator instance (created in `configure()`, cleared in `teardown()`). Call sites (`RideCoordinator.recordCompletedRide` / `HistoryTab.onDelete`) call `syncCoordinator.rideHistorySyncCoordinator?.publishAndMark(from: rideHistory)` instead of `rideCoordinator?.backupRideHistory()`. `SyncDomainTracker` drops the `rideHistory.onRidesChanged → markDirty(.rideHistory)` wiring (the coordinator's `markDirty`-on-failure covers offline).
+**Architecture:** `RideHistorySyncCoordinator` lives in `RidestrSDK/Sources/RidestrSDK/RoadFlare/` alongside `ProfileBackupCoordinator`. It owns the fire-and-forget publish Task (with `markDirty`-on-failure), a `clearAll()` for teardown, and a generation counter to safely handle identity replacement. `SyncCoordinator` owns the coordinator instance (created in `configure()`, cleared in `teardown()`). `RideCoordinator` gains a `var rideHistorySyncCoordinator: RideHistorySyncCoordinator?` property (injected by `AppState` after `configure()`); `backupRideHistory()` becomes a thin bridge that calls it. `HistoryTab` call site stays unchanged (`appState.rideCoordinator?.backupRideHistory()`). `SyncDomainTracker` drops the `rideHistory.onRidesChanged → markDirty(.rideHistory)` wiring (the coordinator's `markDirty`-on-failure covers offline).
 
 **Tech Stack:** Swift, RidestrSDK (SPM package), Swift Testing framework, `@unchecked Sendable` + `NSLock` pattern, `FakeRelayManager` + `InMemoryRideHistoryPersistence` for SDK tests.
 
@@ -74,7 +74,7 @@ appState.rideHistory.removeRide(id: ride.id)
 appState.rideCoordinator?.backupRideHistory()
 ```
 
-After the change: call the coordinator directly via `appState.syncCoordinator.rideHistorySyncCoordinator?.publishAndMark(from: appState.rideHistory)`, or expose a convenience through `AppState`.
+After the change: call stays as-is — `appState.rideCoordinator?.backupRideHistory()` — because `backupRideHistory()` becomes a thin bridge to `rideHistorySyncCoordinator`. `AppState.syncCoordinator` is `private`; HistoryTab cannot reach it directly and must go through the public RideCoordinator API.
 
 ### What the passive `onRidesChanged → markDirty` path was protecting against
 
@@ -123,8 +123,8 @@ public final class RideHistorySyncCoordinator: @unchecked Sendable {
     /// - after `rideHistory.addRide(entry)` (ride completion)
     /// - after `rideHistory.removeRide(id:)` (swipe-to-delete)
     ///
-    /// Safe to call from `@MainActor` — the Task captures the rides snapshot
-    /// at call time via `rideHistory.rides` (main-actor isolated read).
+    /// Safe to call from any context — the Task captures the rides snapshot
+    /// at call time via `rideHistory.rides` (NSLock-protected, thread-safe read).
     public func publishAndMark(from rideHistory: RideHistoryRepository) {
         let rides = rideHistory.rides
         let myGeneration: UInt64 = lock.withLock { generation }
@@ -175,7 +175,7 @@ public final class RideHistorySyncCoordinator: @unchecked Sendable {
 | `RoadFlare/RoadFlareCore/ViewModels/SyncCoordinator.swift` | MODIFY | Add `rideHistorySyncCoordinator`; wire in `configure()`; release in `teardown()` |
 | `RoadFlare/RoadFlareCore/ViewModels/RideCoordinator.swift` | MODIFY | Replace `backupRideHistory()` body with coordinator delegation |
 | `RidestrSDK/Sources/RidestrSDK/RoadFlare/SyncDomainTracker.swift` | MODIFY | Remove `rideHistory.onRidesChanged` wiring |
-| `RoadFlare/RoadFlare/Views/History/HistoryTab.swift` | MODIFY | Replace `rideCoordinator?.backupRideHistory()` with coordinator call |
+| `RoadFlare/RoadFlare/Views/History/HistoryTab.swift` | NO CHANGE | Call site stays as `rideCoordinator?.backupRideHistory()` — thin bridge handles delegation |
 
 **Not changed:** `RoadflareDomainService.swift` (existing `publishRideHistoryBackup` is reused), `Package.swift` (auto-discovers sources), `RideHistoryRepository.swift` (no changes needed — `onRidesChanged` callback stays in the struct for future use by other callers).
 
@@ -300,50 +300,51 @@ The `onRidesChanged → markDirty(.rideHistory)` callback is now redundant. The 
       store?.markDirty(.rideHistory)
   }
   ```
-- [ ] In `_detachUnchecked()`, remove the `rideHistory.onRidesChanged = nil` line (it is now a no-op since `wireCallbacks` no longer sets it, but removing it keeps the code clean)
+- [ ] In `_detachUnchecked()`, **keep** the `rideHistory.onRidesChanged = nil` line — it becomes a defensive no-op (the callback was never wired, so nil-assignment is harmless) but preserves the invariant that all repos passed to `init` have their callbacks nil'd in `detach()`. Removing it would also require removing `rideHistory` from `init`, which breaks callers by position.
 - [ ] Update the `SyncDomainTracker` class-level doc comment to reflect that `.rideHistory` is no longer wired here
 
-**Important:** `SyncDomainTracker` still holds the `rideHistory: RideHistoryRepository` property — it is passed in `init` for the `detach()` nil-assignment defensive cleanup. Whether to keep or remove the property from `init` is a judgment call:
-  - Keep it (and just stop setting `onRidesChanged`): minimal change, still nils the callback in `detach()` as a defensive no-op.
-  - Remove it from `init`: cleaner but breaks any callers that already pass it by position. Removing it requires updating `SyncCoordinator.wireTrackingCallbacks()` call site.
-  
-  **Recommended:** keep the `rideHistory` parameter in `init` for now to avoid a breaking change to the `SyncDomainTracker` public API. Just stop wiring `onRidesChanged`. If the property becomes truly unused after detach cleanup is updated, remove it in a follow-up.
+**Important:** Keep the `rideHistory` parameter in `init` and the `rideHistory.onRidesChanged = nil` in `_detachUnchecked()`. The property is still used in teardown as a defensive nil-assignment. If a future change removes the parameter too, that's a separate cleanup PR.
 
 ---
 
-### Step 6: Update `RideCoordinator.swift` — replace `backupRideHistory()`
+### Step 6: Update `RideCoordinator.swift` — thin bridge + inject coordinator
 
-The `backupRideHistory()` method currently holds the active-publish logic. After this change, it becomes a thin bridge to the coordinator (or is removed entirely if the call sites are updated directly).
+**Approach: thin bridge (Option A).** Keep `backupRideHistory()` as the public API — its body delegates to the coordinator. HistoryTab's call site is unchanged. This is lower-risk and avoids exposing AppState-private internals to views.
 
-Option A (thin bridge — lower risk, easier to search/replace later):
-- [ ] Replace `backupRideHistory()` body with:
+`RideCoordinator` currently holds `roadflareDomainService` and `roadflareSyncStore` but has NO reference to `SyncCoordinator` or `RideHistorySyncCoordinator`. The coordinator must be injected by `AppState`.
+
+**6a — Add property to `RideCoordinator`:**
+- [ ] Add to `RideCoordinator`:
+  ```swift
+  /// Injected by AppState after SyncCoordinator.configure(). Nil until identity
+  /// is configured; thin bridge backupRideHistory() is a no-op when nil.
+  var rideHistorySyncCoordinator: RideHistorySyncCoordinator?
+  ```
+  (Internal visibility — `AppState` and `RideCoordinator` are both in `RoadFlareCore`.)
+
+**6b — Replace `backupRideHistory()` body:**
+- [ ] Replace the body of `backupRideHistory()` with:
   ```swift
   public func backupRideHistory() {
-      syncCoordinator?.rideHistorySyncCoordinator?.publishAndMark(from: rideHistory)
+      rideHistorySyncCoordinator?.publishAndMark(from: rideHistory)
   }
   ```
-  This requires `RideCoordinator` to hold a reference to `SyncCoordinator`. Check if it already does; if not, inject it.
+  The guard on `roadflareDomainService`/`roadflareSyncStore` is removed — the coordinator owns those dependencies now.
 
-Option B (remove method, update call sites directly):
-- [ ] Remove `backupRideHistory()` entirely
-- [ ] In `recordRideHistory()`, replace `backupRideHistory()` with the coordinator call directly
-- [ ] In `HistoryTab.swift`, replace `appState.rideCoordinator?.backupRideHistory()` with the coordinator call
-
-**Recommended:** Option B for cleaner deletion of the old path. The call sites are well-known (2 locations).
-
-**If Option B:**
-- [ ] In `recordRideHistory()` (RideCoordinator.swift, after `rideHistory.addRide(entry)`):
+**6c — Inject in `AppState.setupServices()` and `setupServicesWithSync()`:**
+- [ ] In both `setupServices()` and `setupServicesWithSync()`, after `self.rideCoordinator = coordinator`, add:
   ```swift
-  // Previously: backupRideHistory()
-  // Now call via SyncCoordinator — need access to it here.
+  coordinator.rideHistorySyncCoordinator = sync.rideHistorySyncCoordinator
   ```
-  Note: `RideCoordinator` does not currently hold a `SyncCoordinator` reference. It holds `roadflareDomainService` and `roadflareSyncStore` directly. One approach: keep `backupRideHistory()` as a public method that takes an explicit coordinator parameter, or have `AppState` call the coordinator after `rideHistory.addRide`. Review `AppState.swift` to determine the cleanest injection path before coding.
+  `sync.configure()` runs before `RideCoordinator` is created, so `rideHistorySyncCoordinator` is already populated.
 
-- [ ] In `HistoryTab.swift` (`onDelete` closure):
-  ```swift
-  appState.rideHistory.removeRide(id: ride.id)
-  appState.syncCoordinator.rideHistorySyncCoordinator?.publishAndMark(from: appState.rideHistory)
-  ```
+**6d — Teardown is handled automatically:**
+- No explicit nil needed in `prepareForIdentityReplacement()`. `syncCoordinator?.teardown()` calls `rideHistorySyncCoordinator?.clearAll()` (bumps generation) before `rideCoordinator = nil` releases the ref. Because `syncStoreRef` is `weak` and generation is bumped, any in-flight Task exits cleanly without touching the new session's state.
+
+**Call sites after this change:**
+- `RideCoordinator.recordRideHistory()` → `backupRideHistory()` → coordinator (unchanged call chain)
+- `HistoryTab.onDelete` → `appState.rideCoordinator?.backupRideHistory()` (unchanged)
+- Both correctly no-op when not configured (coordinator is nil before `AppState.setupServices()` runs).
 
 ---
 
@@ -390,16 +391,24 @@ After tests pass:
 
 Model after `SyncDomainTrackerTests.swift` (simple, synchronous-style tests using `@MainActor @Suite`) and `LocationSyncCoordinatorTests.swift` (async tests using `FakeRelayManager`).
 
-Tests to write (6 minimum, ordered by TDD priority):
+Tests to write (6 minimum for new coordinator, plus 1 regression in SyncDomainTrackerTests, ordered by TDD priority):
+
+**RideHistorySyncCoordinatorTests.swift (6 tests):**
 
 | # | Test name | What it verifies |
 |---|-----------|-----------------|
 | 1 | `publishAndMark_onSuccess_marksPublished` | Happy path: relay succeeds → `markPublished` called |
 | 2 | `publishAndMark_onFailure_marksDirty` | Offline path: relay throws → `markDirty` called |
 | 3 | `publishAndMark_emptyHistory_succeeds` | Deletion case: empty rides array is published (not skipped) |
-| 4 | `clearAll_invalidatesInFlightPublish_noMarkPublished` | Generation guard: `clearAll` before Task completes → no store mutation |
+| 4 | `clearAll_invalidatesInFlightPublish_noMarkPublished` | Generation guard: `clearAll` before Task completes → no store mutation. **Use `FakeRelayManager` with a configurable delay/continuation** to ensure `clearAll()` fires while the Task is mid-await — a simple `Task.yield()` is inherently racy. Study the suspension-point pattern in `LocationSyncCoordinatorTests.swift`. |
 | 5 | `publishAndMark_snapshotsRidesAtCallTime` | Content isolation: late `addRide` does not affect in-flight publish content |
 | 6 | `clearAll_doesNotAffectCompletedPublish` | Regression: completed publish is not undone by subsequent `clearAll` |
+
+**SyncDomainTrackerTests.swift (1 additional test):**
+
+| # | Test name | File | What it verifies |
+|---|-----------|------|-----------------|
+| 7 | `restoreFromBackup_doesNotMarkRideHistoryDirty` | `SyncDomainTrackerTests.swift` | Regression: after removing the `onRidesChanged` wiring, `rideHistory.restoreFromBackup([entry])` must NOT mark `.rideHistory` dirty. This directly verifies the primary motivation (false-dirty during startup sync). |
 
 ### Existing tests to update
 
@@ -416,8 +425,8 @@ Per CLAUDE.md conventions:
 - The publish Task is fire-and-forget (no `await` at the call site). This matches the current `backupRideHistory()` pattern — callers are `@MainActor` and should not block on publish.
 - The generation counter uses `&+=` (wrapping addition) to prevent overflow, matching `ProfileBackupCoordinator`.
 - `syncStoreRef` is `weak var` — same as `ProfileBackupCoordinator` — to prevent the coordinator retaining the store after `teardown()` releases it.
-- Rides are snapshot from `rideHistory.rides` at call time on `@MainActor`, so the Task closure captures a value type snapshot (`[RideHistoryEntry]`) — no shared mutable state crossing the Task boundary.
-- `RideHistoryRepository.rides` is an `@Observable` `@MainActor`-isolated property; reading it from a `@MainActor` caller before spawning the Task is safe.
+- Rides are snapshot from `rideHistory.rides` at call time, so the Task closure captures a value type snapshot (`[RideHistoryEntry]`) — no shared mutable state crossing the Task boundary.
+- `RideHistoryRepository` is `@Observable @unchecked Sendable` with NSLock protection — `rides` is NOT `@MainActor`-isolated; it is thread-safe from any context. The snapshot (`let rides = rideHistory.rides`) can be taken from any caller context.
 
 ---
 

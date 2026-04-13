@@ -1,0 +1,198 @@
+Plan39 Deep Review — 2026-04-12
+Reviewer: Claude Sonnet 4.6
+Branch: claude/issue-39-ride-history-sync
+Plan: docs/superpowers/plans/2026-04-12-issue-39-ride-history-sync.md
+
+=== VERDICT ===
+
+5 findings (2 critical, 1 medium, 2 minor). Two issues would cause compilation
+failures if implemented as written. One test gap leaves the primary motivation
+unverified. Fixes applied directly to plan; ready after review of those changes.
+
+=== CLAIMS VERIFIED AGAINST SOURCE ===
+
+✓ RideCoordinator.backupRideHistory() body (lines 336–348): confirmed exactly
+  as described. Holds roadflareDomainService + roadflareSyncStore; fire-and-
+  forget Task; markPublished on success, markDirty on failure.
+
+✓ SyncDomainTracker.wireCallbacks(): confirmed wires
+  rideHistory.onRidesChanged → markDirty(.rideHistory) at line 102.
+
+✓ RideHistoryRepository.restoreFromBackup(): calls onRidesChanged?() at
+  line 94 — passive path fires during startup restore. Claim confirmed.
+
+✓ SyncCoordinator.configure() / teardown(): structure matches plan's proposed
+  changes. profileBackupCoordinator pattern confirmed; insertion points valid.
+
+✓ HistoryTab call site (line 41): appState.rideCoordinator?.backupRideHistory()
+  confirmed.
+
+✓ SyncDomainTrackerTests.onRidesChanged_marksRideHistoryDirty test: confirmed
+  exists; must be deleted (not skipped) when wiring is removed. Plan says this.
+
+✓ ARC detach/nil/create pattern in wireTrackingCallbacks(): confirmed correct —
+  plan's description of why detach+nil must precede the new init is accurate.
+
+✓ profileBackupCoordinator pattern: confirmed as reference. Generation counter,
+  weak syncStoreRef, clearAll() bumps generation — plan's RideHistorySyncCoordinator
+  matches this pattern correctly (with simpler fire-and-forget vs. loop).
+
+✓ flushPendingSyncPublishes(): confirmed uses service.publishRideHistoryAndMark
+  directly; not affected by this change.
+
+✓ performStartupSync() rideHistory strategy: confirmed uses service directly;
+  not affected by this change.
+
+=== FINDINGS ===
+
+FINDING 1 — CRITICAL
+Title: HistoryTab call site won't compile — appState.syncCoordinator is private
+File: Step 6 (Option B), HistoryTab.swift proposed change
+
+AppState declares:
+    private var syncCoordinator: SyncCoordinator?
+
+HistoryTab accesses AppState via @Environment and cannot reach syncCoordinator.
+The plan's Option B code:
+    appState.syncCoordinator.rideHistorySyncCoordinator?.publishAndMark(...)
+will not compile. This is a real compilation failure, not a style issue.
+
+Resolution (applied to plan): Option B's HistoryTab call site must use one of:
+  (a) appState.rideCoordinator?.backupRideHistory() — unchanged from today, if
+      backupRideHistory() is the thin bridge (Option A). This is the recommended
+      path: keep Option A for HistoryTab's call site, keep backupRideHistory()
+      as the public API, but change its body to delegate to the coordinator.
+  (b) A new AppState convenience method publishRideHistoryBackup() similar to
+      publishProfileBackup() — exposes the coordinator call to views without
+      making syncCoordinator itself accessible.
+
+The recommended fix (applied to plan): use thin bridge (Option A) for the
+HistoryTab call site. HistoryTab's code stays as-is. Only backupRideHistory()'s
+body changes.
+
+FINDING 2 — CRITICAL
+Title: RideCoordinator injection path not resolved — no reference to coordinator
+File: Step 6 (both options), Step 4
+
+RideCoordinator holds roadflareDomainService and roadflareSyncStore directly.
+It has NO reference to SyncCoordinator or RideHistorySyncCoordinator. The plan
+flags this as an open design decision but does not specify how to inject the
+coordinator into RideCoordinator.
+
+AppState.setupServices() creates SyncCoordinator first (calls configure(), which
+creates rideHistorySyncCoordinator), then creates RideCoordinator. The injection
+point exists naturally.
+
+Resolution (applied to plan):
+1. Add `var rideHistorySyncCoordinator: RideHistorySyncCoordinator?` to
+   RideCoordinator (internal visibility; AppState is in the same module).
+2. In AppState.setupServices() and setupServicesWithSync(), after creating
+   coordinator (RideCoordinator), add:
+     coordinator.rideHistorySyncCoordinator = sync.rideHistorySyncCoordinator
+3. In prepareForIdentityReplacement(), teardown() bumps the generation and
+   clears the coordinator from SyncCoordinator. When rideCoordinator = nil
+   fires, the ref is released. Because syncStoreRef is weak and generation
+   was bumped, any in-flight Task exits cleanly. No explicit nil needed in
+   prepareForIdentityReplacement — the teardown order handles it.
+4. backupRideHistory() body becomes:
+     rideHistorySyncCoordinator?.publishAndMark(from: rideHistory)
+   This is Option A (thin bridge) — the cleanest change with lowest risk.
+
+FINDING 3 — MEDIUM
+Title: Missing regression test — restoreFromBackup no longer marks dirty
+File: Step 2 test cases; SyncDomainTrackerTests
+
+The primary motivation for removing onRidesChanged → markDirty is that
+restoreFromBackup fires onRidesChanged?() (confirmed at RideHistoryRepository
+line 94), causing a false-dirty during startup sync. No test verifies this
+behavior is fixed.
+
+After removing the wiring, a test should confirm:
+  rideHistory.restoreFromBackup([entry])
+  → store.metadata(for: .rideHistory).isDirty == false
+
+This should live in SyncDomainTrackerTests (same file where onRidesChanged
+wiring tests live), as a companion to the deleted onRidesChanged_marksRideHistoryDirty.
+
+Resolution (applied to plan): Added test 7:
+  restoreFromBackup_doesNotMarkRideHistoryDirty
+to SyncDomainTrackerTests section in the plan.
+
+FINDING 4 — MINOR
+Title: `rides` read described as "main-actor isolated" — incorrect
+File: publishAndMark docstring in the New SDK Type section
+
+The plan says:
+  "Safe to call from @MainActor — the Task captures the rides snapshot at call
+   time via rideHistory.rides (main-actor isolated read)."
+
+RideHistoryRepository is @unchecked Sendable + NSLock, not @MainActor-isolated.
+reads of .rides are thread-safe from any context, not "main-actor isolated."
+The docstring is technically misleading — `rides` could be read from a background
+thread just as safely.
+
+Resolution (applied to plan): Changed to "NSLock-protected read — thread-safe
+from any context."
+
+FINDING 5 — MINOR
+Title: Step 5 self-contradiction on _detachUnchecked() rideHistory.onRidesChanged = nil
+File: Step 5 "Update SyncDomainTracker"
+
+The plan says in one bullet:
+  "remove the `rideHistory.onRidesChanged = nil` line"
+And in the next bullet:
+  "still nils the callback in detach() as a defensive no-op"
+
+These contradict. Removing the nil assignment IS removing the defensive no-op.
+
+Resolution (applied to plan): Keep `rideHistory.onRidesChanged = nil` in
+_detachUnchecked(). Rationale: after the wiring is removed from wireCallbacks(),
+the nil assignment in detach becomes a harmless no-op — but keeping it is
+defensive and consistent (all repos that are passed to init get their callbacks
+nil'd in detach, whether or not the callbacks were set). Removing the nil would
+require also removing the rideHistory property from init, which the plan
+recommends against.
+
+=== CODE ACCURACY ===
+
+- RideCoordinator.recordRideHistory() line numbers: plan says 308–332 for
+  recordRideHistory and 336–348 for backupRideHistory. Verified approximately
+  correct from the read (addRide at line ~324, backupRideHistory() call at ~331,
+  method definition at ~336).
+
+- The plan correctly says forceEndRide() calls recordRideHistory() (it does).
+  The delegate's sessionDidReachTerminal(.completed) also calls recordRideHistory().
+  Both are covered by the proposed thin bridge.
+
+- SyncCoordinator.wireTrackingCallbacks() uses the detach/nil/create pattern
+  correctly as described. The plan's ARC safety analysis is correct.
+
+- ProfileBackupCoordinator pattern: plan's proposed RideHistorySyncCoordinator
+  correctly simplifies (no isPublishing loop) since ride history publishes are
+  not expected to be concurrent-heavy. Rationale is sound.
+
+=== ENTROPY CHECK ===
+
+Genuine simplification: yes. Two paths (onRidesChanged → markDirty and
+backupRideHistory → publish) are unified into one (coordinator → publish, with
+markDirty only on failure). SyncDomainTracker sheds one domain. The reconnect
+flush path (flushPendingSyncPublishes) remains as the correct passive safety net.
+The false-dirty during restoreFromBackup is eliminated.
+
+The new class (RideHistorySyncCoordinator ~80 lines) replaces ~15 lines of
+scattered logic across RideCoordinator + SyncDomainTracker. Net complexity is
+positive: test coverage + explicit SDK boundary outweigh the new file.
+
+=== CHANGES MADE TO PLAN ===
+
+1. Step 6: Removed the ambiguous Option A/B framing. Prescribed explicit path:
+   - Option A (thin bridge) is the recommended approach.
+   - Added injection requirement: RideCoordinator gets var rideHistorySyncCoordinator.
+   - AppState injection points specified for both setupServices() paths.
+   - HistoryTab call site stays as-is (appState.rideCoordinator?.backupRideHistory()).
+
+2. Step 5: Clarified that rideHistory.onRidesChanged = nil stays in _detachUnchecked().
+
+3. Test cases: Added test 7 to SyncDomainTrackerTests section.
+
+4. publishAndMark docstring: Corrected "main-actor isolated read" → "NSLock-protected read".
