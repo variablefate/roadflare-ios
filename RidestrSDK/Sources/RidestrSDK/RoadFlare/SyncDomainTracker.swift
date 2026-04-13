@@ -5,14 +5,15 @@ import Foundation
 /// domain" lives in the SDK rather than in the app layer.
 ///
 /// Callbacks are wired in `init` and nil'd in `detach()`. `deinit` calls
-/// `detach()` as a safety net so repositories are never left pointing at a
-/// deallocated tracker.
+/// the same nil-assignments directly as a thread-safe defensive no-op:
+/// `SyncCoordinator` always calls `detach()` before releasing the tracker,
+/// so callbacks are already nil by the time `deinit` fires.
 ///
 /// `@unchecked Sendable`: all `let` properties are themselves `@unchecked
 /// Sendable`. `driversRepo` is `weak var` written only in `wireCallbacks()`
-/// and `detach()`, both called exclusively through `SyncCoordinator`
-/// (`@MainActor`), so access is always main-actor-serialized. `markDirty`
-/// inside `RoadflareSyncStateStore` is NSLock-protected.
+/// and `_detachUnchecked()`, both called exclusively from `@MainActor`
+/// context (via `SyncCoordinator`), so access is always main-actor-serialized.
+/// `markDirty` inside `RoadflareSyncStateStore` is NSLock-protected.
 public final class SyncDomainTracker: @unchecked Sendable {
 
     // MARK: - Stored References
@@ -53,9 +54,26 @@ public final class SyncDomainTracker: @unchecked Sendable {
     // MARK: - Detach
 
     /// Nil out all repository callbacks. Call before any `clearAll()` on the
-    /// repositories to prevent stale dirty flags after logout.
-    /// `deinit` also calls `detach()` as a safety net.
+    /// repositories to prevent stale dirty flags after logout. `SyncCoordinator`
+    /// always calls this before releasing the tracker, so `deinit`'s own call
+    /// to `_detachUnchecked()` is a defensive no-op by the time it fires.
     @MainActor public func detach() {
+        _detachUnchecked()
+    }
+
+    deinit {
+        // `_detachUnchecked()` has no actor isolation and is safe to call from
+        // any thread. SyncCoordinator (@MainActor) always calls detach() before
+        // releasing this tracker, so callbacks are already nil here — this is
+        // purely a defensive safety net against programmer error.
+        _detachUnchecked()
+    }
+
+    // MARK: - Private
+
+    /// Nil-assignment implementation with no actor isolation so it is safe to
+    /// call from `deinit` on any thread. External callers must use `detach()`.
+    private func _detachUnchecked() {
         settings.onProfileChanged = nil
         settings.onProfileBackupChanged = nil
         driversRepo?.onDriversChanged = nil
@@ -67,15 +85,6 @@ public final class SyncDomainTracker: @unchecked Sendable {
         // here for safety to match pre-refactor SyncCoordinator.teardown().
         savedLocations.onFavoritesChanged = nil
     }
-
-    deinit {
-        // detach() is @MainActor. SyncCoordinator (@MainActor) always calls
-        // detach() explicitly before releasing this tracker, so by deinit time
-        // all callbacks are already nil. assumeIsolated asserts the invariant.
-        MainActor.assumeIsolated { detach() }
-    }
-
-    // MARK: - Private
 
     private func wireCallbacks() {
         let store = self.store
