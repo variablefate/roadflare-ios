@@ -202,4 +202,77 @@ struct RideModelsTests {
         #expect(decoded.make == "Tesla")
         #expect(decoded.licensePlate == "ABC123")
     }
+
+    // MARK: - FiatFare and RideOfferContent fiat fields
+
+    @Test func fiatFareEncodesFlat() throws {
+        // FiatFare serializes as top-level JSON keys, not nested object
+        let offer = RideOfferContent(
+            fareEstimate: 50_000,
+            fiatFare: FiatFare(amount: "12.50", currency: "USD"),
+            destination: Location(latitude: 40.758, longitude: -73.985),
+            approxPickup: Location(latitude: 40.71, longitude: -74.01),
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        let data = try JSONEncoder().encode(offer)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(json["fare_fiat_amount"] as? String == "12.50")
+        #expect(json["fare_fiat_currency"] as? String == "USD")
+        // Confirm no nested key
+        #expect(json["fiatFare"] == nil)
+        #expect(json["fiat_fare"] == nil)
+    }
+
+    @Test func fiatFareDecodesFlat() throws {
+        // Flat JSON keys decode into a FiatFare struct
+        let json = """
+        {"fare_estimate":50000,"fare_fiat_amount":"12.50","fare_fiat_currency":"USD",\
+        "destination":{"lat":40.758,"lon":-73.985},"approx_pickup":{"lat":40.71,"lon":-74.01},\
+        "payment_method":"zelle","fiat_payment_methods":["zelle"]}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RideOfferContent.self, from: json)
+        #expect(decoded.fiatFare?.amount == "12.50")
+        #expect(decoded.fiatFare?.currency == "USD")
+        #expect(decoded.fareEstimate == 50_000)
+    }
+
+    @Test func fiatFareNilWhenAbsent() throws {
+        // Offers without fiat fields decode to fiatFare == nil (backward compat)
+        let json = """
+        {"fare_estimate":50000,"destination":{"lat":40.758,"lon":-73.985},\
+        "approx_pickup":{"lat":40.71,"lon":-74.01},"payment_method":"zelle",\
+        "fiat_payment_methods":[]}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RideOfferContent.self, from: json)
+        #expect(decoded.fiatFare == nil)
+    }
+
+    @Test func fiatFareNilWhenPartialPair() throws {
+        // Only one of the two fields present → nil (mandatory pair rule)
+        let json = """
+        {"fare_estimate":50000,"fare_fiat_amount":"12.50",\
+        "destination":{"lat":40.758,"lon":-73.985},\
+        "approx_pickup":{"lat":40.71,"lon":-74.01},\
+        "payment_method":"zelle","fiat_payment_methods":[]}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RideOfferContent.self, from: json)
+        #expect(decoded.fiatFare == nil)
+    }
+
+    @Test func fiatFareAbsentFromJsonWhenNil() throws {
+        // fiatFare == nil → fare_fiat_amount and fare_fiat_currency absent from JSON
+        let offer = RideOfferContent(
+            fareEstimate: 30_000,
+            fiatFare: nil,
+            destination: Location(latitude: 40.758, longitude: -73.985),
+            approxPickup: Location(latitude: 40.71, longitude: -74.01),
+            paymentMethod: "cash",
+            fiatPaymentMethods: []
+        )
+        let data = try JSONEncoder().encode(offer)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        #expect(json["fare_fiat_amount"] == nil)
+        #expect(json["fare_fiat_currency"] == nil)
+    }
 }
