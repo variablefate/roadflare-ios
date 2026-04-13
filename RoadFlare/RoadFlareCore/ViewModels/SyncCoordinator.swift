@@ -10,8 +10,9 @@ enum SyncProgress {
     case locationsRestored(count: Int)
 }
 
-/// Owns Nostr sync orchestration: startup resolution, callback wiring, and
-/// teardown. Publish wrappers and state machines live in the SDK (see
+/// Owns Nostr sync orchestration: startup resolution, change-tracking delegation,
+/// and teardown. Change-tracking callback wiring is delegated to `SyncDomainTracker`
+/// (SDK). Publish wrappers and state machines live in the SDK (see
 /// `ProfileBackupCoordinator` and `RoadflareDomainService.publishXAndMark`
 /// helpers). This class is pure wiring between AppState-owned state and
 /// SDK-provided sync primitives.
@@ -22,15 +23,13 @@ final class SyncCoordinator {
     private(set) var roadflareSyncStore: RoadflareSyncStateStore?
     private(set) var roadflareDomainService: RoadflareDomainService?
     private(set) var profileBackupCoordinator: ProfileBackupCoordinator?
+    private(set) var syncDomainTracker: SyncDomainTracker?
 
     // MARK: - Injected References (owned by AppState)
 
     private let settings: UserSettingsRepository
     private let savedLocations: SavedLocationsRepository
     private let rideHistory: RideHistoryRepository
-
-    // Weak ref for callback teardown
-    private weak var trackedDriversRepo: FollowedDriversRepository?
 
     // MARK: - Init
 
@@ -57,36 +56,33 @@ final class SyncCoordinator {
 
     // MARK: - Tracking Callbacks
 
-    /// Wire ALL change-tracking callbacks: settings + repositories.
+    /// Delegate change-tracking callback wiring to a fresh `SyncDomainTracker`.
     /// MUST be called after configure() so roadflareSyncStore is set.
     func wireTrackingCallbacks(driversRepo: FollowedDriversRepository) {
-        let store = roadflareSyncStore
-        trackedDriversRepo = driversRepo
-
-        settings.onProfileChanged = { store?.markDirty(.profile) }
-        settings.onProfileBackupChanged = { store?.markDirty(.profileBackup) }
-
-        driversRepo.onDriversChanged = { source in
-            guard source == .local else { return }
-            store?.markDirty(.followedDrivers)
-        }
-        rideHistory.onRidesChanged = { store?.markDirty(.rideHistory) }
-        savedLocations.onChange = { store?.markDirty(.profileBackup) }
+        guard let store = roadflareSyncStore else { return }
+        // Explicit detach+nil before creating the new tracker: ARC releases the old
+        // tracker's deinit AFTER the new tracker's init wires callbacks, which would
+        // immediately nil them. Nil first so deinit fires while callbacks are still
+        // nil, then wire fresh.
+        syncDomainTracker?.detach()
+        syncDomainTracker = nil
+        syncDomainTracker = SyncDomainTracker(
+            store: store,
+            settings: settings,
+            driversRepo: driversRepo,
+            rideHistory: rideHistory,
+            savedLocations: savedLocations
+        )
     }
 
     // MARK: - Teardown
 
-    /// Detach ALL callbacks, clear sync state, and release the profile backup
-    /// coordinator. Called during identity replacement. MUST be called BEFORE
-    /// any clearAll() calls on repositories to prevent stale callbacks from
-    /// writing dirty flags.
+    /// Detach ALL callbacks, clear sync state, and release owned coordinators.
+    /// Called during identity replacement. MUST be called BEFORE any clearAll()
+    /// calls on repositories to prevent stale callbacks from writing dirty flags.
     func teardown(clearPersistedState: Bool) {
-        settings.onProfileChanged = nil
-        settings.onProfileBackupChanged = nil
-        trackedDriversRepo?.onDriversChanged = nil
-        rideHistory.onRidesChanged = nil
-        savedLocations.onChange = nil
-        savedLocations.onFavoritesChanged = nil
+        syncDomainTracker?.detach()
+        syncDomainTracker = nil
 
         profileBackupCoordinator?.clearAll()
         profileBackupCoordinator = nil
