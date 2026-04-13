@@ -49,7 +49,8 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
 
     // MARK: - Publish-started signaling
 
-    private var _publishStartedContinuation: CheckedContinuation<Void, Never>?
+    private var _publishStartedContinuations: [CheckedContinuation<Void, Never>] = []
+    private var _pendingPublishStartedSignals = 0
     private let _publishStartedLock = NSLock()
 
     /// Suspends the caller until the next `publish(_:)` call begins executing.
@@ -59,7 +60,17 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     /// definitely entered `relay.publish` and is suspended on its delay (if any).
     public func waitForNextPublish() async {
         await withCheckedContinuation { cont in
-            _publishStartedLock.withLock { _publishStartedContinuation = cont }
+            let shouldResumeImmediately = _publishStartedLock.withLock { () -> Bool in
+                if _pendingPublishStartedSignals > 0 {
+                    _pendingPublishStartedSignals -= 1
+                    return true
+                }
+                _publishStartedContinuations.append(cont)
+                return false
+            }
+            if shouldResumeImmediately {
+                cont.resume()
+            }
         }
     }
 
@@ -115,9 +126,11 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     public func publish(_ event: NostrEvent) async throws -> String {
         // Signal any waiting `waitForNextPublish()` caller before doing any work.
         let pendingCont = _publishStartedLock.withLock { () -> CheckedContinuation<Void, Never>? in
-            let c = _publishStartedContinuation
-            _publishStartedContinuation = nil
-            return c
+            if !_publishStartedContinuations.isEmpty {
+                return _publishStartedContinuations.removeFirst()
+            }
+            _pendingPublishStartedSignals += 1
+            return nil
         }
         pendingCont?.resume()
 
