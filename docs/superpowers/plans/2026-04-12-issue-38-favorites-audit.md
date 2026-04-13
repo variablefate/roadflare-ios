@@ -14,11 +14,13 @@
 
 ## Research Findings
 
-### All references to `onFavoritesChanged` in the codebase (main tree only, excluding worktrees and docs)
+### All references to `onFavoritesChanged` and its supporting infrastructure (main tree only, excluding worktrees and docs)
 
 | File | Line | Role |
 |------|------|------|
 | `RidestrSDK/Sources/RidestrSDK/RoadFlare/SavedLocationsRepository.swift` | 29 | Declaration (`public var`) |
+| `RidestrSDK/Sources/RidestrSDK/RoadFlare/SavedLocationsRepository.swift` | 164 | `persistAndNotify(previousFavorites:)` signature — takes `[FavoriteSignature]` param (must change to no-arg) |
+| `RidestrSDK/Sources/RidestrSDK/RoadFlare/SavedLocationsRepository.swift` | 168 | `notifyFavoritesChangedIfNeeded` call inside `persistAndNotify` (must be removed) |
 | `RidestrSDK/Sources/RidestrSDK/RoadFlare/SavedLocationsRepository.swift` | 179 | Called inside `notifyFavoritesChangedIfNeeded` |
 | `RidestrSDK/Sources/RidestrSDK/RoadFlare/SyncDomainTracker.swift` | 86 | Nil'd in `_detachUnchecked()` (with explanatory comment) |
 | `RoadFlare/RoadFlareTests/RoadFlareTests.swift` | 131 | Test: `recentsDoNotTriggerFavoritesChanged` |
