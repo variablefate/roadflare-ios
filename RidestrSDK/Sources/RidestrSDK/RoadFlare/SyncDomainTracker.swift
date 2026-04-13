@@ -79,11 +79,6 @@ public final class SyncDomainTracker: @unchecked Sendable {
         driversRepo?.onDriversChanged = nil
         rideHistory.onRidesChanged = nil
         savedLocations.onChange = nil
-        // onFavoritesChanged is intentionally NOT wired (onChange already fires
-        // for all location mutations including favorites, making a separate
-        // onFavoritesChanged → profileBackup mapping redundant). It is nil'd
-        // here for safety to match pre-refactor SyncCoordinator.teardown().
-        savedLocations.onFavoritesChanged = nil
     }
 
     private func wireCallbacks() {

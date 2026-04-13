@@ -122,46 +122,6 @@ struct SavedLocationsRepositoryTests {
         SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
     }
 
-    @Test func recentsDoNotTriggerFavoritesChanged() {
-        let repo = makeRepo()
-        var changeCount = 0
-        var favoritesChangeCount = 0
-
-        repo.onChange = { changeCount += 1 }
-        repo.onFavoritesChanged = { favoritesChangeCount += 1 }
-
-        repo.addRecent(
-            latitude: 36.17,
-            longitude: -115.14,
-            displayName: "Airport",
-            addressLine: "Harry Reid Intl"
-        )
-
-        #expect(changeCount == 1)
-        #expect(favoritesChangeCount == 0)
-    }
-
-    @Test func pinningFavoriteTriggersFavoritesChanged() {
-        let repo = makeRepo()
-        var favoritesChangeCount = 0
-
-        repo.onFavoritesChanged = { favoritesChangeCount += 1 }
-
-        let recent = SavedLocation(
-            id: "home",
-            latitude: 36.17,
-            longitude: -115.14,
-            displayName: "Home",
-            addressLine: "123 Main St",
-            isPinned: false
-        )
-        repo.save(recent)
-        repo.pin(id: "home", nickname: "Home")
-
-        #expect(favoritesChangeCount == 1)
-        #expect(repo.favorites.count == 1)
-    }
-
     @Test func restoreFromBackupReplacesAll() {
         let repo = makeRepo()
         repo.addRecent(latitude: 1, longitude: 2, displayName: "Old", addressLine: "Old St")

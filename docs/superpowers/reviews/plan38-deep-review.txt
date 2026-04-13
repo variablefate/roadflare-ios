@@ -1,0 +1,187 @@
+PLAN DEEP REVIEW — Issue #38: Remove onFavoritesChanged
+Reviewer: Claude (claude-sonnet-4-6)
+Date: 2026-04-12
+Branch: claude/issue-38-favorites-audit
+Plan: docs/superpowers/plans/2026-04-12-issue-38-favorites-audit.md
+
+================================================================
+VERDICT: APPROVED — 1 low-severity finding (documentation gap fixed)
+================================================================
+
+FINDINGS SUMMARY
+----------------
+Total findings: 1
+Highest severity: LOW
+Verdict: Plan is accurate and safe to execute. One documentation gap in the
+references table was fixed inline (see Finding #1).
+
+================================================================
+DETAILED ANALYSIS BY QUESTION
+================================================================
+
+Q1. Is onFavoritesChanged truly never wired/called in production?
+STATUS: CONFIRMED — plan claim is accurate
+
+Grep across all .swift files (excluding worktrees/docs) shows exactly 5 direct
+references to onFavoritesChanged:
+  - SavedLocationsRepository.swift:29  (declaration)
+  - SavedLocationsRepository.swift:179 (called inside notifyFavoritesChangedIfNeeded)
+  - SyncDomainTracker.swift:86         (nil'd defensively, NOT wired)
+  - RoadFlareTests.swift:131           (test assignment)
+  - RoadFlareTests.swift:148           (test assignment)
+
+Verified nil (not wired) in all production callers:
+  - SyncDomainTracker.wireCallbacks(): no assignment to onFavoritesChanged
+  - AppState.swift: zero hits
+  - SyncCoordinator.swift: zero hits
+  - ProfileBackupCoordinator.swift: zero hits
+  - SyncDomainTrackerTests.swift: zero hits
+
+The SyncDomainTracker._detachUnchecked() nil-out is purely defensive (comment
+says "intentionally NOT wired"). No production code ever assigns a closure.
+
+Q2. Are the 3 private helpers truly only used by onFavoritesChanged?
+STATUS: CONFIRMED — plan claim is accurate
+
+notifyFavoritesChangedIfNeeded(_:):
+  - Called from persistAndNotify (line 168) and clearAll (line 148)
+  - Both call sites exist solely to drive the onFavoritesChanged callback
+  - No other callers
+
+favoriteSignaturesLocked():
+  - Called at 6 snapshot-capture sites (lines 70, 100, 111, 122, 133, 144)
+  - Called inside notifyFavoritesChangedIfNeeded (line 178)
+  - All call sites feed the callback chain exclusively
+
+FavoriteSignature struct:
+  - Constructed only inside favoriteSignaturesLocked (lines 187-193)
+  - Used only for the Equatable comparison inside notifyFavoritesChangedIfNeeded
+  - No other uses
+
+All three are exclusively in service of onFavoritesChanged.
+
+Q3. Are previousFavorites snapshot captures truly only for this callback?
+STATUS: CONFIRMED — plan claim is accurate
+
+6 snapshot captures confirmed:
+  SavedLocationsRepository.swift:70   save(_:)
+  SavedLocationsRepository.swift:100  pin(id:nickname:)
+  SavedLocationsRepository.swift:111  unpin(id:)
+  SavedLocationsRepository.swift:122  remove(id:)
+  SavedLocationsRepository.swift:133  restoreFromBackup(_:)
+  SavedLocationsRepository.swift:144  clearAll()
+
+Every capture feeds directly into persistAndNotify(previousFavorites:) or
+notifyFavoritesChangedIfNeeded(_:). No other use of these snapshots.
+
+Q4. Does removing the nil-out in SyncDomainTracker._detachUnchecked() leave
+    any stale references?
+STATUS: SAFE — confirmed
+
+After removing onFavoritesChanged from SavedLocationsRepository, the line
+  savedLocations.onFavoritesChanged = nil
+becomes a compile error (accessing removed property). It must be removed.
+
+No stale references result from this removal because:
+  - No closure is ever assigned in production code
+  - The property is removed, not just unset
+  - wireCallbacks() never referenced onFavoritesChanged
+
+The comment block (lines 82-84) and nil-assignment (line 86) must both be
+removed. The plan correctly identifies this at Step 2.
+
+Q5. Which tests reference onFavoritesChanged? Are they safe to remove?
+STATUS: CONFIRMED — plan identifies exactly the right tests
+
+Tests in RoadFlare/RoadFlareTests/RoadFlareTests.swift:
+  - recentsDoNotTriggerFavoritesChanged (assigns repo.onFavoritesChanged at line 131)
+  - pinningFavoriteTriggersFavoritesChanged (assigns repo.onFavoritesChanged at line 148)
+
+SDK-level tests (RidestrSDK/Tests/RidestrSDKTests/RoadFlare/SyncDomainTrackerTests.swift)
+have ZERO references to onFavoritesChanged — confirmed via grep.
+
+Both identified tests exist solely to exercise the callback. Safe to remove.
+
+Q6. Is there any Android/protocol dependency on this callback?
+STATUS: N/A — no cross-platform concerns
+
+onFavoritesChanged is a public var on a Swift final class. SavedLocationsRepository
+conforms to no protocol that includes this property. No protocol definition for the
+repository class was found. This is iOS-only; no Android layer exists.
+
+Q7. Completeness — does the plan cover ALL references that need cleanup?
+STATUS: 1 LOW-SEVERITY FINDING (fixed)
+
+FINDING #1 (Low — documentation gap, fixed inline):
+  The references table is titled "All references to onFavoritesChanged in the
+  codebase" and lists 5 rows. However, persistAndNotify(previousFavorites:) at
+  line 164 is an indirect but mechanically-important part of the cleanup: its
+  signature must change (remove the parameter), and it also contains the call to
+  notifyFavoritesChangedIfNeeded at line 168 that must be deleted.
+
+  persistAndNotify does not directly reference onFavoritesChanged (it references
+  notifyFavoritesChangedIfNeeded), so it is technically outside the table's stated
+  scope. But as the bridge between the 6 snapshot-capture call sites and the
+  callback, it belongs in a complete delete-checklist.
+
+  FIX APPLIED: Extended the references table to include lines 164 and 168, and
+  updated the table title to "All references to onFavoritesChanged and its
+  supporting infrastructure" so it serves as a comprehensive checklist.
+
+  Implementation step 1.f already covers the persistAndNotify change correctly —
+  this is a documentation gap only, not a missing step.
+
+All other items are fully covered:
+  - 6 snapshot captures: covered by step 1.e (all 6 methods listed)
+  - persistAndNotify refactor: covered by step 1.f
+  - 3 private helpers + struct: covered by steps 1.b/c/d
+  - SyncDomainTracker nil-out + comment: covered by step 2
+  - 2 tests: covered by step 3
+
+Q8. Ordering — is the deletion order safe?
+STATUS: CONFIRMED — ordering is safe
+
+The plan orders: (1) SavedLocationsRepository → (2) SyncDomainTracker → (3) Tests
+This is logical. All changes are compile-time transformations with no runtime
+ordering requirements (no schema migration, no data migration). The code will not
+compile until all three files are updated consistently, which is fine for a single
+PR. No dangling references mid-task.
+
+Q9. Entropy — does this genuinely simplify without removing anything needed?
+STATUS: YES — genuine simplification
+
+Items removed:
+  - 6 snapshot captures (one before every location mutation)
+  - persistAndNotify parameter (FavoriteSignature array allocation per call)
+  - notifyFavoritesChangedIfNeeded method
+  - favoriteSignaturesLocked method
+  - FavoriteSignature private struct (Equatable, 7 fields)
+  - SyncDomainTracker comment block + nil-assignment
+  - 2 test functions
+
+The FavoriteSignature diff machinery allocates a sorted array of structs on every
+location mutation (save, pin, unpin, remove, restoreFromBackup, clearAll) even
+though no code ever fires the callback. This is non-trivial overhead. Removing it
+is a clear win.
+
+suppressChangeNotifications is correctly retained — it is used by notifyChanged()
+which remains in place.
+
+Nothing currently used or useful is being removed. YAGNI applies cleanly.
+
+================================================================
+CHANGES MADE TO PLAN FILE
+================================================================
+
+1. References table: title changed from "All references to `onFavoritesChanged`
+   in the codebase (main tree only, excluding worktrees and docs)" to "All
+   references to `onFavoritesChanged` and its supporting infrastructure (main
+   tree only, excluding worktrees and docs)"
+
+2. References table: added 2 rows for persistAndNotify:
+   - SavedLocationsRepository.swift | 164 | persistAndNotify signature (takes [FavoriteSignature] param — must change to no-arg)
+   - SavedLocationsRepository.swift | 168 | notifyFavoritesChangedIfNeeded call inside persistAndNotify (must be removed)
+
+================================================================
+END OF REVIEW
+================================================================

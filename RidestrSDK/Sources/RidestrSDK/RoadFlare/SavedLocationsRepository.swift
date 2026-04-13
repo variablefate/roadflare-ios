@@ -25,9 +25,6 @@ public final class SavedLocationsRepository: @unchecked Sendable {
     /// Called after location mutations so app code can persist sync metadata.
     public var onChange: (@Sendable () -> Void)?
 
-    /// Called when the set of pinned favorites changes (add/remove/rename).
-    public var onFavoritesChanged: (@Sendable () -> Void)?
-
     public init(persistence: SavedLocationsPersistence) {
         self.persistence = persistence
         self.locations = persistence.loadLocations()
@@ -67,7 +64,6 @@ public final class SavedLocationsRepository: @unchecked Sendable {
 
     /// Add or update a saved location. Deduplicates by proximity (~50m).
     public func save(_ location: SavedLocation) {
-        let previousFavorites = favoriteSignaturesLocked()
         lock.withLock {
             if let existingIndex = locations.firstIndex(where: { existing in
                 let dist = sqrt(
@@ -83,7 +79,7 @@ public final class SavedLocationsRepository: @unchecked Sendable {
             }
             enforceMaxRecentsLocked()
         }
-        persistAndNotify(previousFavorites: previousFavorites)
+        persistAndNotify()
     }
 
     /// Add a recent location (convenience for ride completions).
@@ -97,55 +93,49 @@ public final class SavedLocationsRepository: @unchecked Sendable {
 
     /// Pin a location as a favorite with a nickname.
     public func pin(id: String, nickname: String) {
-        let previousFavorites = favoriteSignaturesLocked()
         lock.withLock {
             guard let index = locations.firstIndex(where: { $0.id == id }) else { return }
             locations[index].isPinned = true
             locations[index].nickname = nickname
         }
-        persistAndNotify(previousFavorites: previousFavorites)
+        persistAndNotify()
     }
 
     /// Unpin a favorite back to recents.
     public func unpin(id: String) {
-        let previousFavorites = favoriteSignaturesLocked()
         lock.withLock {
             guard let index = locations.firstIndex(where: { $0.id == id }) else { return }
             locations[index].isPinned = false
             locations[index].nickname = nil
         }
-        persistAndNotify(previousFavorites: previousFavorites)
+        persistAndNotify()
     }
 
     /// Remove a location.
     public func remove(id: String) {
-        let previousFavorites = favoriteSignaturesLocked()
         lock.withLock {
             locations.removeAll { $0.id == id }
         }
-        persistAndNotify(previousFavorites: previousFavorites)
+        persistAndNotify()
     }
 
     // MARK: - Sync
 
     /// Replace all locations with a Nostr backup (full restore).
     public func restoreFromBackup(_ incoming: [SavedLocation]) {
-        let previousFavorites = favoriteSignaturesLocked()
         lock.withLock {
             locations = incoming
         }
-        persistAndNotify(previousFavorites: previousFavorites)
+        persistAndNotify()
     }
 
     // MARK: - Cleanup
 
     /// Clear all locations.
     public func clearAll() {
-        let previousFavorites = favoriteSignaturesLocked()
         lock.withLock { locations = [] }
         persistence.saveLocations([])
         notifyChanged()
-        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     // MARK: - Private Helpers
@@ -161,48 +151,16 @@ public final class SavedLocationsRepository: @unchecked Sendable {
         }
     }
 
-    private func persistAndNotify(previousFavorites: [FavoriteSignature]) {
+    private func persistAndNotify() {
         let snapshot = lock.withLock { locations }
         persistence.saveLocations(snapshot)
         notifyChanged()
-        notifyFavoritesChangedIfNeeded(previousFavorites)
     }
 
     private func notifyChanged() {
         guard !suppressChangeNotifications else { return }
         onChange?()
     }
-
-    private func notifyFavoritesChangedIfNeeded(_ previousFavorites: [FavoriteSignature]) {
-        guard !suppressChangeNotifications else { return }
-        guard previousFavorites != favoriteSignaturesLocked() else { return }
-        onFavoritesChanged?()
-    }
-
-    private func favoriteSignaturesLocked() -> [FavoriteSignature] {
-        lock.withLock {
-            locations
-                .filter(\.isPinned)
-                .map {
-                    FavoriteSignature(
-                        id: $0.id, latitude: $0.latitude, longitude: $0.longitude,
-                        displayName: $0.displayName, addressLine: $0.addressLine,
-                        nickname: $0.nickname, timestampMs: $0.timestampMs
-                    )
-                }
-                .sorted { $0.id < $1.id }
-        }
-    }
-}
-
-private struct FavoriteSignature: Equatable {
-    let id: String
-    let latitude: Double
-    let longitude: Double
-    let displayName: String
-    let addressLine: String
-    let nickname: String?
-    let timestampMs: Int
 }
 
 // MARK: - Persistence Protocol
