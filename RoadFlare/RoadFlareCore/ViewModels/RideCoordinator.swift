@@ -28,6 +28,10 @@ public final class RideCoordinator {
     private let roadflareSyncStore: RoadflareSyncStateStore?
     let rideStateRepository: RideStateRepository
 
+    /// Injected by AppState after SyncCoordinator.configure(). Nil until identity
+    /// is configured; backupRideHistory() is a no-op when nil.
+    var rideHistorySyncCoordinator: RideHistorySyncCoordinator?
+
     public var currentFareEstimate: FareEstimate?
     public var selectedPaymentMethod: String?
     public var pickupLocation: Location?
@@ -334,17 +338,7 @@ public final class RideCoordinator {
     /// Publish the current ride history to Nostr as a backup event.
     /// Fire-and-forget — marks dirty on failure so the next flush retries.
     public func backupRideHistory() {
-        guard let service = roadflareDomainService,
-              let syncStore = roadflareSyncStore else { return }
-        Task {
-            do {
-                let content = RideHistoryBackupContent(rides: rideHistory.rides)
-                let event = try await service.publishRideHistoryBackup(content)
-                syncStore.markPublished(.rideHistory, at: event.createdAt)
-            } catch {
-                syncStore.markDirty(.rideHistory)
-            }
-        }
+        rideHistorySyncCoordinator?.publishAndMark(from: rideHistory)
     }
 
     private static func duration(seconds: TimeInterval) -> Duration {
