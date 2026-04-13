@@ -82,9 +82,12 @@ struct RideHistorySyncCoordinatorTests {
         kit.rideHistory.addRide(makeEntry())
 
         kit.coordinator.publishAndMark(from: kit.rideHistory)
-        try await Task.sleep(for: .milliseconds(30))   // let Task start and suspend inside relay publishDelay
+        // Deterministic suspension point: wait until the in-flight Task has actually
+        // entered relay.publish (and is suspended on publishDelay) before firing clearAll.
+        // Replaces the fragile 30ms sleep that could race on a loaded CI executor.
+        await kit.relay.waitForNextPublish()
         kit.coordinator.clearAll()                     // bumps generation while Task is mid-await
-        try await Task.sleep(for: .milliseconds(400))  // let Task try to complete after relay returns
+        try await Task.sleep(for: .milliseconds(300))  // let relay delay complete + Task exit
 
         // Generation mismatch — Task exits without touching store
         #expect(kit.syncStore.metadata(for: .rideHistory).lastSuccessfulPublishAt == 0)

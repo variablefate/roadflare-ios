@@ -67,6 +67,15 @@ public final class RideHistorySyncCoordinator: @unchecked Sendable {
 
     /// Bump generation to invalidate any in-flight publish Task.
     /// Called by `SyncCoordinator.teardown()` on identity replacement.
+    ///
+    /// The generation guard suppresses the local store update for any Task whose
+    /// generation no longer matches, but it does **not** cancel the in-flight
+    /// network request — if `relay.publish` is already awaiting, the Nostr event
+    /// is still delivered to relays. This matches `ProfileBackupCoordinator`
+    /// behavior: cancelling mid-flight would require cooperative cancellation
+    /// throughout `RoadflareDomainService` for a race window measured in
+    /// milliseconds. The stale event is harmless; it is overwritten by the next
+    /// successful publish from the new session.
     public func clearAll() {
         lock.withLock { generation &+= 1 }
     }

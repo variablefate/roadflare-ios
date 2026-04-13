@@ -47,6 +47,22 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     public var publishDelay: Duration?
     private var _isConnected = false
 
+    // MARK: - Publish-started signaling
+
+    private var _publishStartedContinuation: CheckedContinuation<Void, Never>?
+    private let _publishStartedLock = NSLock()
+
+    /// Suspends the caller until the next `publish(_:)` call begins executing.
+    ///
+    /// Tests use this to replace fragile time-based sleeps with a deterministic
+    /// suspension point: after `waitForNextPublish()` returns, the publish Task has
+    /// definitely entered `relay.publish` and is suspended on its delay (if any).
+    public func waitForNextPublish() async {
+        await withCheckedContinuation { cont in
+            _publishStartedLock.withLock { _publishStartedContinuation = cont }
+        }
+    }
+
     /// Events to return immediately from subscribe calls, keyed by subscription ID.
     public var subscriptionEvents: [String: [NostrEvent]] = [:]
 
@@ -97,6 +113,14 @@ public final class FakeRelayManager: RelayManagerProtocol, @unchecked Sendable {
     }
 
     public func publish(_ event: NostrEvent) async throws -> String {
+        // Signal any waiting `waitForNextPublish()` caller before doing any work.
+        let pendingCont = _publishStartedLock.withLock { () -> CheckedContinuation<Void, Never>? in
+            let c = _publishStartedContinuation
+            _publishStartedContinuation = nil
+            return c
+        }
+        pendingCont?.resume()
+
         if shouldFailPublish {
             throw RidestrError.relay(.notConnected)
         }
