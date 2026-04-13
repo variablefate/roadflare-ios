@@ -23,6 +23,7 @@ final class SyncCoordinator {
     private(set) var roadflareSyncStore: RoadflareSyncStateStore?
     private(set) var roadflareDomainService: RoadflareDomainService?
     private(set) var profileBackupCoordinator: ProfileBackupCoordinator?
+    private(set) var rideHistorySyncCoordinator: RideHistorySyncCoordinator?
     private(set) var syncDomainTracker: SyncDomainTracker?
 
     // MARK: - Injected References (owned by AppState)
@@ -45,6 +46,9 @@ final class SyncCoordinator {
         self.roadflareSyncStore = syncStore
         self.roadflareDomainService = domainService
         self.profileBackupCoordinator = ProfileBackupCoordinator(
+            domainService: domainService, syncStore: syncStore
+        )
+        self.rideHistorySyncCoordinator = RideHistorySyncCoordinator(
             domainService: domainService, syncStore: syncStore
         )
     }
@@ -86,6 +90,9 @@ final class SyncCoordinator {
 
         profileBackupCoordinator?.clearAll()
         profileBackupCoordinator = nil
+
+        rideHistorySyncCoordinator?.clearAll()
+        rideHistorySyncCoordinator = nil
 
         if clearPersistedState {
             roadflareSyncStore?.clearAll()
