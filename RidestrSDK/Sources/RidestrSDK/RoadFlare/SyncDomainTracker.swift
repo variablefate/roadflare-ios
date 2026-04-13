@@ -9,8 +9,10 @@ import Foundation
 /// deallocated tracker.
 ///
 /// `@unchecked Sendable`: all `let` properties are themselves `@unchecked
-/// Sendable`; `driversRepo` is `weak var` accessed only from `@Sendable`
-/// closures. `markDirty` inside `RoadflareSyncStateStore` is NSLock-protected.
+/// Sendable`. `driversRepo` is `weak var` written only in `wireCallbacks()`
+/// and `detach()`, both called exclusively through `SyncCoordinator`
+/// (`@MainActor`), so access is always main-actor-serialized. `markDirty`
+/// inside `RoadflareSyncStateStore` is NSLock-protected.
 public final class SyncDomainTracker: @unchecked Sendable {
 
     // MARK: - Stored References
@@ -53,7 +55,7 @@ public final class SyncDomainTracker: @unchecked Sendable {
     /// Nil out all repository callbacks. Call before any `clearAll()` on the
     /// repositories to prevent stale dirty flags after logout.
     /// `deinit` also calls `detach()` as a safety net.
-    public func detach() {
+    @MainActor public func detach() {
         settings.onProfileChanged = nil
         settings.onProfileBackupChanged = nil
         driversRepo?.onDriversChanged = nil
@@ -66,7 +68,12 @@ public final class SyncDomainTracker: @unchecked Sendable {
         savedLocations.onFavoritesChanged = nil
     }
 
-    deinit { detach() }
+    deinit {
+        // detach() is @MainActor. SyncCoordinator (@MainActor) always calls
+        // detach() explicitly before releasing this tracker, so by deinit time
+        // all callbacks are already nil. assumeIsolated asserts the invariant.
+        MainActor.assumeIsolated { detach() }
+    }
 
     // MARK: - Private
 

@@ -3,6 +3,7 @@ import Testing
 @testable import RidestrSDK
 
 @Suite("SyncDomainTracker Tests")
+@MainActor
 struct SyncDomainTrackerTests {
 
     // MARK: - Helpers
@@ -182,6 +183,33 @@ struct SyncDomainTrackerTests {
         #expect(!store.metadata(for: .profileBackup).isDirty)
         #expect(!store.metadata(for: .followedDrivers).isDirty)
         #expect(!store.metadata(for: .rideHistory).isDirty)
+    }
+
+    /// Regression: commit bef926b fixed a bug where `clearAll()` fired repository
+    /// callbacks that still held a reference to the old sync store, writing stale
+    /// dirty flags after logout. Detach must nil callbacks before `clearAll()`.
+    @Test func detach_preventsStaleCallbacksWhenRepositoriesAreClearedAll() {
+        let store = makeSyncStore()
+        let rideHistory = makeRideHistory()
+        let savedLocations = makeSavedLocations()
+
+        let tracker = SyncDomainTracker(
+            store: store,
+            settings: makeSettings(),
+            driversRepo: makeDriversRepo(),
+            rideHistory: rideHistory,
+            savedLocations: savedLocations
+        )
+
+        tracker.detach()
+
+        // clearAll() fires onRidesChanged?() and onChange?() internally —
+        // these must be nil after detach so no dirty flags are written.
+        rideHistory.clearAll()
+        savedLocations.clearAll()
+
+        #expect(!store.metadata(for: .rideHistory).isDirty)
+        #expect(!store.metadata(for: .profileBackup).isDirty)
     }
 
     @Test func deinit_nilsCallbacksWhenTrackerGoesOutOfScope() {
