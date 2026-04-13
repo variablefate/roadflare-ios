@@ -337,7 +337,13 @@ public final class RideCoordinator {
 
     /// Publish the current ride history to Nostr as a backup event.
     /// Fire-and-forget — marks dirty on failure so the next flush retries.
+    /// No-op before AppState injects `rideHistorySyncCoordinator` via `setupServices`.
     public func backupRideHistory() {
+        #if DEBUG
+        if rideHistorySyncCoordinator == nil {
+            AppLogger.ride.warning("[RideCoordinator] backupRideHistory() called with no coordinator — ride history will not be backed up")
+        }
+        #endif
         rideHistorySyncCoordinator?.publishAndMark(from: rideHistory)
     }
 

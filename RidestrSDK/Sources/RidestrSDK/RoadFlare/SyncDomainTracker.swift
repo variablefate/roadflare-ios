@@ -38,7 +38,9 @@ public final class SyncDomainTracker: @unchecked Sendable {
     ///   - driversRepo: Followed drivers repository (stored weakly). Only
     ///     `.local` mutations dirty `.followedDrivers`; `.sync` mutations are
     ///     ignored — they originate from the relay, not from local edits.
-    ///   - rideHistory: Ride history repository (rideHistory domain).
+    ///   - rideHistory: Ride history repository — accepted so `detach()` can nil
+    ///     its `onRidesChanged` callback. `.rideHistory` dirty marking is handled
+    ///     by `RideHistorySyncCoordinator`, not this tracker (see class-level note).
     ///   - savedLocations: Saved locations repository (profileBackup domain).
     public init(
         store: RoadflareSyncStateStore,

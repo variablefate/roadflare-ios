@@ -34,8 +34,11 @@ public final class RideHistorySyncCoordinator: @unchecked Sendable {
     /// - after `rideHistory.addRide(entry)` (ride completion)
     /// - after `rideHistory.removeRide(id:)` (swipe-to-delete)
     ///
-    /// Safe to call from any context — the Task captures the rides snapshot
-    /// at call time via `rideHistory.rides` (NSLock-protected, thread-safe read).
+    /// Callers must be `@MainActor`. Individual reads (`rideHistory.rides` and
+    /// `generation`) are each NSLock-protected, but the generation guard's
+    /// correctness requires callers and `clearAll()` to be serialized on the
+    /// same actor — in practice, all callers are `@MainActor` and
+    /// `SyncCoordinator.teardown()` is also `@MainActor`.
     public func publishAndMark(from rideHistory: RideHistoryRepository) {
         let rides = rideHistory.rides
         let myGeneration: UInt64 = lock.withLock { generation }

@@ -13,9 +13,9 @@ enum SyncProgress {
 /// Owns Nostr sync orchestration: startup resolution, change-tracking delegation,
 /// and teardown. Change-tracking callback wiring is delegated to `SyncDomainTracker`
 /// (SDK). Publish wrappers and state machines live in the SDK (see
-/// `ProfileBackupCoordinator` and `RoadflareDomainService.publishXAndMark`
-/// helpers). This class is pure wiring between AppState-owned state and
-/// SDK-provided sync primitives.
+/// `ProfileBackupCoordinator`, `RideHistorySyncCoordinator`, and
+/// `RoadflareDomainService.publishXAndMark` helpers). This class is pure wiring
+/// between AppState-owned state and SDK-provided sync primitives.
 @MainActor
 final class SyncCoordinator {
     // MARK: - Owned State
