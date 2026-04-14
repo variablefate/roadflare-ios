@@ -113,8 +113,16 @@ enum AndroidFixtures {
 
     // MARK: - Kind 3173: Ride Offer (decrypted content, from iOS to Android)
 
+    /// Legacy offer (no fiat fields). Represents an offer from an older iOS client that
+    /// predates ADR-0008. `fiatFare` must decode to `nil` — backward compat proof.
     static let rideOffer = """
     {"fare_estimate":15.50,"destination":{"lat":40.758,"lon":-73.985},"approx_pickup":{"lat":40.71,"lon":-74.01},"pickup_route_km":null,"pickup_route_min":null,"ride_route_km":8.85,"ride_route_min":22.0,"destination_geohash":"dr5ru","payment_method":"zelle","fiat_payment_methods":["zelle","venmo","cash"]}
+    """
+
+    /// Modern offer (with fiat fields per ADR-0008). Represents an offer from an up-to-date
+    /// iOS client. `fiatFare` must decode to a non-nil struct with the correct values.
+    static let rideOfferWithFiatFare = """
+    {"fare_estimate":15000.0,"fare_fiat_amount":"12.50","fare_fiat_currency":"USD","destination":{"lat":40.758,"lon":-73.985},"approx_pickup":{"lat":40.71,"lon":-74.01},"pickup_route_km":null,"pickup_route_min":null,"ride_route_km":8.85,"ride_route_min":22.0,"destination_geohash":"dr5ru","payment_method":"zelle","fiat_payment_methods":["zelle","venmo","cash"]}
     """
 
     // MARK: - Location object
