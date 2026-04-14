@@ -921,13 +921,25 @@ public struct NostrEvent: Codable, Identifiable, Sendable {
     public let sig: String          // Schnorr signature hex
 }
 
+// MARK: - Fare
+
+/// Fiat-denominated fare. Non-nil on fiat-payment offers (ADR-0008).
+/// Serializes flat to JSON as `fare_fiat_amount` + `fare_fiat_currency` (mandatory pair).
+public struct FiatFare: Equatable, Sendable {
+    public let amount: String    // decimal string, e.g. "12.50"
+    public let currency: String  // ISO 4217, e.g. "USD"
+}
+
 // MARK: - Ride
 
 public struct RideOffer: Codable, Sendable {
     public let approxPickup: Location       // 2-decimal precision (~1km)
     public let destination: Location         // 2-decimal precision (~1km)
     public let destinationGeohash: String   // for settlement verification
-    public let estimatedFare: Decimal       // USD
+    public let estimatedFare: Decimal       // USD (wire: sats in fare_estimate)
+    /// Authoritative fiat fare. Non-nil when fiatPaymentMethods is non-empty.
+    /// Drivers MUST display fiatFare.amount for fiat rides instead of converting estimatedFare.
+    public let fiatFare: FiatFare?
     public let pickupRouteKm: Double?       // pre-calculated driver→pickup
     public let pickupRouteMin: Double?
     public let rideRouteKm: Double?         // pickup→destination
