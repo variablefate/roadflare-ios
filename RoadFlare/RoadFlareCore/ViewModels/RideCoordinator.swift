@@ -228,8 +228,29 @@ public final class RideCoordinator {
             ?? paymentPreferences.primaryMethod
             ?? PaymentMethod.cash.rawValue
 
+        // For fiat payment offers, embed the authoritative USD amount in the event so the
+        // driver sees the same dollar figure as the rider, regardless of BTC price movement
+        // between offer creation and driver view. fareEstimate (sats) is retained for
+        // backward compat with older drivers. See ADR-0008.
+        //
+        // fiatFare is set only when the resolved primary rail is a fiat method. We require
+        // both: (1) methods is non-empty (a configured fiat profile), and (2) the resolved
+        // primary method is not "bitcoin". If bitcoin is the primary rail, fiatFare must be
+        // nil per ADR-0008 — even if other fiat methods appear later in the list.
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = ""
+        let amount = formatter.string(from: NSDecimalNumber(decimal: fareEstimate.fareUSD)) ?? "0.00"
+        let isBitcoinPrimaryRail = primaryPaymentMethod == PaymentMethod.bitcoin.rawValue
+        let fiatFare: FiatFare? = (paymentPreferences.methods.isEmpty || isBitcoinPrimaryRail) ? nil
+            : FiatFare(amount: amount, currency: "USD")
+
         let offerContent = RideOfferContent(
             fareEstimate: Double(fareSats),
+            fiatFare: fiatFare,
             destination: destination.approximate(),
             approxPickup: pickup.approximate(),
             rideRouteKm: fareEstimate.distanceMiles / 0.621371,

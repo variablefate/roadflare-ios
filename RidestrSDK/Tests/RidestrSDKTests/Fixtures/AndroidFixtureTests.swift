@@ -200,12 +200,26 @@ struct AndroidFixtureTests {
     // MARK: - Kind 3173: Ride Offer
 
     @Test func parseAndroidRideOffer() throws {
+        // Legacy fixture (no fiat fields) — backward compat: fiatFare must be nil
         let data = AndroidFixtures.rideOffer.data(using: .utf8)!
         let parsed = try JSONDecoder().decode(RideOfferContent.self, from: data)
         #expect(parsed.fareEstimate == 15.50)
         #expect(parsed.approxPickup.latitude == 40.71)
         #expect(parsed.destination.longitude == -73.985)
         #expect(parsed.rideRouteKm == 8.85)
+        #expect(parsed.paymentMethod == "zelle")
+        #expect(parsed.fiatPaymentMethods == ["zelle", "venmo", "cash"])
+        // ADR-0008 backward compat: legacy offers without fiat fields decode with fiatFare == nil
+        #expect(parsed.fiatFare == nil)
+    }
+
+    @Test func parseAndroidRideOfferWithFiatFare() throws {
+        // Modern fixture (with fiat fields per ADR-0008)
+        let data = AndroidFixtures.rideOfferWithFiatFare.data(using: .utf8)!
+        let parsed = try JSONDecoder().decode(RideOfferContent.self, from: data)
+        #expect(parsed.fareEstimate == 15_000.0)
+        #expect(parsed.fiatFare?.amount == "12.50")
+        #expect(parsed.fiatFare?.currency == "USD")
         #expect(parsed.paymentMethod == "zelle")
         #expect(parsed.fiatPaymentMethods == ["zelle", "venmo", "cash"])
     }

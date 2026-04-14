@@ -921,13 +921,27 @@ public struct NostrEvent: Codable, Identifiable, Sendable {
     public let sig: String          // Schnorr signature hex
 }
 
+// MARK: - Fare
+
+/// Fiat-denominated fare. Non-nil on fiat-payment offers (ADR-0008).
+/// Serializes flat to JSON as `fare_fiat_amount` + `fare_fiat_currency` (mandatory pair).
+public struct FiatFare: Equatable, Sendable {
+    public let amount: String    // decimal string, e.g. "12.50"
+    public let currency: String  // ISO 4217, e.g. "USD"
+}
+
 // MARK: - Ride
 
 public struct RideOffer: Codable, Sendable {
     public let approxPickup: Location       // 2-decimal precision (~1km)
     public let destination: Location         // 2-decimal precision (~1km)
     public let destinationGeohash: String   // for settlement verification
-    public let estimatedFare: Decimal       // USD
+    public let estimatedFare: Decimal       // USD (wire: sats in fare_estimate)
+    /// Authoritative fiat fare. Non-nil when the resolved primary payment rail is not bitcoin (ADR-0008).
+    /// A non-empty fiatPaymentMethods list is not sufficient: if the primary method is bitcoin,
+    /// fiatFare is nil even when fiatPaymentMethods contains fiat entries.
+    /// Drivers MUST display fiatFare.amount for fiat rides instead of converting estimatedFare.
+    public let fiatFare: FiatFare?
     public let pickupRouteKm: Double?       // pre-calculated driver→pickup
     public let pickupRouteMin: Double?
     public let rideRouteKm: Double?         // pickup→destination
@@ -1676,7 +1690,9 @@ Note: Kind 3187 (Follow Notification) is **deprecated** — follower discovery u
 **Kind 3173 — Ride Offer (RoadFlare, NIP-44 encrypted to driver):**
 ```json
 {
-  "fare_estimate": 12.50,
+  "fare_estimate": 50000.0,
+  "fare_fiat_amount": "12.50",
+  "fare_fiat_currency": "USD",
   "destination": {"lat": 40.123, "lon": -74.456},
   "approx_pickup": {"lat": 40.124, "lon": -74.457},
   "pickup_route_km": 0.5,
@@ -1688,6 +1704,7 @@ Note: Kind 3187 (Follow Notification) is **deprecated** — follower discovery u
   "fiat_payment_methods": ["zelle", "venmo", "cash"]
 }
 ```
+`fare_fiat_amount` and `fare_fiat_currency` are optional. Both present or both absent (mandatory pair). Up-to-date clients MUST use `fare_fiat_amount` as the display value for fiat rides; older clients fall back to converting `fare_estimate` (sats) using their local BTC price. See ADR-0008.
 Tags: `["e", "<driver_availability_event_id>"]`, `["p", "<driver_pubkey>"]`, `["t", "rideshare"]`, `["t", "roadflare"]`, `["expiration", "<unix>"]`
 
 **Kind 3174 — Ride Acceptance (NIP-44 encrypted to rider):**

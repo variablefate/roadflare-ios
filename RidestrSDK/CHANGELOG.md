@@ -2,6 +2,17 @@
 
 All notable changes to RidestrSDK are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **`FiatFare` struct** — fiat-denominated fare (`amount: String`, `currency: String`), serializes flat to JSON as `fare_fiat_amount` + `fare_fiat_currency` (mandatory pair, ADR-0008)
+- **`fiatFare: FiatFare?` on `RideOfferContent`** — authoritative display value for fiat rides; non-nil when the resolved primary payment rail is a fiat method (i.e. `payment_method` is not `"bitcoin"`). A `fiat_payment_methods` list that begins with `"bitcoin"` yields `fiatFare == nil`. Clients MUST prefer `fiatFare.amount` over converting `fareEstimate` (sats) to avoid display drift from BTC price movement
+
+### Fixed
+
+- **`BitcoinPriceService.usdToSats()`** — rounds to nearest satoshi (`Int(sats.rounded())`) instead of truncating (`Int(sats)`), eliminating systematic undercount of up to 1 sat
+
 ## [0.2.0] - 2026-03-19
 
 ### Added

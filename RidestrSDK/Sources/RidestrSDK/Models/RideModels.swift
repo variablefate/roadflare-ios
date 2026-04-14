@@ -40,10 +40,59 @@ public enum RiderStage: String, Codable, Sendable {
 
 // MARK: - Event Content Models
 
+/// A fiat-denominated fare attached to a ride offer.
+///
+/// Both `amount` and `currency` are always present together or absent together.
+/// This is enforced at the protocol level: a partial pair (one field present, one absent)
+/// decodes to `nil` in `RideOfferContent.fiatFare`.
+///
+/// Serializes flat to JSON as `fare_fiat_amount` + `fare_fiat_currency`
+/// (top-level keys, not a nested object) for cross-platform compatibility.
+public struct FiatFare: Equatable, Sendable {
+    /// Decimal string representation of the fare (e.g., `"12.50"`).
+    /// Always two decimal places. Parse with `Decimal(string:)` or `Double()`.
+    public let amount: String
+    /// ISO 4217 currency code (e.g., `"USD"`).
+    public let currency: String
+
+    public init(amount: String, currency: String) {
+        self.amount = amount
+        self.currency = currency
+    }
+}
+
 /// Content of a RoadFlare ride offer (Kind 3173, NIP-44 encrypted to driver).
 public struct RideOfferContent: Codable, Sendable {
-    /// Fare in satoshis (matching Android's Double encoding for JSON compatibility).
+    /// Fare in satoshis.
+    ///
+    /// Always populated for backward compatibility with clients that do not parse
+    /// `fiatFare`. Computed from the rider's local BTC/USD price at offer-creation time.
+    ///
+    /// **For fiat rides:** `fiatFare` is the authoritative display value.
+    /// Up-to-date iOS riders and Android drivers MUST prefer `fiatFare.amount` when
+    /// `fiatFare` is non-nil and the payment method is fiat. Converting `fareEstimate`
+    /// back to USD on the driver's device causes display drift due to BTC price movement
+    /// between offer creation and driver view — this is the exact bug `fiatFare` fixes.
+    ///
+    /// Older clients that do not parse `fiatFare` will convert `fareEstimate` using
+    /// their local BTC price, resulting in ≤1–2% display drift — acceptable for compat.
     public let fareEstimate: Double
+
+    /// Fiat-denominated fare. Non-nil when the rider's payment method is fiat.
+    ///
+    /// **Display precedence rule for all SDK consumers:**
+    /// If `fiatFare` is non-nil and `paymentMethod` or `fiatPaymentMethods` indicates
+    /// a fiat method, display `fiatFare.amount` (with `fiatFare.currency` symbol) as the
+    /// fare — do NOT convert `fareEstimate` from sats. This ensures rider and driver
+    /// always see the same dollar amount regardless of BTC price movement.
+    ///
+    /// Falls back to sats→fiat conversion (using `fareEstimate`) only when `fiatFare`
+    /// is nil (legacy offers from older clients).
+    ///
+    /// Serializes flat to JSON as `fare_fiat_amount` + `fare_fiat_currency`.
+    /// Both fields are always present or both absent (mandatory pair).
+    public let fiatFare: FiatFare?
+
     public let destination: Location
     public let approxPickup: Location
     public let pickupRouteKm: Double?
@@ -57,6 +106,8 @@ public struct RideOfferContent: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case fareEstimate = "fare_estimate"
+        case fareFiatAmount = "fare_fiat_amount"
+        case fareFiatCurrency = "fare_fiat_currency"
         case destination
         case approxPickup = "approx_pickup"
         case pickupRouteKm = "pickup_route_km"
@@ -69,8 +120,47 @@ public struct RideOfferContent: Codable, Sendable {
         case fiatPaymentMethods = "fiat_payment_methods"
     }
 
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fareEstimate = try c.decode(Double.self, forKey: .fareEstimate)
+        // Mandatory pair: both present or neither. Partial pair → nil.
+        let amount = try c.decodeIfPresent(String.self, forKey: .fareFiatAmount)
+        let currency = try c.decodeIfPresent(String.self, forKey: .fareFiatCurrency)
+        fiatFare = amount.flatMap { a in currency.map { cu in FiatFare(amount: a, currency: cu) } }
+        destination = try c.decode(Location.self, forKey: .destination)
+        approxPickup = try c.decode(Location.self, forKey: .approxPickup)
+        pickupRouteKm = try c.decodeIfPresent(Double.self, forKey: .pickupRouteKm)
+        pickupRouteMin = try c.decodeIfPresent(Double.self, forKey: .pickupRouteMin)
+        rideRouteKm = try c.decodeIfPresent(Double.self, forKey: .rideRouteKm)
+        rideRouteMin = try c.decodeIfPresent(Double.self, forKey: .rideRouteMin)
+        destinationGeohash = try c.decodeIfPresent(String.self, forKey: .destinationGeohash)
+        mintUrl = try c.decodeIfPresent(String.self, forKey: .mintUrl)
+        paymentMethod = try c.decode(String.self, forKey: .paymentMethod)
+        fiatPaymentMethods = (try c.decodeIfPresent([String].self, forKey: .fiatPaymentMethods)) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(fareEstimate, forKey: .fareEstimate)
+        if let f = fiatFare {
+            try c.encode(f.amount, forKey: .fareFiatAmount)
+            try c.encode(f.currency, forKey: .fareFiatCurrency)
+        }
+        try c.encode(destination, forKey: .destination)
+        try c.encode(approxPickup, forKey: .approxPickup)
+        try c.encodeIfPresent(pickupRouteKm, forKey: .pickupRouteKm)
+        try c.encodeIfPresent(pickupRouteMin, forKey: .pickupRouteMin)
+        try c.encodeIfPresent(rideRouteKm, forKey: .rideRouteKm)
+        try c.encodeIfPresent(rideRouteMin, forKey: .rideRouteMin)
+        try c.encodeIfPresent(destinationGeohash, forKey: .destinationGeohash)
+        try c.encodeIfPresent(mintUrl, forKey: .mintUrl)
+        try c.encode(paymentMethod, forKey: .paymentMethod)
+        try c.encode(fiatPaymentMethods, forKey: .fiatPaymentMethods)
+    }
+
     public init(
         fareEstimate: Double,
+        fiatFare: FiatFare? = nil,
         destination: Location,
         approxPickup: Location,
         pickupRouteKm: Double? = nil,
@@ -83,6 +173,7 @@ public struct RideOfferContent: Codable, Sendable {
         fiatPaymentMethods: [String] = []
     ) {
         self.fareEstimate = fareEstimate
+        self.fiatFare = fiatFare
         self.destination = destination
         self.approxPickup = approxPickup
         self.pickupRouteKm = pickupRouteKm

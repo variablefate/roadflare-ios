@@ -340,4 +340,74 @@ struct RideshareEventBuilderTests {
             )
         }
     }
+
+    @Test func buildRideOfferWithFiatFareRoundTrip() async throws {
+        // fiatFare survives encryption → decryption → JSON decode
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let content = RideOfferContent(
+            fareEstimate: 50_000,
+            fiatFare: FiatFare(amount: "12.50", currency: "USD"),
+            destination: Location(latitude: 40.758, longitude: -73.985),
+            approxPickup: Location(latitude: 40.71, longitude: -74.01),
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+
+        let event = try await RideshareEventBuilder.rideOffer(
+            driverPubkey: driver.publicKeyHex,
+            driverAvailabilityEventId: nil,
+            content: content,
+            keypair: rider
+        )
+
+        // Content must be encrypted (not readable as JSON)
+        #expect(!event.content.contains("fare_fiat_amount"))
+
+        // Driver decrypts and gets fiat fields
+        let decrypted = try NIP44.decrypt(
+            ciphertext: event.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: rider.publicKeyHex
+        )
+        let parsed = try JSONDecoder().decode(RideOfferContent.self, from: Data(decrypted.utf8))
+        #expect(parsed.fiatFare?.amount == "12.50")
+        #expect(parsed.fiatFare?.currency == "USD")
+        #expect(parsed.fareEstimate == 50_000)
+    }
+
+    @Test func buildRideOfferWithoutFiatFareRoundTrip() async throws {
+        // fiatFare nil → no fiat keys in decrypted JSON (backward compat)
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+
+        let content = RideOfferContent(
+            fareEstimate: 30_000,
+            fiatFare: nil,
+            destination: Location(latitude: 40.0, longitude: -74.0),
+            approxPickup: Location(latitude: 40.1, longitude: -74.1),
+            paymentMethod: "cash",
+            fiatPaymentMethods: []
+        )
+
+        let event = try await RideshareEventBuilder.rideOffer(
+            driverPubkey: driver.publicKeyHex,
+            driverAvailabilityEventId: nil,
+            content: content,
+            keypair: rider
+        )
+
+        let decrypted = try NIP44.decrypt(
+            ciphertext: event.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: rider.publicKeyHex
+        )
+        let parsed = try JSONDecoder().decode(RideOfferContent.self, from: Data(decrypted.utf8))
+        #expect(parsed.fiatFare == nil)
+        // Confirm raw JSON has no fiat keys (not just nil after decode)
+        let rawJson = try JSONSerialization.jsonObject(with: Data(decrypted.utf8)) as! [String: Any]
+        #expect(rawJson["fare_fiat_amount"] == nil)
+        #expect(rawJson["fare_fiat_currency"] == nil)
+    }
 }
