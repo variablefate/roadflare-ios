@@ -233,8 +233,8 @@ public final class RideCoordinator {
         // between offer creation and driver view. fareEstimate (sats) is retained for
         // backward compat with older drivers. See ADR-0008.
         //
-        // We use fiatPaymentMethods.isEmpty rather than checking primaryPaymentMethod because
-        // fiatPaymentMethods is the canonical list of what the rider accepts (from settings).
+        // We use paymentPreferences.methods.isEmpty rather than checking primaryPaymentMethod because
+        // paymentPreferences.methods is the canonical list of what the rider accepts (from settings).
         // An empty list means no fiat methods are configured — a bitcoin-native or
         // misconfigured profile that shouldn't produce a fiatFare field in normal app flow.
         // (primaryPaymentMethod could be "cash" even when fiat methods are configured, so
