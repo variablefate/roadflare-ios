@@ -937,7 +937,9 @@ public struct RideOffer: Codable, Sendable {
     public let destination: Location         // 2-decimal precision (~1km)
     public let destinationGeohash: String   // for settlement verification
     public let estimatedFare: Decimal       // USD (wire: sats in fare_estimate)
-    /// Authoritative fiat fare. Non-nil when fiatPaymentMethods is non-empty.
+    /// Authoritative fiat fare. Non-nil when the resolved primary payment rail is not bitcoin (ADR-0008).
+    /// A non-empty fiatPaymentMethods list is not sufficient: if the primary method is bitcoin,
+    /// fiatFare is nil even when fiatPaymentMethods contains fiat entries.
     /// Drivers MUST display fiatFare.amount for fiat rides instead of converting estimatedFare.
     public let fiatFare: FiatFare?
     public let pickupRouteKm: Double?       // pre-calculated driver→pickup

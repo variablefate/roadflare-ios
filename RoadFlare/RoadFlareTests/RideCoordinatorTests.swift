@@ -451,7 +451,7 @@ struct RideCoordinatorTests {
     }
 
     @MainActor
-    @Test func sendRideOfferOmitsFiatFareForBitcoinOnlyRide() async throws {
+    @Test func sendRideOfferOmitsFiatFareWhenNoMethodsConfigured() async throws {
         // fiatPaymentMethods empty → fiatFare nil in the encrypted offer (bitcoin-native ride)
         let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: []
