@@ -129,7 +129,9 @@ Two modes:
 1. **Direct offer** (NIP-44 encrypted to driver):
    ```json
    {
-     "fare_estimate": 2500.0,
+     "fare_estimate": 50000.0,
+     "fare_fiat_amount": "12.50",
+     "fare_fiat_currency": "USD",
      "destination": {"lat": 40.123, "lon": -74.456},
      "approx_pickup": {"lat": 40.124, "lon": -74.457},
      "pickup_route_km": 0.5,
@@ -137,11 +139,11 @@ Two modes:
      "ride_route_km": 15.2,
      "ride_route_min": 22.0,
      "destination_geohash": "djq12",
-     "mint_url": "https://mint.example.com",
-     "payment_method": "cashu",
+     "payment_method": "zelle",
      "fiat_payment_methods": ["zelle", "paypal"]
    }
    ```
+   `fare_fiat_amount` + `fare_fiat_currency` are optional flat fields (ADR-0008). Present when `fiat_payment_methods` is non-empty; absent for bitcoin-native rides. Up-to-date drivers MUST display `fare_fiat_amount` directly for fiat rides rather than converting `fare_estimate` (sats) via local BTC price.
    Tags: `e` (driver availability event), `p` (driver pubkey), `t` ("rideshare"), expiration (15 min)
 
 2. **Broadcast offer** (unencrypted, public):

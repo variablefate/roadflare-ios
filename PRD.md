@@ -1676,7 +1676,9 @@ Note: Kind 3187 (Follow Notification) is **deprecated** — follower discovery u
 **Kind 3173 — Ride Offer (RoadFlare, NIP-44 encrypted to driver):**
 ```json
 {
-  "fare_estimate": 12.50,
+  "fare_estimate": 50000.0,
+  "fare_fiat_amount": "12.50",
+  "fare_fiat_currency": "USD",
   "destination": {"lat": 40.123, "lon": -74.456},
   "approx_pickup": {"lat": 40.124, "lon": -74.457},
   "pickup_route_km": 0.5,
@@ -1688,6 +1690,7 @@ Note: Kind 3187 (Follow Notification) is **deprecated** — follower discovery u
   "fiat_payment_methods": ["zelle", "venmo", "cash"]
 }
 ```
+`fare_fiat_amount` and `fare_fiat_currency` are optional. Both present or both absent (mandatory pair). Up-to-date clients MUST use `fare_fiat_amount` as the display value for fiat rides; older clients fall back to converting `fare_estimate` (sats) using their local BTC price. See ADR-0008.
 Tags: `["e", "<driver_availability_event_id>"]`, `["p", "<driver_pubkey>"]`, `["t", "rideshare"]`, `["t", "roadflare"]`, `["expiration", "<unix>"]`
 
 **Kind 3174 — Ride Acceptance (NIP-44 encrypted to rider):**
