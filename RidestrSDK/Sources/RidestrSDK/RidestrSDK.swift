@@ -25,7 +25,8 @@
 ///
 /// // 5. Build and publish a ride offer
 /// // fareEstimate is in satoshis; fiatFare carries the authoritative USD amount for fiat rides.
-/// // For bitcoin-native rides (fiatPaymentMethods empty), omit fiatFare (defaults to nil).
+/// // Set fiatFare when the primary payment rail is a fiat method (paymentMethod != "bitcoin").
+/// // For bitcoin-native rides (paymentMethod == "bitcoin"), omit fiatFare (defaults to nil).
 /// let fareInSats: Double = 50_000  // computed from USD using your own BTC/USD price service (e.g., CoinGecko, Coinbase)
 /// let content = RideOfferContent(
 ///     fareEstimate: fareInSats,

@@ -143,7 +143,7 @@ Two modes:
      "fiat_payment_methods": ["zelle", "paypal"]
    }
    ```
-   `fare_fiat_amount` + `fare_fiat_currency` are optional flat fields (ADR-0008). Present when `fiat_payment_methods` is non-empty; absent for bitcoin-native rides. Up-to-date drivers MUST display `fare_fiat_amount` directly for fiat rides rather than converting `fare_estimate` (sats) via local BTC price.
+   `fare_fiat_amount` + `fare_fiat_currency` are optional flat fields (ADR-0008). Present when `payment_method` resolves to a fiat rail (not `"bitcoin"`); absent for bitcoin-native rides. Note: a non-empty `fiat_payment_methods` list is not sufficient — if `payment_method` is `"bitcoin"` these fields will be absent even when `fiat_payment_methods` contains fiat entries. Up-to-date drivers MUST display `fare_fiat_amount` directly for fiat rides rather than converting `fare_estimate` (sats) via local BTC price.
    Tags: `e` (driver availability event), `p` (driver pubkey), `t` ("rideshare"), expiration (15 min)
 
 2. **Broadcast offer** (unencrypted, public):

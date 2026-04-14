@@ -29,6 +29,13 @@ low by up to 1 sat.
 3. For fiat rides, `fiatFare` is the authoritative source of truth for display.
    `fareEstimate` (sats) is retained for backward compatibility with older clients.
 
+   **A ride is "fiat" when the resolved primary payment rail (`payment_method`) is not
+   `"bitcoin"`.** A non-empty `fiat_payment_methods` list is not sufficient on its own
+   — if `payment_method` is `"bitcoin"` (e.g. methods list is `["bitcoin", "cash"]`),
+   both `fare_fiat_amount` and `fare_fiat_currency` MUST be absent. Conversely, if
+   `payment_method` is a fiat rail (e.g. `"cash"`) and `fiat_payment_methods` contains
+   other entries including `"bitcoin"`, `fiatFare` MUST be present.
+
 4. Fix truncation: `Int(sats)` → `Int(sats.rounded())` in `usdToSats()`.
 
 5. `BitcoinPriceService` stays in the app layer. SDK consumers pick their own
