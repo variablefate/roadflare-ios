@@ -476,6 +476,62 @@ struct RideCoordinatorTests {
         #expect(parsed.fiatFare == nil)
     }
 
+    @MainActor
+    @Test func sendRideOfferOmitsFiatFareWhenBitcoinIsPrimaryMethod() async throws {
+        // methods = ["bitcoin", "cash"] — primary is bitcoin → fiatFare must be nil even
+        // though the list is non-empty and contains a fiat entry (regression for MEDIUM bug)
+        let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
+            roadflarePaymentMethods: ["bitcoin", "cash"]
+        )
+        let driver = try NostrKeypair.generate()
+
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.50)
+        )
+
+        let offer = try #require(fake.publishedEvents.first { $0.kind == EventKind.rideOffer.rawValue })
+        let decrypted = try NIP44.decrypt(
+            ciphertext: offer.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: riderKeypair.publicKeyHex
+        )
+        let parsed = try JSONDecoder().decode(RideOfferContent.self, from: Data(decrypted.utf8))
+
+        #expect(parsed.fiatFare == nil)
+        #expect(parsed.paymentMethod == PaymentMethod.bitcoin.rawValue)
+    }
+
+    @MainActor
+    @Test func sendRideOfferPopulatesFiatFareWhenFiatIsPrimaryMethod() async throws {
+        // methods = ["cash", "bitcoin"] — primary is cash → fiatFare must be set
+        let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
+            roadflarePaymentMethods: ["cash", "bitcoin"]
+        )
+        let driver = try NostrKeypair.generate()
+
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.50)
+        )
+
+        let offer = try #require(fake.publishedEvents.first { $0.kind == EventKind.rideOffer.rawValue })
+        let decrypted = try NIP44.decrypt(
+            ciphertext: offer.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: riderKeypair.publicKeyHex
+        )
+        let parsed = try JSONDecoder().decode(RideOfferContent.self, from: Data(decrypted.utf8))
+
+        #expect(parsed.fiatFare?.amount == "12.50")
+        #expect(parsed.fiatFare?.currency == "USD")
+        #expect(parsed.paymentMethod == PaymentMethod.cash.rawValue)
+    }
+
     // MARK: - Restore
 
     @MainActor

@@ -233,12 +233,10 @@ public final class RideCoordinator {
         // between offer creation and driver view. fareEstimate (sats) is retained for
         // backward compat with older drivers. See ADR-0008.
         //
-        // We use paymentPreferences.methods.isEmpty rather than checking primaryPaymentMethod because
-        // paymentPreferences.methods is the canonical list of what the rider accepts (from settings).
-        // An empty list means no fiat methods are configured — a bitcoin-native or
-        // misconfigured profile that shouldn't produce a fiatFare field in normal app flow.
-        // (primaryPaymentMethod could be "cash" even when fiat methods are configured, so
-        // it is not a reliable signal here.)
+        // fiatFare is set only when the resolved primary rail is a fiat method. We require
+        // both: (1) methods is non-empty (a configured fiat profile), and (2) the resolved
+        // primary method is not "bitcoin". If bitcoin is the primary rail, fiatFare must be
+        // nil per ADR-0008 — even if other fiat methods appear later in the list.
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.minimumFractionDigits = 2
@@ -246,7 +244,8 @@ public final class RideCoordinator {
         formatter.numberStyle = .decimal
         formatter.groupingSeparator = ""
         let amount = formatter.string(from: NSDecimalNumber(decimal: fareEstimate.fareUSD)) ?? "0.00"
-        let fiatFare: FiatFare? = paymentPreferences.methods.isEmpty ? nil
+        let isBitcoinPrimaryRail = primaryPaymentMethod == PaymentMethod.bitcoin.rawValue
+        let fiatFare: FiatFare? = (paymentPreferences.methods.isEmpty || isBitcoinPrimaryRail) ? nil
             : FiatFare(amount: amount, currency: "USD")
 
         let offerContent = RideOfferContent(
