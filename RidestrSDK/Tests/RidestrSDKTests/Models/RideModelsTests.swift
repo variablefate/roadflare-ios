@@ -248,10 +248,22 @@ struct RideModelsTests {
         #expect(decoded.fiatFare == nil)
     }
 
-    @Test func fiatFareNilWhenPartialPair() throws {
-        // Only one of the two fields present → nil (mandatory pair rule)
+    @Test func fiatFareNilWhenPartialPairAmountOnly() throws {
+        // amount present, currency absent → nil (mandatory pair rule)
         let json = """
         {"fare_estimate":50000,"fare_fiat_amount":"12.50",\
+        "destination":{"lat":40.758,"lon":-73.985},\
+        "approx_pickup":{"lat":40.71,"lon":-74.01},\
+        "payment_method":"zelle","fiat_payment_methods":[]}
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(RideOfferContent.self, from: json)
+        #expect(decoded.fiatFare == nil)
+    }
+
+    @Test func fiatFareNilWhenPartialPairCurrencyOnly() throws {
+        // currency present, amount absent → nil (mandatory pair rule, symmetric case)
+        let json = """
+        {"fare_estimate":50000,"fare_fiat_currency":"USD",\
         "destination":{"lat":40.758,"lon":-73.985},\
         "approx_pickup":{"lat":40.71,"lon":-74.01},\
         "payment_method":"zelle","fiat_payment_methods":[]}
