@@ -480,8 +480,8 @@ struct RideshareEventBuilderTests {
 
         #expect(parsed["action"] as? String == "ping")
         #expect(parsed["riderName"] as? String == "Bob")
-        let message = try #require(parsed["message"] as? String)
-        #expect(message.contains("Bob"))
+        // "message" must be absent — sender-controlled text must not reach the receiver
+        #expect(parsed["message"] == nil)
         let ts = try #require(parsed["timestamp"] as? Int)
         let nowEpoch = Int(Date.now.timeIntervalSince1970)
         #expect(ts > nowEpoch - 5 && ts < nowEpoch + 5, "timestamp should be within 5 s of now")

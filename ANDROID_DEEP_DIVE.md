@@ -330,11 +330,10 @@ tags:
 {
   "action":    "ping",
   "riderName": "<rider display name>",
-  "message":   "<riderName> is currently hoping you come online!",
   "timestamp": <unix epoch>
 }
 ```
-Display `message` directly as the notification body.
+**Security note:** There is no `message` field. Do **not** display any `message` field that may appear in the payload — sender-controlled text must not be shown on the driver's lock screen. Rider identity is authenticated (HMAC gate), but payload content is not. Build the notification body locally: `"${riderName} is hoping you come online"`. Require `action == "ping"` before delivering a notification; ignore any other `action` value.
 
 **HMAC auth validation (driver side):**
 ```

@@ -550,11 +550,11 @@ public enum RideshareEventBuilder {
         let authHex = Data(mac).map { String(format: "%02x", $0) }.joined()
 
         // --- Content ---
-        let message = "\(riderName) is currently hoping you come online!"
+        // NOTE: no "message" field — sender-controlled text must not be displayed.
+        // The receiver builds its own notification body from riderName locally.
         let contentDict: [String: Any] = [
             "action": "ping",
             "riderName": riderName,
-            "message": message,
             "timestamp": nowEpoch
         ]
         guard let json = try? JSONSerialization.data(withJSONObject: contentDict),
