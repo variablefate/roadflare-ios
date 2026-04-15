@@ -259,15 +259,12 @@ public final class AppState {
         return AppState.canPingDriver(driver, using: repo)
     }
 
-    /// Extracted for unit testability. `nonisolated` so tests can call it synchronously
-    /// without `await` or `@MainActor` — safe because the method never touches `self` or
-    /// any AppState property; it only reads from its `FollowedDriversRepository` parameter,
-    /// which is `@unchecked Sendable`.
+    /// Thin wrapper kept for test ergonomics. The actual eligibility check lives in
+    /// `FollowedDriversRepository.canPingDriver(_:)` so composite reads across
+    /// `staleKeyPubkeys` and `driverLocations` take the repo lock atomically instead of
+    /// two unlocked property reads from an `@unchecked Sendable` type.
     nonisolated static func canPingDriver(_ driver: FollowedDriver, using repo: FollowedDriversRepository) -> Bool {
-        guard driver.hasKey else { return false }
-        guard !repo.staleKeyPubkeys.contains(driver.pubkey) else { return false }
-        let status = repo.driverLocations[driver.pubkey]?.status
-        return status != "online" && status != "on_ride"
+        repo.canPingDriver(driver)
     }
 
     /// Shared preflight for send-time validation. Returns nil when the ping may proceed.
