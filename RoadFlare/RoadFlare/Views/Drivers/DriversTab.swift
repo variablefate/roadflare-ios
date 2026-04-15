@@ -10,6 +10,8 @@ struct DriversTab: View {
     @State private var showConnectivity = false
     @State private var isOffline = false
     @State private var sharingDriver: FollowedDriver?
+    @State private var pingToastMessage: String?
+    @State private var pingToastIsError = false
 
     var body: some View {
         NavigationStack {
@@ -32,6 +34,7 @@ struct DriversTab: View {
                                         appState.selectedTab = 0  // RoadFlare tab
                                     },
                                     onShare: { shareDriver(driver) },
+                                    onPing: { pingDriver(driver) },
                                     onDelete: { removeDriver(driver) },
                                     onTap: { selectedDriver = driver }
                                 )
@@ -114,11 +117,43 @@ struct DriversTab: View {
                     try? await Task.sleep(for: .seconds(10))
                 }
             }
+            .toast($pingToastMessage, isError: pingToastIsError)
         }
     }
 
     private func shareDriver(_ driver: FollowedDriver) {
         sharingDriver = driver
+    }
+
+    private func pingDriver(_ driver: FollowedDriver) {
+        // Capture pubkey as a plain String (Sendable) before the task boundary so
+        // `driver` (a struct that may not be Sendable) doesn't need to cross the
+        // isolation boundary. The view is @MainActor so the Task body inherits that
+        // isolation; `appState.driversRepository` is accessible without a hop.
+        let driverPubkey = driver.pubkey
+        Task {
+            let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
+            let name = appState.driversRepository?.cachedDriverName(pubkey: driverPubkey)
+                ?? String(driverPubkey.prefix(8)) + "..."
+            switch result {
+            case .sent:
+                pingToastMessage = "Ping sent to \(name)"
+                pingToastIsError = false
+            case .rateLimited(let retryAt):
+                let remaining = Int(retryAt.timeIntervalSinceNow / 60) + 1
+                pingToastMessage = "Wait \(remaining) min before pinging \(name) again"
+                pingToastIsError = true
+            case .missingKey:
+                pingToastMessage = "Can't ping \(name) right now"
+                pingToastIsError = true
+            case .ineligible:
+                pingToastMessage = "Can't ping \(name) right now"
+                pingToastIsError = true
+            case .publishFailed:
+                pingToastMessage = "Couldn't send ping — check your connection"
+                pingToastIsError = true
+            }
+        }
     }
 
     private func removeDriver(_ driver: FollowedDriver) {
@@ -156,10 +191,12 @@ struct DriversTab: View {
 // MARK: - Driver Card
 
 struct DriverCard: View {
+    @Environment(AppState.self) private var appState
     let driver: FollowedDriver
     let repo: FollowedDriversRepository
     let onRequest: () -> Void
     let onShare: () -> Void
+    let onPing: () -> Void
     let onDelete: () -> Void
     let onTap: () -> Void
 
@@ -239,16 +276,32 @@ struct DriverCard: View {
 
                 Spacer()
 
-                // Share button (right side, larger touch target)
-                Button(action: onShare) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 16))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
-                        .frame(width: 44, height: 44)
-                        .background(Color.rfSurfaceContainerHigh)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                // Action buttons (right side) — bell (if pingable) then share
+                HStack(spacing: 8) {
+                    if appState.canPingDriver(driver) {
+                        Button(action: onPing) {
+                            Image(systemName: "bell")
+                                .font(.system(size: 16))
+                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                .frame(width: 44, height: 44)
+                                .background(Color.rfSurfaceContainerHigh)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Ping driver")
+                        .accessibilityHint("Sends a notification asking the driver to come online")
+                    }
+
+                    Button(action: onShare) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 16))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                            .frame(width: 44, height: 44)
+                            .background(Color.rfSurfaceContainerHigh)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
             .padding(14)
         }

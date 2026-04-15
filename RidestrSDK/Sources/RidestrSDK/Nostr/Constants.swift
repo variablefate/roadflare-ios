@@ -113,6 +113,10 @@ public enum NostrTags {
     public static let status = "status"
     public static let transition = "transition"
 
+    // Ping auth
+    public static let auth = "auth"
+    public static let roadflarePingTag = "roadflare-ping"
+
     // Hashtag values
     public static let rideshareTag = "rideshare"
     public static let roadflareTag = "roadflare"

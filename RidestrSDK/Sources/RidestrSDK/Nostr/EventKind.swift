@@ -17,6 +17,7 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
     case keyShare = 3186
     case followNotification = 3187  // Real-time nudge only — Kind 30011 p-tags are source of truth
     case keyAcknowledgement = 3188
+    case driverPingRequest = 3189   // Rider → driver availability nudge with HMAC auth proof
 
     // NIP-60 wallet (future)
     case nip60ProofStorage = 7375
@@ -80,6 +81,7 @@ public enum EventKind: UInt16, Sendable, CaseIterable {
         case .keyShare: EventExpiration.roadflareKeyShareHours * 3600
         case .keyAcknowledgement: EventExpiration.roadflareKeyAckMinutes * 60
         case .followNotification: EventExpiration.roadflareFollowNotifyMinutes * 60
+        case .driverPingRequest: EventExpiration.driverPingMinutes * 60
         case .shareableDriverList: EventExpiration.shareableListDays * 86400
         default: nil
         }
@@ -106,5 +108,6 @@ public enum EventExpiration {
     public static let roadflareKeyShareHours: TimeInterval = 12
     public static let roadflareKeyAckMinutes: TimeInterval = 5
     public static let roadflareFollowNotifyMinutes: TimeInterval = 5
+    public static let driverPingMinutes: TimeInterval = 30
     public static let shareableListDays: TimeInterval = 30
 }

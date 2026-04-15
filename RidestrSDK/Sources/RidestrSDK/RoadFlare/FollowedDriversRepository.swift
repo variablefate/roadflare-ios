@@ -149,6 +149,23 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// Whether there are any followed drivers.
     public var hasDrivers: Bool { lock.withLock { !drivers.isEmpty } }
 
+    /// Returns `true` when `driver` is a valid target for a Kind 3189 driver ping.
+    ///
+    /// The check is a single atomic snapshot across `staleKeyPubkeys` and `driverLocations`
+    /// so a mid-read mutation from a background sync cannot observe inconsistent state.
+    /// Criteria: the driver has a current RoadFlare key, the key is not marked stale,
+    /// and the driver's last-broadcast status is neither `online` nor `on_ride`.
+    ///
+    /// Independent of any sender-side cooldown — that layer lives in the app.
+    public func canPingDriver(_ driver: FollowedDriver) -> Bool {
+        guard driver.hasKey else { return false }
+        return lock.withLock {
+            guard !staleKeyPubkeys.contains(driver.pubkey) else { return false }
+            let status = driverLocations[driver.pubkey]?.status
+            return status != "online" && status != "on_ride"
+        }
+    }
+
     // MARK: - Driver Names
 
     /// Cache a driver's display name from their Nostr profile.

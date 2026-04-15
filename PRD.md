@@ -144,7 +144,7 @@ Give riders a personal, trusted alternative to corporate rideshare — no middle
 - Event signature verification
 
 **What we still build ourselves in RidestrSDK:**
-- Custom event kinds (3173–3188, 30011–30182) — parsing, construction, content formats
+- Custom event kinds (3173–3189, 30011–30182) — parsing, construction, content formats
 - RoadFlare key management and rotation logic
 - Ride state machine
 - Fare calculation
@@ -1413,6 +1413,7 @@ Approach:
 | New chat message | Kind 3178 received | Active |
 | Ride completed | Kind 30180 stage=completed | Default |
 | RoadFlare key received | Kind 3186 received | Default |
+| Driver ping received | Kind 3189 received (after HMAC validation) | Default |
 
 Implementation: Local notifications fired when processing Nostr events. If app is foregrounded, show in-app alert instead.
 
@@ -1675,6 +1676,7 @@ All design decisions made during PRD development:
 | 3179 | Cancellation | Regular | 24 hours | Either |
 | 3186 | RoadFlare Key Share | Regular | 5 min | Driver → Rider |
 | 3188 | Key Acknowledgement | Regular | 5 min | Rider → Driver |
+| 3189 | Driver Ping Request | Regular | 30 min | Rider → Driver |
 | 30011 | Followed Drivers List | Replaceable | None | Self → Self |
 | 30014 | RoadFlare Location | Replaceable | 5 min | Driver → Followers |
 | 30174 | Ride History Backup | Replaceable | None | Self → Self |

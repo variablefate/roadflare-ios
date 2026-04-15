@@ -310,6 +310,52 @@ Drivers now discover followers via **p-tag queries on Kind 30011**:
 - Driver queries Kind 30011 events with their pubkey in p-tags
 - Returns list of rider pubkeys who follow them
 
+### Driver Ping (Kind 3189)
+
+Riders can nudge offline drivers to come online via Kind 3189 `driverPingRequest`.
+
+**Event structure:**
+```
+kind: 3189
+content: NIP-44 encrypted JSON (to driver's identity pubkey)
+tags:
+  ["p",          "<driver pubkey hex>"]
+  ["t",          "roadflare-ping"]
+  ["auth",       "<HMAC-SHA256 hex>"]
+  ["expiration", "<epoch + 1800>"]
+```
+
+**Decrypted content:**
+```json
+{
+  "action":    "ping",
+  "riderName": "<rider display name>",
+  "timestamp": <unix epoch>
+}
+```
+**Security note:** There is no `message` field. Do **not** display any `message` field that may appear in the payload — sender-controlled text must not be shown on the driver's lock screen. Rider identity is authenticated (HMAC gate), but payload content is not. Build the notification body locally: `"${riderName} is hoping you come online"`. Require `action == "ping"` before delivering a notification; ignore any other `action` value.
+
+**HMAC auth validation (driver side):**
+```
+currentWindow = epochNow / 300            // integer division
+riderPubkey   = event.pubkey              // the Nostr event signer
+authTag       = event.tag("auth")         // hex string on the event
+hmac(window)  = HMAC-SHA256(key=hexDecode(currentRoadflareKey.privateKey),
+                             msg=(driverPubkey + riderPubkey + str(window)).utf8)
+valid         = hmac(currentWindow)     == authTag
+             || hmac(currentWindow - 1) == authTag
+             || hmac(currentWindow + 1) == authTag
+```
+All three calls use the same `driverPubkey` and `riderPubkey` — only the window integer changes.
+Reject silently (no notification, no error response) if none of the three windows match.
+
+**Driver-side rate limits (apply after HMAC validation):**
+- 30-second dedup window per rider pubkey
+- Global cap: 2 notifications per 10-minute window across all senders
+- Muted rider pubkeys: discard after HMAC auth, before notification delivery
+
+**Rider-side cooldown (enforced on iOS):** 1 ping per driver per 10 minutes.
+
 ### Complete Follow Flow
 
 ```

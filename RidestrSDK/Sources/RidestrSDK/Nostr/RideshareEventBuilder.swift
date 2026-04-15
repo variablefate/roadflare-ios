@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// Builds unsigned Nostr events for the Ridestr rideshare protocol.
 /// Each method constructs the tags, encrypts content as needed, and returns a signed event.
@@ -500,5 +501,112 @@ public enum RideshareEventBuilder {
         return try await EventSigner.sign(
             kind: .keyAcknowledgement, content: encrypted, tags: tags, keypair: keypair
         )
+    }
+
+    // MARK: - Driver Ping Request (Kind 3189)
+
+    /// Build and sign a driver ping request event (Kind 3189).
+    ///
+    /// Sent by a rider to an offline driver as an availability nudge.
+    /// Content is NIP-44 encrypted to the driver's identity pubkey.
+    /// Carries an HMAC-SHA256 auth proof so the driver app can authenticate
+    /// the sender without walking the Kind 30011 follower list.
+    ///
+    /// Auth proof: HMAC-SHA256(key=hexToData(roadflareKey.privateKeyHex),
+    ///                         msg=driverPubkey+riderPubkey+String(epoch/300))
+    ///
+    /// - Parameters:
+    ///   - driverPubkey: The driver's 64-character hex Nostr identity public key.
+    ///   - riderName: The rider's display name (shown in the driver's notification).
+    ///   - roadflareKey: The driver's RoadFlare key (held by the rider after approval).
+    ///   - keypair: The rider's Nostr signing keypair.
+    ///   - currentDate: Timestamp source for the HMAC time window, content timestamp,
+    ///                  and event expiry. Defaults to `Date.now`. Inject a fixed date in
+    ///                  tests (same pattern as `EventSigner.sign(createdAt:)`).
+    /// - Returns: A signed, encrypted Nostr event (Kind 3189).
+    /// - Throws: `RidestrError.crypto` if HMAC inputs are invalid or encryption fails.
+    public static func driverPingRequest(
+        driverPubkey: String,
+        riderName: String,
+        roadflareKey: RoadflareKey,
+        keypair: NostrKeypair,
+        currentDate: Date = .now
+    ) async throws -> NostrEvent {
+        try validatePubkey(driverPubkey, label: "Driver pubkey")
+
+        let nowEpoch = Int(currentDate.timeIntervalSince1970)
+
+        // --- HMAC auth proof ---
+        let timeWindow = nowEpoch / 300
+        let hmacMessage = driverPubkey + keypair.publicKeyHex + String(timeWindow)
+        guard let keyData = hexToData(roadflareKey.privateKeyHex) else {
+            throw RidestrError.crypto(.invalidKey("RoadFlare key is not valid hex"))
+        }
+        guard keyData.count == 32 else {
+            throw RidestrError.crypto(.invalidKey("RoadFlare key is not 32 bytes"))
+        }
+        let symmetricKey = SymmetricKey(data: keyData)
+        let mac = HMAC<SHA256>.authenticationCode(
+            for: Data(hmacMessage.utf8),
+            using: symmetricKey
+        )
+        let authHex = Data(mac).map { String(format: "%02x", $0) }.joined()
+
+        // --- Content ---
+        // NOTE: no "message" field — sender-controlled text must not be displayed.
+        // The receiver builds its own notification body from riderName locally.
+        // Clip to 64 characters to match the Android receiver's parse-time
+        // sanitisation (`.take(64).filter { it >= ' ' }`) so a long profile name
+        // survives the wire round-trip unchanged instead of being silently truncated
+        // driver-side.
+        let truncatedRiderName = String(riderName.prefix(64))
+        let contentDict: [String: Any] = [
+            "action": "ping",
+            "riderName": truncatedRiderName,
+            "timestamp": nowEpoch
+        ]
+        guard let json = try? JSONSerialization.data(withJSONObject: contentDict),
+              let plaintext = String(data: json, encoding: .utf8) else {
+            throw RidestrError.crypto(.encryptionFailed(
+                underlying: NSError(domain: "JSON", code: 0, userInfo: nil)
+            ))
+        }
+        let encrypted = try NIP44.encrypt(
+            plaintext: plaintext,
+            senderKeypair: keypair,
+            recipientPublicKeyHex: driverPubkey
+        )
+
+        // --- Tags ---
+        let expiry = nowEpoch + Int(EventExpiration.driverPingMinutes * 60)
+        let tags: [[String]] = [
+            [NostrTags.pubkeyRef,   driverPubkey],
+            [NostrTags.hashtag,     NostrTags.roadflarePingTag],
+            [NostrTags.auth,        authHex],
+            [NostrTags.expiration,  String(expiry)],
+        ]
+
+        return try await EventSigner.sign(
+            kind: .driverPingRequest, content: encrypted, tags: tags,
+            keypair: keypair, createdAt: currentDate
+        )
+    }
+
+    // MARK: - Internal Helpers
+
+    /// Convert a lowercase hex string to raw bytes. Returns nil for odd-length or invalid chars.
+    /// Internal (not `private`) so `@testable import RidestrSDK` tests can call it
+    /// when recomputing HMAC-SHA256 values in-test.
+    static func hexToData(_ hex: String) -> Data? {
+        guard hex.count % 2 == 0 else { return nil }
+        var data = Data(capacity: hex.count / 2)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let nextIndex = hex.index(index, offsetBy: 2)
+            guard let byte = UInt8(hex[index..<nextIndex], radix: 16) else { return nil }
+            data.append(byte)
+            index = nextIndex
+        }
+        return data
     }
 }
