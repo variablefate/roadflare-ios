@@ -542,6 +542,9 @@ public enum RideshareEventBuilder {
         guard let keyData = hexToData(roadflareKey.privateKeyHex) else {
             throw RidestrError.crypto(.invalidKey("RoadFlare key is not valid hex"))
         }
+        guard keyData.count == 32 else {
+            throw RidestrError.crypto(.invalidKey("RoadFlare key is not 32 bytes"))
+        }
         let symmetricKey = SymmetricKey(data: keyData)
         let mac = HMAC<SHA256>.authenticationCode(
             for: Data(hmacMessage.utf8),

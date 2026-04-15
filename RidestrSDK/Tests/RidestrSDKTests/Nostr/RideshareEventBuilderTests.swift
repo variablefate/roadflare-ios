@@ -312,6 +312,21 @@ struct RideshareEventBuilderTests {
             phase: "verified", history: [], keypair: rider
         )
         #expect(EventSigner.verify(riderState))
+
+        // Driver ping (Kind 3189)
+        let pingRoadflareKey = RoadflareKey(
+            privateKeyHex: String(repeating: "a", count: 64),
+            publicKeyHex: String(repeating: "b", count: 64),
+            version: 1,
+            keyUpdatedAt: nil
+        )
+        let ping = try await RideshareEventBuilder.driverPingRequest(
+            driverPubkey: driver.publicKeyHex,
+            riderName: "test",
+            roadflareKey: pingRoadflareKey,
+            keypair: rider
+        )
+        #expect(EventSigner.verify(ping))
     }
 
     @Test func confirmationRejectsMalformedAcceptanceEventId() async throws {

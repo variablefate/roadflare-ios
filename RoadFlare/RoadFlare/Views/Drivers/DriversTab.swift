@@ -128,29 +128,27 @@ struct DriversTab: View {
     private func pingDriver(_ driver: FollowedDriver) {
         // Capture pubkey as a plain String (Sendable) before the task boundary so
         // `driver` (a struct that may not be Sendable) doesn't need to cross the
-        // isolation boundary. `appState.driversRepository` is @MainActor-isolated,
-        // so `cachedDriverName` must be called inside `MainActor.run`, not before it.
+        // isolation boundary. The view is @MainActor so the Task body inherits that
+        // isolation; `appState.driversRepository` is accessible without a hop.
         let driverPubkey = driver.pubkey
         Task {
             let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
-            await MainActor.run {
-                let name = appState.driversRepository?.cachedDriverName(pubkey: driverPubkey)
-                    ?? String(driverPubkey.prefix(8)) + "..."
-                switch result {
-                case .sent:
-                    pingToastMessage = "Ping sent to \(name)"
-                    pingToastIsError = false
-                case .rateLimited(let retryAt):
-                    let remaining = Int(retryAt.timeIntervalSinceNow / 60) + 1
-                    pingToastMessage = "Wait \(remaining) min before pinging \(name) again"
-                    pingToastIsError = true
-                case .missingKey:
-                    pingToastMessage = "Can't ping \(name) right now"
-                    pingToastIsError = true
-                case .publishFailed:
-                    pingToastMessage = "Couldn't send ping — check your connection"
-                    pingToastIsError = true
-                }
+            let name = appState.driversRepository?.cachedDriverName(pubkey: driverPubkey)
+                ?? String(driverPubkey.prefix(8)) + "..."
+            switch result {
+            case .sent:
+                pingToastMessage = "Ping sent to \(name)"
+                pingToastIsError = false
+            case .rateLimited(let retryAt):
+                let remaining = Int(retryAt.timeIntervalSinceNow / 60) + 1
+                pingToastMessage = "Wait \(remaining) min before pinging \(name) again"
+                pingToastIsError = true
+            case .missingKey:
+                pingToastMessage = "Can't ping \(name) right now"
+                pingToastIsError = true
+            case .publishFailed:
+                pingToastMessage = "Couldn't send ping — check your connection"
+                pingToastIsError = true
             }
         }
     }
