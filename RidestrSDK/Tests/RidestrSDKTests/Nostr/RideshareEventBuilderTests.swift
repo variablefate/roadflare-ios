@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Testing
 @testable import RidestrSDK
 
@@ -409,5 +410,156 @@ struct RideshareEventBuilderTests {
         let rawJson = try JSONSerialization.jsonObject(with: Data(decrypted.utf8)) as! [String: Any]
         #expect(rawJson["fare_fiat_amount"] == nil)
         #expect(rawJson["fare_fiat_currency"] == nil)
+    }
+
+    // MARK: - Kind 3189 Driver Ping Request
+
+    @Test func buildDriverPingRequest_eventShape() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let roadflareKey = RoadflareKey(
+            privateKeyHex: String(repeating: "a", count: 64),
+            publicKeyHex: String(repeating: "b", count: 64),
+            version: 1,
+            keyUpdatedAt: nil
+        )
+
+        let event = try await RideshareEventBuilder.driverPingRequest(
+            driverPubkey: driver.publicKeyHex,
+            riderName: "Alice",
+            roadflareKey: roadflareKey,
+            keypair: rider
+        )
+
+        // Event shape
+        #expect(event.kind == EventKind.driverPingRequest.rawValue)
+        #expect(event.pubkey == rider.publicKeyHex)
+        #expect(EventSigner.verify(event))
+
+        // Required tags
+        #expect(event.referencedPubkeys.contains(driver.publicKeyHex))
+        #expect(event.tagValues("t").contains("roadflare-ping"))
+        #expect(event.tag("auth") != nil)
+        #expect(event.expirationTimestamp != nil)
+
+        // Expiry is roughly 30 minutes from now
+        let now = Int(Date.now.timeIntervalSince1970)
+        let expiry = try #require(event.expirationTimestamp)
+        #expect(expiry > now + 1700)  // at least 28 minutes
+        #expect(expiry < now + 1900)  // at most 32 minutes
+
+        // Content is encrypted (not readable as plain JSON)
+        #expect(!event.content.contains("\"action\""))
+    }
+
+    @Test func buildDriverPingRequest_contentDecryptable() async throws {
+        let rider = try NostrKeypair.generate()
+        let driver = try NostrKeypair.generate()
+        let roadflareKey = RoadflareKey(
+            privateKeyHex: String(repeating: "c", count: 64),
+            publicKeyHex: String(repeating: "d", count: 64),
+            version: 1,
+            keyUpdatedAt: nil
+        )
+
+        let event = try await RideshareEventBuilder.driverPingRequest(
+            driverPubkey: driver.publicKeyHex,
+            riderName: "Bob",
+            roadflareKey: roadflareKey,
+            keypair: rider
+        )
+
+        // Driver can decrypt and read the content
+        let decrypted = try NIP44.decrypt(
+            ciphertext: event.content,
+            receiverKeypair: driver,
+            senderPublicKeyHex: rider.publicKeyHex
+        )
+        let json = try JSONSerialization.jsonObject(with: Data(decrypted.utf8)) as? [String: Any]
+        let parsed = try #require(json)
+
+        #expect(parsed["action"] as? String == "ping")
+        #expect(parsed["riderName"] as? String == "Bob")
+        let message = try #require(parsed["message"] as? String)
+        #expect(message.contains("Bob"))
+        let ts = try #require(parsed["timestamp"] as? Int)
+        let nowEpoch = Int(Date.now.timeIntervalSince1970)
+        #expect(ts > nowEpoch - 5 && ts < nowEpoch + 5, "timestamp should be within 5 s of now")
+    }
+
+    @Test func buildDriverPingRequest_hmacDeterministic() async throws {
+        // Same inputs → same HMAC; different inputs → different HMAC.
+        // Uses fixed keypairs and date to pin the 5-minute bucket.
+        // Catches a wrong HMAC key source by recomputing the expected HMAC with
+        // CryptoKit inside the test — if the builder uses the wrong key (e.g. the
+        // rider's Nostr private key instead of roadflareKey.privateKeyHex), the
+        // CryptoKit value won't match and the test fails.
+        let fixedDate = Date(timeIntervalSince1970: 1_000_000)  // bucket 3333
+        let rider  = try NostrKeypair.fromHex(String(repeating: "bb", count: 32))
+        let driver = try NostrKeypair.fromHex(String(repeating: "aa", count: 32))
+        let roadflareKey = RoadflareKey(
+            privateKeyHex: String(repeating: "ee", count: 32),
+            publicKeyHex: String(repeating: "ff", count: 32),
+            version: 1,
+            keyUpdatedAt: nil
+        )
+
+        let event1 = try await RideshareEventBuilder.driverPingRequest(
+            driverPubkey: driver.publicKeyHex,
+            riderName: "Carol",
+            roadflareKey: roadflareKey,
+            keypair: rider,
+            currentDate: fixedDate
+        )
+        let event2 = try await RideshareEventBuilder.driverPingRequest(
+            driverPubkey: driver.publicKeyHex,
+            riderName: "Carol",
+            roadflareKey: roadflareKey,
+            keypair: rider,
+            currentDate: fixedDate
+        )
+
+        // Determinism: same inputs → same auth tag within one bucket
+        #expect(event1.tag("auth") == event2.tag("auth"))
+
+        // Correctness: recompute expected HMAC with CryptoKit using the same
+        // message format the builder uses: driverPubkey + riderPubkey + str(timeWindow)
+        let timeWindow = Int(fixedDate.timeIntervalSince1970) / 300  // 3333
+        let message = Data((driver.publicKeyHex + rider.publicKeyHex + String(timeWindow)).utf8)
+        let keyBytes = SymmetricKey(data: RideshareEventBuilder.hexToData(roadflareKey.privateKeyHex)!)
+        let mac = HMAC<SHA256>.authenticationCode(for: message, using: keyBytes)
+        let expectedHex = Data(mac).map { String(format: "%02x", $0) }.joined()
+        #expect(event1.tag("auth") == expectedHex,
+                "auth tag mismatch — wrong HMAC key source or message format?")
+
+        // Key-sensitivity: different driver pubkey → different HMAC
+        let driver2 = try NostrKeypair.fromHex(String(repeating: "cc", count: 32))
+        let event3 = try await RideshareEventBuilder.driverPingRequest(
+            driverPubkey: driver2.publicKeyHex,
+            riderName: "Carol",
+            roadflareKey: roadflareKey,
+            keypair: rider,
+            currentDate: fixedDate
+        )
+        #expect(event1.tag("auth") != event3.tag("auth"))
+    }
+
+    @Test func buildDriverPingRequest_rejectsInvalidDriverPubkey() async throws {
+        let rider = try NostrKeypair.generate()
+        let roadflareKey = RoadflareKey(
+            privateKeyHex: String(repeating: "a", count: 64),
+            publicKeyHex: String(repeating: "b", count: 64),
+            version: 1,
+            keyUpdatedAt: nil
+        )
+
+        await #expect(throws: RidestrError.self) {
+            _ = try await RideshareEventBuilder.driverPingRequest(
+                driverPubkey: "not-a-valid-pubkey",
+                riderName: "Dave",
+                roadflareKey: roadflareKey,
+                keypair: rider
+            )
+        }
     }
 }
