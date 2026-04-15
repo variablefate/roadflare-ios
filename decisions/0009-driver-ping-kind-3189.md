@@ -1,7 +1,7 @@
 # ADR-0009: Kind 3189 Driver Ping Request with HMAC Auth
 
-**Date:** 2026-04-14  
-**Status:** Accepted  
+**Date:** 2026-04-14
+**Status:** Accepted
 **Issue:** #4 — Ping feature to notify offline drivers
 
 ## Context

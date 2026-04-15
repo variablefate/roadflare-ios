@@ -375,7 +375,7 @@ Expected: compile error — `driverPingRequest` not found on `RideshareEventBuil
 
 - [ ] **Step 2.3: Add `driverPingRequest` to RideshareEventBuilder.swift**
 
-Open `RidestrSDK/Sources/RidestrSDK/Nostr/RideshareEventBuilder.swift`. 
+Open `RidestrSDK/Sources/RidestrSDK/Nostr/RideshareEventBuilder.swift`.
 
 Add `import CryptoKit` at the top (after `import Foundation`):
 ```swift
@@ -789,7 +789,7 @@ This covers:
 
 - [ ] **Step 4.1: Add `onPing` callback and bell button to DriverCard**
 
-In `DriversTab.swift`, find the `DriverCard` struct definition. 
+In `DriversTab.swift`, find the `DriverCard` struct definition.
 
 First, add `@Environment(AppState.self)` and `onPing` to `DriverCard` (the environment access is needed to call `canPingDriver`):
 ```swift
@@ -1004,8 +1004,8 @@ Create `decisions/0009-driver-ping-kind-3189.md` with:
 ```markdown
 # ADR-0009: Kind 3189 Driver Ping Request with HMAC Auth
 
-**Date:** 2026-04-14  
-**Status:** Accepted  
+**Date:** 2026-04-14
+**Status:** Accepted
 **Issue:** #4 — Ping feature to notify offline drivers
 
 ## Context
