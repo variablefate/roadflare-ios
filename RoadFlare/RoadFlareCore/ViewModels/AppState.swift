@@ -13,10 +13,11 @@ public enum AuthState {
 }
 
 /// Result of a driver ping attempt.
-public enum DriverPingResult: Sendable {
+public enum DriverPingResult: Sendable, Equatable {
     case sent
     case rateLimited(retryAfter: Date)
     case missingKey          // Driver hasn't approved the follow yet
+    case ineligible          // Driver exists, but ping is currently not allowed
     case publishFailed(String)
 }
 
@@ -269,11 +270,34 @@ public final class AppState {
         return status != "online" && status != "on_ride"
     }
 
+    /// Shared preflight for send-time validation. Returns nil when the ping may proceed.
+    ///
+    /// This rechecks the same structural eligibility as the UI so a stale-key or presence
+    /// update that lands after the bell renders cannot still burn the rider's cooldown.
+    nonisolated static func driverPingPreflight(
+        driverPubkey: String,
+        using repo: FollowedDriversRepository
+    ) -> DriverPingResult? {
+        guard let driver = repo.getDriver(pubkey: driverPubkey) else { return .ineligible }
+        return driverPingPreflight(driver, using: repo)
+    }
+
+    nonisolated private static func driverPingPreflight(
+        _ driver: FollowedDriver,
+        using repo: FollowedDriversRepository
+    ) -> DriverPingResult? {
+        guard driver.hasKey else { return .missingKey }
+        guard canPingDriver(driver, using: repo) else { return .ineligible }
+        return nil
+    }
+
     /// Send Kind 3189 driver ping request to an offline driver.
     ///
     /// Enforces a 10-minute per-driver cooldown locally. Returns `.rateLimited` if the
     /// cooldown has not elapsed. Returns `.missingKey` if the driver has not shared their
-    /// RoadFlare key (ping cannot be authenticated without it). Returns `.sent` on success.
+    /// RoadFlare key (ping cannot be authenticated without it). Returns `.ineligible` if
+    /// the driver exists but is no longer pingable (for example stale key, online, or on a ride).
+    /// Returns `.sent` on success.
     ///
     /// Non-fatal publish failures return `.publishFailed` — the rider is informed but the app
     /// continues normally.
@@ -287,10 +311,19 @@ public final class AppState {
             }
         }
 
-        // 2. Require RoadFlare key (needed for HMAC auth)
-        guard let roadflareKey = driversRepository?.getRoadflareKey(driverPubkey: driverPubkey) else {
-            return .missingKey
+        // 2. Recheck structural eligibility at send time. The bell can remain visible briefly
+        // while async location or stale-key updates arrive; this keeps the actual send path
+        // aligned with the same source of truth the UI uses.
+        guard let repo = driversRepository else {
+            return .ineligible
         }
+        guard let driver = repo.getDriver(pubkey: driverPubkey) else {
+            return .ineligible
+        }
+        if let preflightFailure = Self.driverPingPreflight(driver, using: repo) {
+            return preflightFailure
+        }
+        let roadflareKey = driver.roadflareKey!
 
         // 3. Require rider identity
         guard let kp = keypair, let rm = relayManager,

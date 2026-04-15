@@ -146,6 +146,9 @@ struct DriversTab: View {
             case .missingKey:
                 pingToastMessage = "Can't ping \(name) right now"
                 pingToastIsError = true
+            case .ineligible:
+                pingToastMessage = "Can't ping \(name) right now"
+                pingToastIsError = true
             case .publishFailed:
                 pingToastMessage = "Couldn't send ping — check your connection"
                 pingToastIsError = true

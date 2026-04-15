@@ -56,3 +56,39 @@ struct CanPingDriverTests {
         #expect(AppState.canPingDriver(driver, using: repo) == true)
     }
 }
+
+@Suite("AppState.driverPingPreflight")
+struct DriverPingPreflightTests {
+
+    @Test func unknownDriver_returnsIneligible() {
+        let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
+        #expect(AppState.driverPingPreflight(driverPubkey: testPubkey, using: repo) == .ineligible)
+    }
+
+    @Test func missingKey_returnsMissingKey() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: nil)
+        let repo = makeRepo(driver: driver)
+        #expect(AppState.driverPingPreflight(driverPubkey: testPubkey, using: repo) == .missingKey)
+    }
+
+    @Test func staleKey_returnsIneligible() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        repo.markKeyStale(pubkey: testPubkey)
+        #expect(AppState.driverPingPreflight(driverPubkey: testPubkey, using: repo) == .ineligible)
+    }
+
+    @Test func online_returnsIneligible() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        _ = repo.updateDriverLocation(pubkey: testPubkey, latitude: 0, longitude: 0,
+                                      status: "online", timestamp: 1_000_000, keyVersion: 1)
+        #expect(AppState.driverPingPreflight(driverPubkey: testPubkey, using: repo) == .ineligible)
+    }
+
+    @Test func offlineWithCurrentKey_returnsNil() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        #expect(AppState.driverPingPreflight(driverPubkey: testPubkey, using: repo) == nil)
+    }
+}
