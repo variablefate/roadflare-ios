@@ -53,6 +53,7 @@ Prevents replay attacks — a captured ping event cannot be replayed outside the
 - `RidestrSDK/Sources/RidestrSDK/Nostr/EventKind.swift`
 - `RidestrSDK/Sources/RidestrSDK/Nostr/Constants.swift`
 - `RidestrSDK/Sources/RidestrSDK/Nostr/RideshareEventBuilder.swift`
+- `RidestrSDK/Sources/RidestrSDK/RoadFlare/DriverPingResult.swift`
 - `RidestrSDK/Sources/RidestrSDK/RoadFlare/FollowedDriversRepository.swift`
 - `RoadFlare/RoadFlareCore/ViewModels/AppState.swift`
 - `RoadFlare/RoadFlare/Views/Drivers/DriversTab.swift`

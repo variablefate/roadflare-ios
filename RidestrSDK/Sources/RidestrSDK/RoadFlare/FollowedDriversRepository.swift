@@ -158,12 +158,16 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     ///
     /// Independent of any sender-side cooldown — that layer lives in the app.
     public func canPingDriver(_ driver: FollowedDriver) -> Bool {
-        guard driver.hasKey else { return false }
-        return lock.withLock {
-            guard !staleKeyPubkeys.contains(driver.pubkey) else { return false }
-            let status = driverLocations[driver.pubkey]?.status
-            return status != "online" && status != "on_ride"
-        }
+        lock.withLock { driverPingPreflightLocked(driverPubkey: driver.pubkey) == nil }
+    }
+
+    /// Shared send-time validation for Kind 3189 driver pings.
+    ///
+    /// Returns `nil` when the ping may proceed. The lookup and eligibility check share the
+    /// same lock so a background sync cannot race the caller into observing different driver,
+    /// key-staleness, or location snapshots across separate reads.
+    public func driverPingPreflight(driverPubkey: String) -> DriverPingResult? {
+        lock.withLock { driverPingPreflightLocked(driverPubkey: driverPubkey) }
     }
 
     // MARK: - Driver Names
@@ -425,6 +429,17 @@ public final class FollowedDriversRepository: @unchecked Sendable {
             return incoming.version > existing.version ? .appliedNewer : .ignoredOlder
         }
         return .ignoredOlder
+    }
+
+    private func driverPingPreflightLocked(driverPubkey: String) -> DriverPingResult? {
+        guard let driver = drivers.first(where: { $0.pubkey == driverPubkey }) else {
+            return .ineligible
+        }
+        guard driver.hasKey else { return .missingKey }
+        guard !staleKeyPubkeys.contains(driver.pubkey) else { return .ineligible }
+        let status = driverLocations[driver.pubkey]?.status
+        guard status != "online" && status != "on_ride" else { return .ineligible }
+        return nil
     }
 }
 

@@ -12,15 +12,6 @@ public enum AuthState {
     case ready
 }
 
-/// Result of a driver ping attempt.
-public enum DriverPingResult: Sendable, Equatable {
-    case sent
-    case rateLimited(retryAfter: Date)
-    case missingKey          // Driver hasn't approved the follow yet
-    case ineligible          // Driver exists, but ping is currently not allowed
-    case publishFailed(String)
-}
-
 /// Central app state coordinator. Owns SDK services and manages auth lifecycle.
 ///
 /// Views access this via `@Environment(AppState.self)`. All sync orchestration
@@ -252,40 +243,9 @@ public final class AppState {
     /// Checks: has a current RoadFlare key, key is not stale, driver is not online,
     /// driver is not on a ride. Independent of the per-driver cooldown — use
     /// `sendDriverPing` for the full send-with-cooldown flow.
-    /// Delegates to the `nonisolated static` overload, which tests can call synchronously
-    /// without `await` or MainActor context.
     public func canPingDriver(_ driver: FollowedDriver) -> Bool {
         guard let repo = driversRepository else { return false }
-        return AppState.canPingDriver(driver, using: repo)
-    }
-
-    /// Thin wrapper kept for test ergonomics. The actual eligibility check lives in
-    /// `FollowedDriversRepository.canPingDriver(_:)` so composite reads across
-    /// `staleKeyPubkeys` and `driverLocations` take the repo lock atomically instead of
-    /// two unlocked property reads from an `@unchecked Sendable` type.
-    nonisolated static func canPingDriver(_ driver: FollowedDriver, using repo: FollowedDriversRepository) -> Bool {
-        repo.canPingDriver(driver)
-    }
-
-    /// Shared preflight for send-time validation. Returns nil when the ping may proceed.
-    ///
-    /// This rechecks the same structural eligibility as the UI so a stale-key or presence
-    /// update that lands after the bell renders cannot still burn the rider's cooldown.
-    nonisolated static func driverPingPreflight(
-        driverPubkey: String,
-        using repo: FollowedDriversRepository
-    ) -> DriverPingResult? {
-        guard let driver = repo.getDriver(pubkey: driverPubkey) else { return .ineligible }
-        return driverPingPreflight(driver, using: repo)
-    }
-
-    nonisolated private static func driverPingPreflight(
-        _ driver: FollowedDriver,
-        using repo: FollowedDriversRepository
-    ) -> DriverPingResult? {
-        guard driver.hasKey else { return .missingKey }
-        guard canPingDriver(driver, using: repo) else { return .ineligible }
-        return nil
+        return repo.canPingDriver(driver)
     }
 
     /// Send Kind 3189 driver ping request to an offline driver.
@@ -314,13 +274,12 @@ public final class AppState {
         guard let repo = driversRepository else {
             return .ineligible
         }
-        guard let driver = repo.getDriver(pubkey: driverPubkey) else {
-            return .ineligible
-        }
-        if let preflightFailure = Self.driverPingPreflight(driver, using: repo) {
+        if let preflightFailure = repo.driverPingPreflight(driverPubkey: driverPubkey) {
             return preflightFailure
         }
-        let roadflareKey = driver.roadflareKey!
+        guard let roadflareKey = repo.getRoadflareKey(driverPubkey: driverPubkey) else {
+            return .ineligible
+        }
 
         // 3. Require rider identity
         guard let kp = keypair, let rm = relayManager,
