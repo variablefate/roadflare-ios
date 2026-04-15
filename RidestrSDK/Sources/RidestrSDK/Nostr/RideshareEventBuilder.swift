@@ -555,9 +555,14 @@ public enum RideshareEventBuilder {
         // --- Content ---
         // NOTE: no "message" field — sender-controlled text must not be displayed.
         // The receiver builds its own notification body from riderName locally.
+        // Clip to 64 characters to match the Android receiver's parse-time
+        // sanitisation (`.take(64).filter { it >= ' ' }`) so a long profile name
+        // survives the wire round-trip unchanged instead of being silently truncated
+        // driver-side.
+        let truncatedRiderName = String(riderName.prefix(64))
         let contentDict: [String: Any] = [
             "action": "ping",
-            "riderName": riderName,
+            "riderName": truncatedRiderName,
             "timestamp": nowEpoch
         ]
         guard let json = try? JSONSerialization.data(withJSONObject: contentDict),
