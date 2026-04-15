@@ -51,9 +51,18 @@ struct RideRequestView: View {
                             Text("No Drivers Online")
                                 .font(RFFont.headline(20))
                                 .foregroundColor(Color.rfOnSurface)
-                            Text("Check back later.")
+                            Text("Check back later, or ping a driver to let them know you need a ride.")
                                 .font(RFFont.body(15))
                                 .foregroundColor(Color.rfOnSurfaceVariant)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                            if let repo = appState.driversRepository, repo.hasDrivers {
+                                Button("Ping a Driver") {
+                                    appState.selectedTab = 1
+                                }
+                                .buttonStyle(RFPrimaryButtonStyle())
+                                .padding(.horizontal, 48)
+                            }
                         }
                     } else {
                         // Available drivers
