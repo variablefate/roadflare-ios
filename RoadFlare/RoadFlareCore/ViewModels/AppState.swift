@@ -493,3 +493,22 @@ public final class AppState {
         bitcoinPrice.stop()
     }
 }
+
+#if DEBUG
+extension AppState {
+    /// Test seam for unit tests that exercise ping behavior without running full service setup.
+    func installDriverPingTestContext(
+        keypair: NostrKeypair? = nil,
+        relayManager: RelayManager? = nil,
+        driversRepository: FollowedDriversRepository? = nil
+    ) {
+        self.keypair = keypair
+        self.relayManager = relayManager
+        self.driversRepository = driversRepository
+    }
+
+    func primePingCooldownForTesting(driverPubkey: String, lastPing: Date) {
+        pingCooldowns[driverPubkey] = lastPing
+    }
+}
+#endif

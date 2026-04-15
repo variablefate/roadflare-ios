@@ -146,6 +146,16 @@ struct SavedLocationsRepositoryTests {
 
 @Suite("AppState Tests")
 struct AppStateTests {
+    private func makeRoadflareKey(version: Int = 1) throws -> RoadflareKey {
+        let keypair = try NostrKeypair.generate()
+        return RoadflareKey(
+            privateKeyHex: keypair.privateKeyHex,
+            publicKeyHex: keypair.publicKeyHex,
+            version: version,
+            keyUpdatedAt: version
+        )
+    }
+
     @MainActor
     @Test func localAuthStateRequiresRoadflareMethodsBeforeReady() {
         let appState = AppState()
@@ -204,6 +214,77 @@ struct AppStateTests {
         // Both coordinators/tracker should be released
         #expect(sync.profileBackupCoordinator == nil)
         #expect(sync.syncDomainTracker == nil)
+    }
+
+    @MainActor
+    @Test func sendDriverPing_returnsRateLimitedWhenCooldownActive() async {
+        let appState = AppState()
+        let driverPubkey = String(repeating: "a", count: 64)
+
+        appState.primePingCooldownForTesting(
+            driverPubkey: driverPubkey,
+            lastPing: Date.now.addingTimeInterval(-60)
+        )
+
+        let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
+        switch result {
+        case .rateLimited(let retryAfter):
+            #expect(retryAfter.timeIntervalSinceNow > 0)
+        default:
+            #expect(Bool(false))
+        }
+    }
+
+    @MainActor
+    @Test func sendDriverPing_passthroughsRepoPreflightFailures() async throws {
+        let appState = AppState()
+        let driverPubkey = String(repeating: "b", count: 64)
+        let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
+        repo.addDriver(FollowedDriver(pubkey: driverPubkey, name: "Bob", roadflareKey: nil))
+
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
+        #expect(result == .missingKey)
+    }
+
+    @MainActor
+    @Test func sendDriverPing_publishFailureRollsBackCooldown() async throws {
+        let appState = AppState()
+        let riderKeypair = try NostrKeypair.generate()
+        let driverIdentity = try NostrKeypair.generate()
+        let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
+        let relayManager = RelayManager(keypair: riderKeypair)
+        repo.addDriver(
+            FollowedDriver(
+                pubkey: driverIdentity.publicKeyHex,
+                name: "Bob",
+                roadflareKey: try makeRoadflareKey()
+            )
+        )
+
+        appState.settings.setProfileName("Alice")
+        appState.installDriverPingTestContext(
+            keypair: riderKeypair,
+            relayManager: relayManager,
+            driversRepository: repo
+        )
+
+        let first = await appState.sendDriverPing(driverPubkey: driverIdentity.publicKeyHex)
+        switch first {
+        case .publishFailed:
+            break
+        default:
+            #expect(Bool(false))
+        }
+
+        let second = await appState.sendDriverPing(driverPubkey: driverIdentity.publicKeyHex)
+        switch second {
+        case .publishFailed:
+            break
+        default:
+            #expect(Bool(false))
+        }
     }
 }
 
