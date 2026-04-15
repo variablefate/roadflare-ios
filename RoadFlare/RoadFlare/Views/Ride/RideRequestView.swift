@@ -56,7 +56,8 @@ struct RideRequestView: View {
                                 .foregroundColor(Color.rfOnSurfaceVariant)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
-                            if let repo = appState.driversRepository, repo.hasDrivers {
+                            if let repo = appState.driversRepository,
+                               repo.drivers.contains(where: { appState.canPingDriver($0) }) {
                                 Button("Ping a Driver") {
                                     appState.selectedTab = 1
                                 }

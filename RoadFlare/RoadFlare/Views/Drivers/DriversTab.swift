@@ -145,8 +145,8 @@ struct DriversTab: View {
                     pingToastMessage = "Wait \(remaining) min before pinging \(name) again"
                     pingToastIsError = true
                 case .missingKey:
-                    // Bell is hidden when no key — this shouldn't happen in practice
-                    break
+                    pingToastMessage = "Can't ping \(name) right now"
+                    pingToastIsError = true
                 case .publishFailed:
                     pingToastMessage = "Couldn't send ping — check your connection"
                     pingToastIsError = true
