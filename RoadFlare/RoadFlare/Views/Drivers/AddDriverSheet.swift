@@ -8,14 +8,12 @@ import RoadFlareCore
 struct AddDriverSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    @State private var pubkeyInput = ""
-    @State private var errorMessage: String?
+    @State private var lookupDraft = DriverLookupDraft()
     @State private var showScanner = false
 
     // Resolved driver state
     @State private var resolvedHexPubkey: String?
     @State private var resolvedProfile: UserProfileContent?
-    @State private var scannedName: String?  // From QR ?name= parameter
     @State private var isFetchingProfile = false
     @State private var noteInput = ""
 
@@ -113,7 +111,7 @@ struct AddDriverSheet: View {
                     .font(RFFont.caption())
                     .foregroundColor(Color.rfOnSurfaceVariant)
 
-                TextField("Paste npub or Account ID", text: $pubkeyInput)
+                TextField("Paste npub or Account ID", text: pubkeyInputBinding)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .font(RFFont.mono(14))
@@ -121,19 +119,16 @@ struct AddDriverSheet: View {
                     .background(Color.rfSurfaceContainerLow)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .foregroundColor(Color.rfOnSurface)
-                    .onChange(of: pubkeyInput) {
-                        errorMessage = nil
-                    }
                     .onSubmit { resolveInput() }
 
                 Button { resolveInput() } label: {
                     Text("Look Up Driver")
                 }
-                .buttonStyle(RFPrimaryButtonStyle(isDisabled: pubkeyInput.trimmingCharacters(in: .whitespaces).isEmpty))
-                .disabled(pubkeyInput.trimmingCharacters(in: .whitespaces).isEmpty || isFetchingProfile)
+                .buttonStyle(RFPrimaryButtonStyle(isDisabled: lookupDraft.pubkeyInput.trimmingCharacters(in: .whitespaces).isEmpty))
+                .disabled(lookupDraft.pubkeyInput.trimmingCharacters(in: .whitespaces).isEmpty || isFetchingProfile)
             }
 
-            if let error = errorMessage {
+            if let error = lookupDraft.errorMessage {
                 Text(error)
                     .font(RFFont.caption())
                     .foregroundColor(Color.rfError)
@@ -223,7 +218,8 @@ struct AddDriverSheet: View {
             Button {
                 resolvedHexPubkey = nil
                 resolvedProfile = nil
-                scannedName = nil
+                lookupDraft.errorMessage = nil
+                lookupDraft.scannedName = nil
                 noteInput = ""
             } label: {
                 Text("Look Up Different Driver")
@@ -243,10 +239,21 @@ struct AddDriverSheet: View {
         }
     }
 
+    private var pubkeyInputBinding: Binding<String> {
+        Binding(
+            get: { lookupDraft.pubkeyInput },
+            set: { newValue in
+                var updatedDraft = lookupDraft
+                updatedDraft.updatePubkeyInput(newValue)
+                lookupDraft = updatedDraft
+            }
+        )
+    }
+
     private var driverDisplayName: String {
         resolvedProfile?.displayName
             ?? resolvedProfile?.name
-            ?? scannedName
+            ?? lookupDraft.scannedName
             ?? "Unknown Driver"
     }
 
@@ -261,72 +268,15 @@ struct AddDriverSheet: View {
 
     private func handleScan(_ value: String) {
         showScanner = false
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Parse nostr: URI with optional ?name= parameter
-        // Format: nostr:npub1...?name=URL%20Encoded%20Name
-        var npubPart: String
-        var nameParam: String?
-
-        if trimmed.hasPrefix("nostr:") {
-            let withoutScheme = String(trimmed.dropFirst(6))
-            // Split on ? to extract query parameters
-            let parts = withoutScheme.split(separator: "?", maxSplits: 1)
-            npubPart = String(parts[0])
-            if parts.count > 1 {
-                nameParam = parseNameParam(String(parts[1]))
-            }
-        } else if trimmed.hasPrefix("npub1") {
-            let parts = trimmed.split(separator: "?", maxSplits: 1)
-            npubPart = String(parts[0])
-            if parts.count > 1 {
-                nameParam = parseNameParam(String(parts[1]))
-            }
-        } else if trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit) {
-            npubPart = trimmed
-        } else {
-            errorMessage = "QR code doesn't contain a valid Nostr public key"
-            return
-        }
-
-        scannedName = nameParam
-        pubkeyInput = npubPart
+        guard lookupDraft.applyScannedCode(value) != nil else { return }
         resolveInput()
-    }
-
-    /// Extract name= parameter from URL query string.
-    private func parseNameParam(_ query: String) -> String? {
-        let pairs = query.split(separator: "&")
-        for pair in pairs {
-            let kv = pair.split(separator: "=", maxSplits: 1)
-            if kv.count == 2 && kv[0] == "name" {
-                return String(kv[1]).removingPercentEncoding
-            }
-        }
-        return nil
     }
 
     // MARK: - Resolve Input
 
     private func resolveInput() {
-        let trimmed = pubkeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-
-        let hexPubkey: String
-        if trimmed.hasPrefix("npub1") {
-            guard let decoded = try? NIP19.npubDecode(trimmed) else {
-                errorMessage = "Invalid npub format"
-                return
-            }
-            hexPubkey = decoded
-        } else if trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit) {
-            hexPubkey = trimmed
-        } else {
-            errorMessage = "Enter a valid npub or 64-character hex key"
-            return
-        }
-
-        errorMessage = nil
+        guard let lookup = lookupDraft.resolveLookup() else { return }
+        let hexPubkey = lookup.hexPubkey
 
         // Fetch driver's Kind 0 profile from Nostr, then show the card
         isFetchingProfile = true
@@ -346,7 +296,7 @@ struct AddDriverSheet: View {
     // MARK: - Add Driver
 
     private func addDriver(hexPubkey: String) {
-        let name = resolvedProfile?.displayName ?? resolvedProfile?.name ?? scannedName
+        let name = resolvedProfile?.displayName ?? resolvedProfile?.name ?? lookupDraft.scannedName
         let driver = FollowedDriver(
             pubkey: hexPubkey,
             name: name,
