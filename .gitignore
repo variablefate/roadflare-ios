@@ -11,6 +11,7 @@ build/
 .build/
 .swiftpm/
 Package.resolved
+!RoadFlare/RoadFlare.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
 
 # macOS
 .DS_Store
