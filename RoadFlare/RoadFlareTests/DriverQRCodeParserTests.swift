@@ -32,6 +32,30 @@ struct DriverQRCodeParserTests {
         #expect(parsed == ParsedDriverQRCode(pubkeyInput: npub, scannedName: "Driver Dan"))
     }
 
+    @Test func parsesBareNpub() throws {
+        let npub = try makeNpub(hex: String(repeating: "d", count: 64))
+
+        let parsed = DriverQRCodeParser.parse(npub)
+
+        #expect(parsed == ParsedDriverQRCode(pubkeyInput: npub, scannedName: nil))
+    }
+
+    @Test func parsesBareNpubWithNameParameter() throws {
+        let npub = try makeNpub(hex: String(repeating: "e", count: 64))
+
+        let parsed = DriverQRCodeParser.parse("\(npub)?name=Speedy%20Steve")
+
+        #expect(parsed == ParsedDriverQRCode(pubkeyInput: npub, scannedName: "Speedy Steve"))
+    }
+
+    @Test func parsesHexPubkey() {
+        let hex = String(repeating: "f1", count: 32)
+
+        let parsed = DriverQRCodeParser.parse(hex)
+
+        #expect(parsed == ParsedDriverQRCode(pubkeyInput: hex, scannedName: nil))
+    }
+
     @Test func rejectsCodesWithoutNostrIdentifier() {
         #expect(DriverQRCodeParser.parse("https://roadflare.app/share/d/not-a-driver") == nil)
     }

@@ -6,6 +6,13 @@ public struct ParsedDriverQRCode: Equatable {
 }
 
 public enum DriverQRCodeParser {
+    /// Parse a driver identifier from any supported format.
+    ///
+    /// Accepted inputs:
+    /// - `nostr:npub1...` URI (with optional `?name=`)
+    /// - Bare `npub1...` key (with optional `?name=`)
+    /// - 64-character hex public key
+    /// - URL containing an embedded npub (e.g. `https://roadflare.app/share/d/npub1...`)
     public static func parse(_ rawValue: String) -> ParsedDriverQRCode? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -57,7 +64,7 @@ public enum DriverQRCodeParser {
     }
 
     private static func parseURLOrEmbeddedNpub(_ value: String) -> ParsedDriverQRCode? {
-        guard let npubRange = value.range(of: #"npub1[a-z0-9]{58,}"#, options: .regularExpression) else {
+        guard let npubRange = value.range(of: #"npub1[a-z0-9]{58}"#, options: .regularExpression) else {
             return nil
         }
 

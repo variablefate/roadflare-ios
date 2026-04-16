@@ -277,18 +277,24 @@ struct AddDriverSheet: View {
         let trimmed = pubkeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        guard let parsed = DriverQRCodeParser.parse(trimmed) else {
+            errorMessage = "Enter a valid npub, hex key, or driver share URL"
+            return
+        }
+
+        if scannedName == nil {
+            scannedName = parsed.scannedName
+        }
+
         let hexPubkey: String
-        if trimmed.hasPrefix("npub1") {
-            guard let decoded = try? NIP19.npubDecode(trimmed) else {
+        if parsed.pubkeyInput.hasPrefix("npub1") {
+            guard let decoded = try? NIP19.npubDecode(parsed.pubkeyInput) else {
                 errorMessage = "Invalid npub format"
                 return
             }
             hexPubkey = decoded
-        } else if trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit) {
-            hexPubkey = trimmed
         } else {
-            errorMessage = "Enter a valid npub or 64-character hex key"
-            return
+            hexPubkey = parsed.pubkeyInput
         }
 
         errorMessage = nil
