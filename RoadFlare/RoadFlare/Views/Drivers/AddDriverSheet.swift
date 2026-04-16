@@ -261,49 +261,14 @@ struct AddDriverSheet: View {
 
     private func handleScan(_ value: String) {
         showScanner = false
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Parse nostr: URI with optional ?name= parameter
-        // Format: nostr:npub1...?name=URL%20Encoded%20Name
-        var npubPart: String
-        var nameParam: String?
-
-        if trimmed.hasPrefix("nostr:") {
-            let withoutScheme = String(trimmed.dropFirst(6))
-            // Split on ? to extract query parameters
-            let parts = withoutScheme.split(separator: "?", maxSplits: 1)
-            npubPart = String(parts[0])
-            if parts.count > 1 {
-                nameParam = parseNameParam(String(parts[1]))
-            }
-        } else if trimmed.hasPrefix("npub1") {
-            let parts = trimmed.split(separator: "?", maxSplits: 1)
-            npubPart = String(parts[0])
-            if parts.count > 1 {
-                nameParam = parseNameParam(String(parts[1]))
-            }
-        } else if trimmed.count == 64 && trimmed.allSatisfy(\.isHexDigit) {
-            npubPart = trimmed
-        } else {
+        guard let parsed = DriverQRCodeParser.parse(value) else {
             errorMessage = "QR code doesn't contain a valid Nostr public key"
             return
         }
 
-        scannedName = nameParam
-        pubkeyInput = npubPart
+        scannedName = parsed.scannedName
+        pubkeyInput = parsed.pubkeyInput
         resolveInput()
-    }
-
-    /// Extract name= parameter from URL query string.
-    private func parseNameParam(_ query: String) -> String? {
-        let pairs = query.split(separator: "&")
-        for pair in pairs {
-            let kv = pair.split(separator: "=", maxSplits: 1)
-            if kv.count == 2 && kv[0] == "name" {
-                return String(kv[1]).removingPercentEncoding
-            }
-        }
-        return nil
     }
 
     // MARK: - Resolve Input
