@@ -123,6 +123,7 @@ struct AddDriverSheet: View {
                     .foregroundColor(Color.rfOnSurface)
                     .onChange(of: pubkeyInput) {
                         errorMessage = nil
+                        scannedName = nil
                     }
                     .onSubmit { resolveInput() }
 
@@ -282,9 +283,7 @@ struct AddDriverSheet: View {
             return
         }
 
-        if scannedName == nil {
-            scannedName = parsed.scannedName
-        }
+        scannedName = parsed.scannedName
 
         let hexPubkey: String
         if parsed.pubkeyInput.hasPrefix("npub1") {
