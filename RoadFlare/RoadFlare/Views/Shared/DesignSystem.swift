@@ -147,6 +147,46 @@ struct RFGhostButtonStyle: ButtonStyle {
     }
 }
 
+/// Destructive CTA button — solid red with white text. For prominent destructive
+/// actions like "Delete Account". Mirrors `RFPrimaryButtonStyle` shape and motion
+/// but uses `rfError` instead of the flare gradient.
+struct RFDestructiveButtonStyle: ButtonStyle {
+    var isDisabled = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(RFFont.title(18))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                isDisabled
+                    ? AnyShapeStyle(Color.rfSurfaceContainerHighest)
+                    : AnyShapeStyle(Color.rfError)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// Outlined destructive button — card surface with red text. For secondary
+/// destructive actions like "Delete All Ridestr Events" beside a primary
+/// destructive button. Matches the existing Log Out button pattern in Settings.
+struct RFDestructiveSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(RFFont.title(16))
+            .foregroundColor(Color.rfError)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(Color.rfSurfaceContainer)
+            .clipShape(RoundedRectangle(cornerRadius: 24))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(.easeInOut(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
 // MARK: - Card Modifier
 
 struct RFCardModifier: ViewModifier {
