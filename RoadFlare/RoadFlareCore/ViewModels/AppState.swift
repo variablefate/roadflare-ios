@@ -358,7 +358,10 @@ public final class AppState {
     ///
     /// Defensively reconnects the relay manager if its notification handler died
     /// (e.g. after backgrounding) so the scan doesn't silently return 0 events
-    /// because the WebSocket is dead.
+    /// because the WebSocket is dead. Uses `reconnectAndRestoreSession()` so any
+    /// live subscriptions (ride coordinator) are restored if the user cancels the
+    /// deletion flow — `reconnectIfNeeded()` alone tears down subscriptions without
+    /// restoring them.
     public func scanRelaysForDeletion() async throws -> RelayScanResult {
         guard let keypair, let relayManager else {
             throw AccountDeletionError.servicesNotReady
@@ -366,20 +369,28 @@ public final class AppState {
         guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
             throw AccountDeletionError.activeRideInProgress
         }
-        await relayManager.reconnectIfNeeded()
+        await reconnectAndRestoreSession()
         let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
         return await service.scanRelays()
     }
 
     /// Delete only RoadFlare events from relays, then clear local data and log out.
-    /// Logs publish failures via `AppLogger.auth.error` so they're visible in Console.app
-    /// — the user is logged out either way (they've committed to deletion), but the
-    /// failure is preserved diagnostically.
+    /// Logs publish failures via `AppLogger.auth.error` so they're visible in Console.app.
+    /// Re-checks active-ride state: the user could have started a ride between scan
+    /// and confirm (e.g. accepted an offer in another tab), and `logout()` → `clearAll()`
+    /// would otherwise tear down an active ride mid-flight.
     public func deleteRoadflareEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
         guard let keypair, let relayManager else {
             return RelayDeletionResult(
                 deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
                 publishedSuccessfully: false, publishError: "Services not ready"
+            )
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false,
+                publishError: "An active ride started during deletion — cancel it and try again."
             )
         }
         let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
@@ -394,12 +405,20 @@ public final class AppState {
     }
 
     /// Delete all Ridestr events (including Kind 0 metadata) from relays,
-    /// then clear local data and log out.
+    /// then clear local data and log out. Re-checks active-ride state for the same
+    /// reason as `deleteRoadflareEvents`.
     public func deleteAllRidestrEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
         guard let keypair, let relayManager else {
             return RelayDeletionResult(
                 deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
                 publishedSuccessfully: false, publishError: "Services not ready"
+            )
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false,
+                publishError: "An active ride started during deletion — cancel it and try again."
             )
         }
         let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)

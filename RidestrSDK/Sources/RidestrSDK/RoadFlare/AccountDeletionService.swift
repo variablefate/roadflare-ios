@@ -182,7 +182,10 @@ public final class AccountDeletionService: Sendable {
                 kinds: kinds,
                 keypair: keypair
             )
-            _ = try await relayManager.publish(deletionEvent)
+            // Use publishWithRetry: deletion is a critical, non-retryable operation
+            // once the user logs out (keypair is destroyed). Retry survives transient
+            // relay failures that a single publish would surface as permanent errors.
+            _ = try await relayManager.publishWithRetry(deletionEvent)
             return RelayDeletionResult(
                 deletedEventIds: eventIds,
                 targetRelayURLs: DefaultRelays.all,

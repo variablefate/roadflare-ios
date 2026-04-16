@@ -259,6 +259,10 @@ struct DeleteAccountResultsView: View {
     @State private var showRoadflareConfirm = false
     @State private var showFullDeleteSheet = false
     @State private var isDeleting = false
+    /// When deletion publish fails, the user is still logged out. The root view
+    /// tree swaps to the logged-out UI before this sheet can present an alert,
+    /// so we show a persistent banner here as well as logging to Console.app.
+    @State private var publishErrorMessage: String?
 
     var body: some View {
         ZStack {
@@ -267,6 +271,9 @@ struct DeleteAccountResultsView: View {
                 VStack(spacing: 24) {
                     header
                     scanSummaryCard
+                    if let publishErrorMessage {
+                        publishErrorBanner(publishErrorMessage)
+                    }
                     roadflareDeleteOption
                     fullDeleteOption
                     if isDeleting {
@@ -395,23 +402,49 @@ struct DeleteAccountResultsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
+    private func publishErrorBanner(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(Color.rfError)
+                Text("Deletion request failed")
+                    .font(RFFont.title(14))
+                    .foregroundColor(Color.rfOnSurface)
+            }
+            Text(message)
+                .font(RFFont.caption(12))
+                .foregroundColor(Color.rfOnSurfaceVariant)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.rfSurfaceContainer)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: Actions
 
     private func performRoadflareDeletion() async {
         isDeleting = true
         // defer guarantees the UI is unstuck if deletion ever stops short of logout
-        // (e.g. future code path that doesn't call logout). Today, logout() replaces
-        // the view tree before this defer fires; this is purely defensive.
+        // (e.g. publish failure or active-ride guard hit). On success, logout() replaces
+        // the view tree before this defer fires, so the reset is purely defensive.
         defer { isDeleting = false }
-        _ = await appState.deleteRoadflareEvents(from: scan)
-        // logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
-        // Publish failures are logged via AppLogger.auth.error in AppState (visible in Console.app).
+        let result = await appState.deleteRoadflareEvents(from: scan)
+        // On success: logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
+        // On failure: publish never succeeded; AppState still called logout() for RoadFlare-only deletion.
+        // The active-ride guard failure short-circuits before logout — keep the sheet visible with the error.
+        if !result.publishedSuccessfully, let err = result.publishError {
+            publishErrorMessage = err
+        }
     }
 
     private func performFullDeletion() async {
         isDeleting = true
         defer { isDeleting = false }
-        _ = await appState.deleteAllRidestrEvents(from: scan)
+        let result = await appState.deleteAllRidestrEvents(from: scan)
+        if !result.publishedSuccessfully, let err = result.publishError {
+            publishErrorMessage = err
+        }
     }
 }
 
