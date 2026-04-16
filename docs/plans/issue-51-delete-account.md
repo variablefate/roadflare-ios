@@ -143,6 +143,8 @@ struct AccountDeletionServiceTests {
 
         #expect(result.roadflareEvents.isEmpty)
         #expect(result.metadataEvents.isEmpty)
+        #expect(result.scanErrors.isEmpty)
+        #expect(result.hasErrors == false)
         #expect(result.targetRelayURLs == DefaultRelays.all)
         // Two queries: roadflare kinds + kind 0
         #expect(relay.fetchCalls.count == 2)
@@ -161,6 +163,44 @@ struct AccountDeletionServiceTests {
         // In production, each filter returns only matching events.
         #expect(!result.roadflareEvents.isEmpty)
         #expect(!result.metadataEvents.isEmpty)
+        #expect(result.scanErrors.isEmpty)
+    }
+
+    @Test func scan_fetchFailure_capturesErrorsRatherThanSilentEmpty() async throws {
+        // FakeRelayManager doesn't expose shouldFailFetch, but `disconnect()` causes
+        // RelayManager.fetchEvents to throw .notConnected in production. Here we
+        // simulate by making fetchEvents return events for one call and configuring
+        // a custom failing fake. For the SDK fake, treat lack of connection as the
+        // closest analog: the test verifies the contract that errors do propagate
+        // into scanErrors when fetch throws.
+        //
+        // Pragmatic test: build a one-off fake that throws.
+        final class ThrowingRelay: RelayManagerProtocol, @unchecked Sendable {
+            func connect(to relays: [URL]) async throws {}
+            func disconnect() async {}
+            func publish(_ event: NostrEvent) async throws -> String { event.id }
+            func subscribe(filter: NostrFilter, id: SubscriptionID) async throws -> AsyncStream<NostrEvent> {
+                AsyncStream { $0.finish() }
+            }
+            func unsubscribe(_ id: SubscriptionID) async {}
+            func fetchEvents(filter: NostrFilter, timeout: TimeInterval) async throws -> [NostrEvent] {
+                throw RidestrError.relay(.notConnected)
+            }
+            var isConnected: Bool { false }
+            func reconnectIfNeeded() async {}
+        }
+
+        let keypair = try NostrKeypair.generate()
+        let sut = AccountDeletionService(relayManager: ThrowingRelay(), keypair: keypair)
+
+        let result = await sut.scanRelays()
+
+        #expect(result.roadflareEvents.isEmpty)
+        #expect(result.metadataEvents.isEmpty)
+        #expect(result.hasErrors == true)
+        #expect(result.scanErrors.count == 2)  // both queries failed
+        #expect(result.scanErrors.contains { $0.contains("RoadFlare events query failed") })
+        #expect(result.scanErrors.contains { $0.contains("Nostr profile query failed") })
     }
 
     // MARK: - Delete RoadFlare events
@@ -170,6 +210,7 @@ struct AccountDeletionServiceTests {
         let scan = RelayScanResult(
             roadflareEvents: [],
             metadataEvents: [],
+            scanErrors: [],
             targetRelayURLs: DefaultRelays.all
         )
 
@@ -187,6 +228,7 @@ struct AccountDeletionServiceTests {
         let scan = RelayScanResult(
             roadflareEvents: [rfEvent],
             metadataEvents: [metaEvent],
+            scanErrors: [],
             targetRelayURLs: DefaultRelays.all
         )
 
@@ -211,6 +253,7 @@ struct AccountDeletionServiceTests {
         let scan = RelayScanResult(
             roadflareEvents: [rfEvent],
             metadataEvents: [metaEvent],
+            scanErrors: [],
             targetRelayURLs: DefaultRelays.all
         )
 
@@ -233,6 +276,7 @@ struct AccountDeletionServiceTests {
         let scan = RelayScanResult(
             roadflareEvents: [rfEvent],
             metadataEvents: [],
+            scanErrors: [],
             targetRelayURLs: DefaultRelays.all
         )
         relay.shouldFailPublish = true
@@ -302,12 +346,17 @@ public struct RelayScanResult: Sendable {
     public let roadflareEvents: [NostrEvent]
     /// Kind 0 metadata events found (shared Nostr identity, used by all apps).
     public let metadataEvents: [NostrEvent]
+    /// Human-readable error messages from queries that failed (relay unreachable,
+    /// timeout, etc.). When non-empty, the scan was incomplete — the caller should
+    /// warn the user before proceeding to deletion.
+    public let scanErrors: [String]
     /// Relay URLs that were scanned.
     public let targetRelayURLs: [URL]
 
     public var roadflareCount: Int { roadflareEvents.count }
     public var metadataCount: Int { metadataEvents.count }
     public var totalCount: Int { roadflareCount + metadataCount }
+    public var hasErrors: Bool { !scanErrors.isEmpty }
 }
 
 /// Result of a relay-side deletion pass.
@@ -367,6 +416,8 @@ public final class AccountDeletionService: Sendable {
 
     /// Query connected relays for all rider-authored events.
     /// Two queries: one for all 12 RoadFlare kinds, one for Kind 0 metadata.
+    /// Captures fetch errors in `RelayScanResult.scanErrors` so the caller can
+    /// warn the user when a query failed (rather than silently reporting 0 events).
     public func scanRelays() async -> RelayScanResult {
         let roadflareFilter = NostrFilter()
             .authors([keypair.publicKeyHex])
@@ -374,14 +425,19 @@ public final class AccountDeletionService: Sendable {
 
         let metadataFilter = NostrFilter.metadata(pubkeys: [keypair.publicKeyHex])
 
-        async let rfFetch = fetchSafe(filter: roadflareFilter)
-        async let metaFetch = fetchSafe(filter: metadataFilter)
+        async let rfFetch = fetchWithError(filter: roadflareFilter, label: "RoadFlare events")
+        async let metaFetch = fetchWithError(filter: metadataFilter, label: "Nostr profile")
 
-        let (rfEvents, metaEvents) = await (rfFetch, metaFetch)
+        let (rfResult, metaResult) = await (rfFetch, metaFetch)
+
+        var errors: [String] = []
+        if let err = rfResult.error { errors.append(err) }
+        if let err = metaResult.error { errors.append(err) }
 
         return RelayScanResult(
-            roadflareEvents: rfEvents,
-            metadataEvents: metaEvents,
+            roadflareEvents: rfResult.events,
+            metadataEvents: metaResult.events,
+            scanErrors: errors,
             targetRelayURLs: DefaultRelays.all
         )
     }
@@ -408,11 +464,16 @@ public final class AccountDeletionService: Sendable {
 
     // MARK: - Private
 
-    private func fetchSafe(filter: NostrFilter) async -> [NostrEvent] {
-        (try? await relayManager.fetchEvents(
-            filter: filter,
-            timeout: RelayConstants.eoseTimeoutSeconds
-        )) ?? []
+    private func fetchWithError(filter: NostrFilter, label: String) async -> (events: [NostrEvent], error: String?) {
+        do {
+            let events = try await relayManager.fetchEvents(
+                filter: filter,
+                timeout: RelayConstants.eoseTimeoutSeconds
+            )
+            return (events, nil)
+        } catch {
+            return ([], "\(label) query failed: \(error.localizedDescription)")
+        }
     }
 
     private func publishDeletion(eventIds: [String], kinds: [EventKind]) async -> RelayDeletionResult {
@@ -463,7 +524,7 @@ xcodebuild test \
   2>&1 | grep -E "Test.*passed|Test.*failed|Build Succeeded|Build FAILED|error:"
 ```
 
-Expected: all 9 tests pass.
+Expected: all 10 tests pass (includes the new scan-error path test).
 
 - [ ] **Step 1.5: Commit**
 
@@ -501,6 +562,10 @@ Then add the following methods inside `AppState`, after the closing `}` of `logo
 
 /// Scan relays for all rider-authored events. Returns categorised results.
 /// Call while still logged in (relay + keypair are live).
+///
+/// Defensively reconnects the relay manager if its notification handler died
+/// (e.g. after backgrounding) so the scan doesn't silently return 0 events
+/// because the WebSocket is dead.
 public func scanRelaysForDeletion() async throws -> RelayScanResult {
     guard let keypair, let relayManager else {
         throw AccountDeletionError.servicesNotReady
@@ -508,11 +573,15 @@ public func scanRelaysForDeletion() async throws -> RelayScanResult {
     guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
         throw AccountDeletionError.activeRideInProgress
     }
+    await relayManager.reconnectIfNeeded()
     let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
     return await service.scanRelays()
 }
 
 /// Delete only RoadFlare events from relays, then clear local data and log out.
+/// Logs publish failures via `AppLogger.auth.error` so they're visible in Console.app
+/// — the user is logged out either way (they've committed to deletion), but the
+/// failure is preserved diagnostically.
 public func deleteRoadflareEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
     guard let keypair, let relayManager else {
         return RelayDeletionResult(
@@ -522,6 +591,11 @@ public func deleteRoadflareEvents(from scan: RelayScanResult) async -> RelayDele
     }
     let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
     let result = await service.deleteRoadflareEvents(from: scan)
+    if !result.publishedSuccessfully {
+        AppLogger.auth.error(
+            "RoadFlare event deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
+        )
+    }
     await logout()
     return result
 }
@@ -537,12 +611,49 @@ public func deleteAllRidestrEvents(from scan: RelayScanResult) async -> RelayDel
     }
     let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
     let result = await service.deleteAllRidestrEvents(from: scan)
+    if !result.publishedSuccessfully {
+        AppLogger.auth.error(
+            "Full Ridestr event deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
+        )
+    }
     await logout()
     return result
 }
 ```
 
-- [ ] **Step 2.2: Build the full project**
+- [ ] **Step 2.2: Add AppState guard tests**
+
+Append the following to the existing `AppStateTests` suite in `RoadFlare/RoadFlareTests/RoadFlareTests.swift` (the suite starts at line 147):
+
+```swift
+    @MainActor
+    @Test func scanRelaysForDeletion_throwsServicesNotReady_whenNotLoggedIn() async throws {
+        let appState = AppState()
+        // Fresh AppState has nil keypair and nil relayManager.
+
+        await #expect(throws: AccountDeletionError.servicesNotReady) {
+            try await appState.scanRelaysForDeletion()
+        }
+    }
+
+    @MainActor
+    @Test func deleteRoadflareEvents_returnsServicesNotReady_whenNotLoggedIn() async throws {
+        let appState = AppState()
+        let scan = RelayScanResult(
+            roadflareEvents: [], metadataEvents: [],
+            scanErrors: [], targetRelayURLs: DefaultRelays.all
+        )
+
+        let result = await appState.deleteRoadflareEvents(from: scan)
+
+        #expect(result.publishedSuccessfully == false)
+        #expect(result.publishError == "Services not ready")
+    }
+```
+
+The mid-ride guard (`activeRideInProgress`) is not unit-tested here because it requires constructing a `RideCoordinator` with an active session — too heavy for a unit test. The guard logic is a single `if` against a public property and is covered by the integration test scenario in the acceptance criteria.
+
+- [ ] **Step 2.3: Build the full project and run AppState tests**
 
 ```bash
 cd ~/Documents/Projects/roadflare-ios-issue-51
@@ -551,15 +662,24 @@ xcodebuild build \
   -scheme RoadFlare \
   -destination 'platform=iOS Simulator,name=iPhone 16' \
   2>&1 | grep -E "error:|Build Succeeded|Build FAILED"
+
+xcodebuild test \
+  -workspace RoadFlare.xcworkspace \
+  -scheme RoadFlare \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -only-testing:RoadFlareTests/AppStateTests \
+  2>&1 | grep -E "Test.*passed|Test.*failed|Build Succeeded|Build FAILED|error:"
 ```
 
-Expected: `Build Succeeded`
+Expected: `Build Succeeded` and all AppState tests pass.
 
-- [ ] **Step 2.3: Commit**
+- [ ] **Step 2.4: Commit**
 
 ```bash
 cd ~/Documents/Projects/roadflare-ios-issue-51
-git add RoadFlare/RoadFlareCore/ViewModels/AppState.swift
+git add \
+  RoadFlare/RoadFlareCore/ViewModels/AppState.swift \
+  RoadFlare/RoadFlareTests/RoadFlareTests.swift
 git commit -m "feat: add relay scan and two-tier account deletion to AppState"
 ```
 
@@ -684,20 +804,48 @@ struct DeleteAccountScanView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16))
 
                     case .complete(let scan):
-                        NavigationLink {
-                            DeleteAccountResultsView(scan: scan)
-                        } label: {
-                            HStack {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundColor(Color.rfOnline)
-                                Text("Continue — \(scan.totalCount) event\(scan.totalCount == 1 ? "" : "s") found")
-                                    .font(RFFont.body(16).bold())
+                        VStack(spacing: 12) {
+                            // Surface scan errors honestly — a silent "0 events"
+                            // when relays were unreachable would mislead the user.
+                            if scan.hasErrors {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(Color.rfError)
+                                        Text("Scan incomplete")
+                                            .font(RFFont.title(14))
+                                            .foregroundColor(Color.rfOnSurface)
+                                    }
+                                    ForEach(scan.scanErrors, id: \.self) { err in
+                                        Text(err)
+                                            .font(RFFont.caption(12))
+                                            .foregroundColor(Color.rfOnSurfaceVariant)
+                                    }
+                                    Text("You can still continue, but events on unreachable relays may not be deleted.")
+                                        .font(RFFont.caption(12))
+                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.rfSurfaceContainer)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Color.rfError)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                            NavigationLink {
+                                DeleteAccountResultsView(scan: scan)
+                            } label: {
+                                HStack {
+                                    Image(systemName: scan.hasErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                                        .foregroundColor(scan.hasErrors ? Color.rfError : Color.rfOnline)
+                                    Text("Continue — \(scan.totalCount) event\(scan.totalCount == 1 ? "" : "s") found")
+                                        .font(RFFont.body(16).bold())
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(Color.rfError)
+                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                            }
                         }
 
                     case .failed:
@@ -750,10 +898,13 @@ struct DeleteAccountScanView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.rfSurface, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                if case .scanning = phase {
-                    // Hide during active scan
-                } else {
+            // @ToolbarContentBuilder supports if/else (iOS 16+); cleaner than
+            // a conditional inside a single ToolbarItem (which would reserve
+            // a phantom slot when the inner content is EmptyView).
+            if case .scanning = phase {
+                // No toolbar item during active scan — prevents accidental cancel.
+            } else {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .foregroundColor(Color.rfOnSurfaceVariant)
                 }
@@ -823,9 +974,18 @@ struct DeleteAccountResultsView: View {
                                 .font(RFFont.title(15))
                                 .foregroundColor(Color.rfOnSurface)
                         }
-                        Text("Found **\(scan.roadflareCount)** RoadFlare event\(scan.roadflareCount == 1 ? "" : "s") and **\(scan.metadataCount)** Nostr profile event\(scan.metadataCount == 1 ? "" : "s") across \(scan.targetRelayURLs.count) relays.")
-                            .font(RFFont.body(14))
-                            .foregroundColor(Color.rfOnSurfaceVariant)
+                        // Use Text concatenation rather than markdown in interpolation —
+                        // SwiftUI's markdown-via-LocalizedStringKey behaviour with
+                        // \() interpolation is unreliable; concatenation is guaranteed.
+                        (
+                            Text("Found ")
+                            + Text("\(scan.roadflareCount)").bold().foregroundColor(Color.rfOnSurface)
+                            + Text(" RoadFlare event\(scan.roadflareCount == 1 ? "" : "s") and ")
+                            + Text("\(scan.metadataCount)").bold().foregroundColor(Color.rfOnSurface)
+                            + Text(" Nostr profile event\(scan.metadataCount == 1 ? "" : "s") across \(scan.targetRelayURLs.count) relays.")
+                        )
+                        .font(RFFont.body(14))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -929,14 +1089,20 @@ struct DeleteAccountResultsView: View {
 
     private func performRoadflareDeletion() async {
         isDeleting = true
+        // defer guarantees the UI is unstuck if deletion ever stops short of logout
+        // (e.g. future code path that doesn't call logout). Today, logout() replaces
+        // the view tree before this defer fires; this is purely defensive.
+        defer { isDeleting = false }
         _ = await appState.deleteRoadflareEvents(from: scan)
-        // logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed
+        // logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
+        // Publish failures are logged via AppLogger.auth.error in AppState (visible in Console.app).
     }
 
     private func performFullDeletion() async {
         isDeleting = true
+        defer { isDeleting = false }
         _ = await appState.deleteAllRidestrEvents(from: scan)
-        // logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed
+        // logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
     }
 }
 
@@ -1149,7 +1315,13 @@ git commit -m "feat(ui): wire Delete Account into Settings tab"
 If the scan finds 0 events (new account, never published), the Continue button shows "0 events found" and Page 2's buttons still work — `deleteRoadflareEvents` with empty scan returns `publishedSuccessfully: true` and proceeds to `logout()`.
 
 ### Relay connection lost after scan
-If the relay disconnects between scan and delete, `publish()` throws and the `RelayDeletionResult.publishError` captures it. The deletion methods still call `logout()` to complete local cleanup — the user has already committed to deleting.
+If the relay disconnects between scan and delete, `publish()` throws and the `RelayDeletionResult.publishError` captures it. AppState logs the failure via `AppLogger.auth.error` (visible in Console.app for diagnostics) and still calls `logout()` to complete local cleanup — the user has already committed to deleting.
+
+### Relay connection dead before scan (backgrounded app)
+`scanRelaysForDeletion()` calls `await relayManager.reconnectIfNeeded()` before scanning. This handles the case where the WebSocket died while the app was backgrounded — without this, `fetchEvents` would silently throw and the user would see "0 events found" wrongly.
+
+### Scan errors surfaced to user
+If a relay query throws (e.g. timeout, connection refused), the error is captured in `RelayScanResult.scanErrors` rather than silently dropped. Page 1 displays a "Scan incomplete" warning above the Continue button. The user can still proceed but is informed that some events may not be deleted. This prevents the "I confidently deleted my account but my events are still on relays" footgun.
 
 ### Deletion is best-effort
 NIP-09 Kind 5 is advisory. The "About Nostr & Account Deletion" explainer sets expectations. Page 2's button descriptions reinforce this ("Removes... from relays" / "requests deletion").
@@ -1172,6 +1344,8 @@ Intentionally NOT cleared (same as logout). Prevents stale-key detection on next
 - [ ] Page 1 shows relay list and a collapsible "About Nostr & Account Deletion" explainer
 - [ ] Page 1 "Scan Relays" queries all 12 Ridestr kinds + Kind 0 and shows progress
 - [ ] Page 1 shows event count and enables Continue after scan completes
+- [ ] Page 1 surfaces scan errors in a warning banner when relays were unreachable (not silent 0)
+- [ ] Page 1 calls `reconnectIfNeeded()` before scanning to handle dead background WebSockets
 - [ ] Page 1 Cancel button is always visible except during scan
 - [ ] Page 2 shows scan result summary (RoadFlare events + metadata events)
 - [ ] Page 2 "Delete RoadFlare Events" shows simple "are you sure?" confirmation
@@ -1180,7 +1354,10 @@ Intentionally NOT cleared (same as logout). Prevents stale-key detection on next
 - [ ] RoadFlare deletion targets only the 12 Ridestr kinds (not Kind 0)
 - [ ] Full deletion targets all 12 + Kind 0 metadata
 - [ ] Both options clear all local data and return app to onboarding after relay deletion
+- [ ] Publish failures are logged via `AppLogger.auth.error` for diagnostic visibility
 - [ ] Mid-ride: scan fails with a clear error message
+- [ ] Not-logged-in: `scanRelaysForDeletion()` throws `servicesNotReady` (covered by AppState test)
 - [ ] Page 2 back button navigates to scan results; hidden during deletion
-- [ ] All SDK tests pass
+- [ ] All SDK tests pass (10 tests including scan-error path)
+- [ ] AppState tests pass (2 new tests for deletion guards)
 - [ ] Full Xcode project builds clean (`xcodebuild build`)
