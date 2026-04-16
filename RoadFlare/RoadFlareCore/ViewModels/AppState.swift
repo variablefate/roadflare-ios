@@ -226,6 +226,12 @@ public final class AppState {
         } catch {
             // Non-fatal — Kind 30011 p-tags are the real source of truth
         }
+        // Restart the key share subscription so the relay re-delivers any Kind 3186
+        // the driver sends in response to this follow notification. The long-lived
+        // subscription from app launch may miss new events on some relays; a fresh
+        // subscription forces re-delivery of both historical (12-hour window) and
+        // future key share events. See issue #54.
+        rideCoordinator?.startKeyShareSubscription()
     }
 
     // MARK: - Driver Ping
