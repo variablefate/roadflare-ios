@@ -61,10 +61,14 @@ public struct SavedLocationRow: Equatable, Sendable, Identifiable {
         locations.filter(\.isPinned).map { from($0) }
     }
 
-    /// Build rows for the recents section (up to `limit` items).
+    /// Build rows for the recents section (up to `limit` most-recent items).
+    ///
+    /// Sorts by `SavedLocation.timestampMs` descending so the newest visits
+    /// appear first regardless of the input array's order.
     public static func recents(from locations: [SavedLocation], limit: Int = 5) -> [SavedLocationRow] {
         locations
             .filter { !$0.isPinned }
+            .sorted { $0.timestampMs > $1.timestampMs }
             .prefix(limit)
             .map { from($0) }
     }

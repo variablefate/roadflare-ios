@@ -54,11 +54,16 @@ public struct RideHistoryRow: Equatable, Sendable, Identifiable {
     /// Project a `RideHistoryEntry` into a display-ready row.
     public static func from(_ entry: RideHistoryEntry) -> RideHistoryRow {
         let fareLabel: String
-        let fareDouble = NSDecimalNumber(decimal: entry.fare).doubleValue
-        if fareDouble == 0 {
+        if entry.fare == 0 {
             fareLabel = "–"
         } else {
-            fareLabel = String(format: "$%.2f", fareDouble)
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .currency
+            formatter.currencyCode = "USD"
+            formatter.locale = Locale(identifier: "en_US")
+            formatter.maximumFractionDigits = 2
+            formatter.minimumFractionDigits = 2
+            fareLabel = formatter.string(from: entry.fare as NSDecimalNumber) ?? "$\(entry.fare)"
         }
 
         let distanceLabel = entry.distance.map { String(format: "%.1f mi", $0) }
