@@ -17,10 +17,10 @@ public struct DriverDetailViewState: Equatable, Sendable {
 
     // MARK: - Status
 
-    /// Human-readable status label: "Available", "On a ride", "Offline", "Pending approval".
+    /// Human-readable status label: "Available", "On a ride", "Offline", "Pending approval", "Key outdated".
     public let statusLabel: String
 
-    /// Whether the "Request Ride" button should be shown (driver is online and has a key).
+    /// Whether the "Request Ride" button should be shown (driver is online, has a key, and the key is not stale).
     public let canRequestRide: Bool
 
     // MARK: - Driver Info section
@@ -56,25 +56,29 @@ public struct DriverDetailViewState: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - driver: The canonical driver model (should be the freshest copy from the repo).
-    ///   - displayName: Best-available name already resolved by the repository.
+    ///   - displayName: Display name from the repository if known; the factory falls back to driver.name then a short pubkey prefix.
     ///   - location: The driver's latest cached location broadcast, if any.
     ///   - profile: The driver's cached Kind 0 profile, if available.
+    ///   - isKeyStale: Whether this driver's key has been flagged as stale.
     ///   - referenceDate: Used for relative timestamp formatting (injectable for testing).
     public static func from(
         _ driver: FollowedDriver,
         displayName: String?,
         location: CachedDriverLocation?,
         profile: UserProfileContent?,
+        isKeyStale: Bool,
         referenceDate: Date = .now
     ) -> DriverDetailViewState {
         let resolvedName = displayName
             ?? driver.name
             ?? (String(driver.pubkey.prefix(8)) + "...")
 
-        let canRequestRide = driver.hasKey && location?.status == "online"
+        let canRequestRide = driver.hasKey && !isKeyStale && location?.status == "online"
 
         let statusLabel: String
-        if !driver.hasKey {
+        if isKeyStale {
+            statusLabel = "Key outdated"
+        } else if !driver.hasKey {
             statusLabel = "Pending approval"
         } else if let loc = location {
             switch loc.status {
