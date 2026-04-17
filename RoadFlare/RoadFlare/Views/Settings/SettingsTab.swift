@@ -9,6 +9,7 @@ struct SettingsTab: View {
     @State private var showLogoutConfirm = false
     @State private var showEditProfile = false
     @State private var showConnectivity = false
+    @State private var showDeleteAccount = false
 
     var body: some View {
         NavigationStack {
@@ -170,15 +171,17 @@ struct SettingsTab: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                         }
 
-                        // Logout
-                        Button { showLogoutConfirm = true } label: {
-                            Text("Log Out")
-                                .font(RFFont.body(15))
-                                .foregroundColor(Color.rfError)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(Color.rfSurfaceContainer)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
+                        // Logout & Delete Account — destructive actions stack
+                        VStack(spacing: 12) {
+                            Button { showLogoutConfirm = true } label: {
+                                Text("Log Out")
+                            }
+                            .buttonStyle(RFDestructiveSecondaryButtonStyle())
+
+                            Button { showDeleteAccount = true } label: {
+                                Text("Delete Account")
+                            }
+                            .buttonStyle(RFDestructiveSecondaryButtonStyle())
                         }
                     }
                     .padding(.horizontal, 16)
@@ -193,6 +196,7 @@ struct SettingsTab: View {
             .sheet(isPresented: $showEditProfile) {
                 EditProfileSheet()
             }
+            .sheet(isPresented: $showDeleteAccount) { DeleteAccountSheet() }
             .alert("Log Out?", isPresented: $showLogoutConfirm) {
                 Button("Log Out", role: .destructive) { Task { await appState.logout() } }
                 Button("Cancel", role: .cancel) {}

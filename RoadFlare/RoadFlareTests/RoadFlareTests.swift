@@ -286,6 +286,32 @@ struct AppStateTests {
             #expect(Bool(false))
         }
     }
+
+    // MARK: - Account Deletion
+
+    @MainActor
+    @Test func scanRelaysForDeletion_throwsServicesNotReady_whenNotLoggedIn() async throws {
+        let appState = AppState()
+        // Fresh AppState has nil keypair and nil relayManager.
+
+        await #expect(throws: AccountDeletionError.servicesNotReady) {
+            try await appState.scanRelaysForDeletion()
+        }
+    }
+
+    @MainActor
+    @Test func deleteRoadflareEvents_returnsServicesNotReady_whenNotLoggedIn() async throws {
+        let appState = AppState()
+        let scan = RelayScanResult(
+            roadflareEvents: [], metadataEvents: [],
+            scanErrors: [], targetRelayURLs: DefaultRelays.all
+        )
+
+        let result = await appState.deleteRoadflareEvents(from: scan)
+
+        #expect(result.publishedSuccessfully == false)
+        #expect(result.publishError == "Services not ready")
+    }
 }
 
 // MARK: - UserDefaultsDriversPersistence Tests

@@ -12,6 +12,12 @@ public enum AuthState {
     case ready
 }
 
+/// Reasons account deletion can fail before contacting relays.
+public enum AccountDeletionError: Error, Equatable {
+    case servicesNotReady
+    case activeRideInProgress
+}
+
 /// Central app state coordinator. Owns SDK services and manages auth lifecycle.
 ///
 /// Views access this via `@Environment(AppState.self)`. All sync orchestration
@@ -349,6 +355,148 @@ public final class AppState {
         try? await keyManager?.deleteKeys()
         keypair = nil
         authState = .loggedOut
+    }
+
+    // MARK: - Account Deletion
+
+    /// Scan relays for all rider-authored events. Returns categorised results.
+    /// Call while still logged in (relay + keypair are live).
+    ///
+    /// Defensively reconnects the relay manager if its notification handler died
+    /// (e.g. after backgrounding) so the scan doesn't silently return 0 events
+    /// because the WebSocket is dead. Restores live ride subscriptions (so they
+    /// survive the user cancelling the sheet) but deliberately skips
+    /// `flushPendingSyncPublishes`: flushing here would push dirty profile/drivers/
+    /// history state to relays right before the user asks to delete everything,
+    /// wasting relay traffic and risking a race where freshly-flushed events
+    /// aren't indexed in time for the scan query — orphaning them on relays
+    /// after the keypair is destroyed.
+    public func scanRelaysForDeletion() async throws -> RelayScanResult {
+        guard let keypair, let relayManager else {
+            throw AccountDeletionError.servicesNotReady
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            throw AccountDeletionError.activeRideInProgress
+        }
+        await relayManager.reconnectIfNeeded()
+        if await relayManager.isConnected {
+            await rideCoordinator?.restoreLiveSubscriptions()
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        return await service.scanRelays()
+    }
+
+    /// Delete only RoadFlare events from relays, then clear local data and log out.
+    /// Logs publish failures via `AppLogger.auth.error` so they're visible in Console.app.
+    /// Re-checks active-ride state: the user could have started a ride between scan
+    /// and confirm (e.g. accepted an offer in another tab), and `logout()` → `clearAll()`
+    /// would otherwise tear down an active ride mid-flight.
+    ///
+    /// Only calls `logout()` when the Kind 5 publish succeeds — logging out on
+    /// publish failure would destroy the keypair before the user sees the error,
+    /// leaving their events stranded on relays with no way to retry from this
+    /// device. On failure the caller must surface the error and let the user retry
+    /// or abandon the flow; the local session stays intact until then.
+    public func deleteRoadflareEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
+        guard let keypair, let relayManager else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false, publishError: "Services not ready"
+            )
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false,
+                publishError: "An active ride started during deletion — cancel it and try again."
+            )
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        let result = await service.deleteRoadflareEvents(from: scan)
+        if result.publishedSuccessfully {
+            await logout()
+        } else {
+            AppLogger.auth.error(
+                "RoadFlare event deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
+            )
+        }
+        return result
+    }
+
+    /// Delete all Ridestr events (including Kind 0 metadata) from relays,
+    /// then clear local data and log out. Re-checks active-ride state for the same
+    /// reason as `deleteRoadflareEvents`, and only logs out on publish success —
+    /// see `deleteRoadflareEvents` for the keypair-preservation rationale.
+    public func deleteAllRidestrEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
+        guard let keypair, let relayManager else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false, publishError: "Services not ready"
+            )
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false,
+                publishError: "An active ride started during deletion — cancel it and try again."
+            )
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        let result = await service.deleteAllRidestrEvents(from: scan)
+        if result.publishedSuccessfully {
+            await logout()
+        } else {
+            AppLogger.auth.error(
+                "Full Ridestr event deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
+            )
+        }
+        return result
+    }
+
+    /// Publish the Kind 5 account deletion event for all Ridestr events + Kind 0.
+    /// Unlike `deleteAllRidestrEvents`, this DOES NOT call `logout()` on success —
+    /// the caller is responsible for invoking `logout()` after the user confirms
+    /// a post-publish verification step. This lets the UI show a verification
+    /// screen (re-scans relays to confirm deletion was honoured) before the
+    /// keypair is destroyed.
+    public func publishAccountDeletion(from scan: RelayScanResult) async -> RelayDeletionResult {
+        guard let keypair, let relayManager else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false, publishError: "Services not ready"
+            )
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false,
+                publishError: "An active ride started during deletion — cancel it and try again."
+            )
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        let result = await service.deleteAllRidestrEvents(from: scan)
+        if !result.publishedSuccessfully {
+            AppLogger.auth.error(
+                "Account deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
+            )
+        }
+        return result
+    }
+
+    /// Re-scan relays for the given event IDs to verify how many were honoured.
+    /// Intended to run after `publishAccountDeletion` returns successfully and
+    /// before the user confirms the final logout. The keypair + relay manager
+    /// must still be live when this is called.
+    public func verifyAccountDeletion(eventIds: [String]) async -> DeletionVerificationResult {
+        guard let keypair, let relayManager else {
+            return DeletionVerificationResult(
+                requestedCount: eventIds.count,
+                remainingCount: eventIds.count,
+                scanErrors: ["Services not ready"]
+            )
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        return await service.verifyDeletion(targetEventIds: eventIds)
     }
 
     // MARK: - Service Setup
