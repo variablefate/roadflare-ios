@@ -5,11 +5,11 @@ import RoadFlareCore
 struct DriversTab: View {
     @Environment(AppState.self) private var appState
     @State private var showAddDriver = false
-    @State private var selectedDriver: FollowedDriver?
+    @State private var selectedDriver: DriverListItem?
     @State private var showProfile = false
     @State private var showConnectivity = false
     @State private var isOffline = false
-    @State private var sharingDriver: FollowedDriver?
+    @State private var sharingDriver: DriverListItem?
     @State private var pingToastMessage: String?
     @State private var pingToastIsError = false
 
@@ -24,18 +24,17 @@ struct DriversTab: View {
                     if appState.hasFollowedDrivers {
                     ScrollView {
                         VStack(spacing: 16) {
-                            // Sorted: online first, then on_ride, then offline
-                            ForEach(sortedDrivers) { driver in
+                            ForEach(appState.driverListItems()) { item in
                                 DriverCard(
-                                    driver: driver,
+                                    item: item,
                                     onRequest: {
-                                        appState.requestRideDriverPubkey = driver.pubkey
-                                        appState.selectedTab = 0  // RoadFlare tab
+                                        appState.requestRideDriverPubkey = item.pubkey
+                                        appState.selectedTab = 0
                                     },
-                                    onShare: { shareDriver(driver) },
-                                    onPing: { pingDriver(driver) },
-                                    onDelete: { appState.removeDriver(pubkey: driver.pubkey) },
-                                    onTap: { selectedDriver = driver }
+                                    onShare: { sharingDriver = item },
+                                    onPing: { pingDriver(item) },
+                                    onDelete: { appState.removeDriver(pubkey: item.pubkey) },
+                                    onTap: { selectedDriver = item }
                                 )
                             }
 
@@ -98,13 +97,18 @@ struct DriversTab: View {
             .navigationBarHidden(true)
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
-            .sheet(item: $selectedDriver) { driver in DriverDetailSheet(driver: driver) }
+            .sheet(item: $selectedDriver) { item in DriverDetailSheet(pubkey: item.pubkey) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
-            .sheet(item: $sharingDriver) { driver in
+            .sheet(item: $sharingDriver) { item in
+                // Pass the raw cached name (nil when unresolved) rather than
+                // item.displayName. DriverListItem.displayName falls back to a
+                // "<pubkey-prefix>..." string, which the share sheet would URL-
+                // encode into the `?name=` deeplink param — surfacing the pubkey
+                // prefix as a "name" on the scanning rider's side.
                 DriverShareSheet(
-                    driver: driver,
-                    driverName: appState.driverDisplayName(pubkey: driver.pubkey) ?? driver.name,
-                    driverProfile: appState.driverProfile(pubkey: driver.pubkey)
+                    pubkey: item.pubkey,
+                    driverName: appState.driverDisplayName(pubkey: item.pubkey),
+                    pictureURL: item.pictureURL
                 )
             }
             .refreshable {
@@ -120,19 +124,11 @@ struct DriversTab: View {
         }
     }
 
-    private func shareDriver(_ driver: FollowedDriver) {
-        sharingDriver = driver
-    }
-
-    private func pingDriver(_ driver: FollowedDriver) {
-        // Capture pubkey as a plain String (Sendable) before the task boundary so
-        // `driver` (a struct that may not be Sendable) doesn't need to cross the
-        // isolation boundary.
-        let driverPubkey = driver.pubkey
+    private func pingDriver(_ item: DriverListItem) {
+        let driverPubkey = item.pubkey
+        let name = item.displayName
         Task {
             let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
-            let name = appState.driverDisplayName(pubkey: driverPubkey)
-                ?? String(driverPubkey.prefix(8)) + "..."
             switch result {
             case .sent:
                 pingToastMessage = "Ping sent to \(name)"
@@ -158,58 +154,33 @@ struct DriversTab: View {
         appState.refreshDriverLocations()
         await appState.checkForStaleDriverKeys()
     }
-
-    /// Sort drivers: online first, then on_ride, then pending, then offline.
-    private var sortedDrivers: [FollowedDriver] {
-        appState.followedDrivers.sorted { a, b in
-            driverSortOrder(a) < driverSortOrder(b)
-        }
-    }
-
-    private func driverSortOrder(_ driver: FollowedDriver) -> Int {
-        guard driver.hasKey else { return 3 }  // Pending approval
-        guard let loc = appState.driverLocation(pubkey: driver.pubkey) else { return 4 }  // Offline (no location)
-        switch loc.status {
-        case "online": return 0
-        case "on_ride": return 1
-        default: return 4
-        }
-    }
 }
 
 // MARK: - Driver Card
 
 struct DriverCard: View {
-    @Environment(AppState.self) private var appState
-    let driver: FollowedDriver
+    let item: DriverListItem
     let onRequest: () -> Void
     let onShare: () -> Void
     let onPing: () -> Void
     let onDelete: () -> Void
     let onTap: () -> Void
 
-    private var profile: UserProfileContent? { appState.driverProfile(pubkey: driver.pubkey) }
-    private var location: CachedDriverLocation? { appState.driverLocation(pubkey: driver.pubkey) }
-    private var displayName: String {
-        appState.driverDisplayName(pubkey: driver.pubkey) ?? driver.name ?? shortPubkey
-    }
-
     @State private var showDeleteConfirm = false
 
     var body: some View {
         HStack(spacing: 0) {
-            // Main card content (tappable)
             HStack(spacing: 14) {
                 driverAvatar
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(displayName)
+                    Text(item.displayName)
                         .font(RFFont.title(17))
                         .foregroundColor(Color.rfOnSurface)
                         .lineLimit(1)
 
                     HStack(spacing: 0) {
-                        if let vehicle = profile?.vehicleDescription {
+                        if let vehicle = item.vehicleDescription {
                             Text(vehicle.uppercased())
                                 .font(RFFont.caption(11))
                                 .foregroundColor(Color.rfOnSurfaceVariant)
@@ -219,12 +190,12 @@ struct DriverCard: View {
                         }
                         Text(statusText)
                             .font(RFFont.caption(11))
-                            .foregroundColor(statusAccentColor)
+                            .foregroundColor(statusColor)
                     }
                     .lineLimit(1)
 
                     // Status badge / request button
-                    if isOnline {
+                    if item.canRequestRide {
                         Button(action: onRequest) {
                             Text("Request Now")
                                 .font(RFFont.title(13))
@@ -235,7 +206,7 @@ struct DriverCard: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
-                    } else if hasStaleKey {
+                    } else if item.status == .keyStale {
                         Text("Key Outdated")
                             .font(RFFont.caption(12))
                             .foregroundColor(Color.rfError)
@@ -243,7 +214,7 @@ struct DriverCard: View {
                             .padding(.vertical, 6)
                             .background(Color.rfError.opacity(0.1))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
-                    } else if !driver.hasKey {
+                    } else if item.status == .pendingApproval {
                         Text("Pending Approval")
                             .font(RFFont.caption(12))
                             .foregroundColor(Color.rfTertiary)
@@ -264,9 +235,8 @@ struct DriverCard: View {
 
                 Spacer()
 
-                // Action buttons (right side) — bell (if pingable) then share
                 HStack(spacing: 8) {
-                    if appState.canPingDriver(driver) {
+                    if item.canPing {
                         Button(action: onPing) {
                             Image(systemName: "bell")
                                 .font(.system(size: 16))
@@ -297,7 +267,7 @@ struct DriverCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(statusAccentColor)
+                .fill(statusColor)
                 .frame(width: 3)
                 .padding(.vertical, 8)
         }
@@ -310,14 +280,14 @@ struct DriverCard: View {
                 Label("Remove Driver", systemImage: "trash")
             }
         }
-        .confirmationDialog("Remove \(displayName)?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+        .confirmationDialog("Remove \(item.displayName)?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Remove Driver", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Are you sure you want to remove this driver from your network?")
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(displayName), \(statusText)")
+        .accessibilityLabel("\(item.displayName), \(statusText)")
         .accessibilityHint("Tap for driver details, swipe to delete")
     }
 
@@ -325,20 +295,17 @@ struct DriverCard: View {
 
     private var driverAvatar: some View {
         Group {
-            if let pictureURL = profile?.picture, let url = URL(string: pictureURL) {
+            if let pictureURL = item.pictureURL, let url = URL(string: pictureURL) {
                 CachedAsyncImage(url: url, size: 64)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .background(
-                        avatarPlaceholder
-                    )
+                    .background(avatarPlaceholder)
             } else {
                 avatarPlaceholder
             }
         }
         .overlay(alignment: .bottomTrailing) {
-            // Status dot
             Circle()
-                .fill(statusDotColor)
+                .fill(statusColor)
                 .frame(width: 12, height: 12)
                 .overlay(Circle().stroke(Color.rfSurfaceContainer, lineWidth: 2))
                 .offset(x: 2, y: 2)
@@ -358,45 +325,26 @@ struct DriverCard: View {
 
     // MARK: - Status
 
-    private var hasStaleKey: Bool {
-        appState.isDriverKeyStale(pubkey: driver.pubkey)
-    }
-
-    private var isOnline: Bool {
-        appState.canRequestRide(driver)
-    }
-
     private var statusText: String {
-        guard driver.hasKey else { return "Waiting for key" }
-        guard let loc = location else { return "Offline" }
-        switch loc.status {
-        case "online": return "Available"
-        case "on_ride": return "On a ride"
-        default: return "Offline"
+        switch item.status {
+        case .online:          return "Available"
+        case .onRide:          return "On a ride"
+        case .keyStale:        return "Key outdated"
+        case .pendingApproval: return "Waiting for key"
+        case .offline:         return "Offline"
         }
     }
 
-    private var statusAccentColor: Color {
-        guard driver.hasKey else { return .rfTertiary }
-        guard let loc = location else { return .rfOffline }
-        switch loc.status {
-        case "online": return .rfOnline
-        case "on_ride": return .rfOnRide
-        default: return .rfOffline
+    /// The driver's status accent color — used for the left rail, the status-
+    /// text color, and the avatar dot overlay. All three share the same mapping
+    /// so a stale-key row stays red across every surface without drift.
+    private var statusColor: Color {
+        switch item.status {
+        case .online:          return .rfOnline
+        case .onRide:          return .rfOnRide
+        case .keyStale:        return .rfError
+        case .pendingApproval: return .rfTertiary
+        case .offline:         return .rfOffline
         }
-    }
-
-    private var statusDotColor: Color {
-        guard driver.hasKey else { return .rfTertiary }
-        guard let loc = location else { return .rfOffline }
-        switch loc.status {
-        case "online": return .rfOnline
-        case "on_ride": return .rfOnRide
-        default: return .rfOffline
-        }
-    }
-
-    private var shortPubkey: String {
-        String(driver.pubkey.prefix(8)) + "..."
     }
 }

@@ -1,5 +1,4 @@
 import SwiftUI
-import RidestrSDK
 import RoadFlareCore
 
 struct HistoryTab: View {
@@ -9,14 +8,18 @@ struct HistoryTab: View {
     @State private var isOffline = false
 
     var body: some View {
-        NavigationStack {
+        // Capture once per body — `rideHistoryRows` allocates a NumberFormatter
+        // per row on every access, and body would otherwise read it twice
+        // (empty check + ForEach).
+        let rows = appState.rideHistoryRows
+        return NavigationStack {
             VStack(spacing: 0) {
                 AppHeader(title: "History", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
 
                 ZStack {
                     Color.rfSurface
 
-                    if appState.rideHistoryEntries.isEmpty {
+                    if rows.isEmpty {
                     VStack(spacing: 24) {
                         Image(systemName: "clock")
                             .font(.system(size: 48))
@@ -31,15 +34,15 @@ struct HistoryTab: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 12) {
-                            ForEach(appState.rideHistoryEntries) { ride in
+                            ForEach(rows) { row in
                                 SwipeToDeleteRow {
                                     // History cards are currently read-only.
                                 } onDelete: {
                                     withAnimation {
-                                        appState.removeRideHistoryEntry(id: ride.id)
+                                        appState.removeRideHistoryEntry(id: row.id)
                                     }
                                 } content: {
-                                    RideHistoryCard(ride: ride)
+                                    RideHistoryCard(row: row)
                                 }
                             }
                         }
@@ -64,31 +67,31 @@ struct HistoryTab: View {
 }
 
 struct RideHistoryCard: View {
-    let ride: RideHistoryEntry
+    let row: RideHistoryRow
 
     var body: some View {
         HStack(spacing: 12) {
-            FlareIndicator(color: ride.status == "completed" ? .rfOnline : .rfError)
+            FlareIndicator(color: row.isCompleted ? .rfOnline : .rfError)
                 .frame(height: 50)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(ride.date, style: .date)
+                    Text(row.date, style: .date)
                         .font(RFFont.title(15))
                         .foregroundColor(Color.rfOnSurface)
                     Spacer()
-                    Text(formatFare(ride.fare))
+                    Text(row.fareLabel)
                         .font(RFFont.headline(18))
                         .foregroundColor(Color.rfPrimary)
                 }
 
-                if let name = ride.counterpartyName {
+                if let name = row.counterpartyName {
                     Text(name)
                         .font(RFFont.caption(13))
                         .foregroundColor(Color.rfOnSurfaceVariant)
                 }
 
-                if let pickup = ride.pickup.address, let dest = ride.destination.address {
+                if let pickup = row.pickupAddress, let dest = row.destinationAddress {
                     HStack(spacing: 4) {
                         Text(pickup)
                         Image(systemName: "arrow.right")
@@ -101,13 +104,13 @@ struct RideHistoryCard: View {
                 }
 
                 HStack(spacing: 12) {
-                    if let dist = ride.distance {
-                        Text(String(format: "%.1f mi", dist))
+                    if let dist = row.distanceLabel {
+                        Text(dist)
                     }
-                    if let dur = ride.duration {
-                        Text("\(dur) min")
+                    if let dur = row.durationLabel {
+                        Text(dur)
                     }
-                    Text(PaymentMethod.displayName(for: ride.paymentMethod))
+                    Text(row.paymentMethodLabel)
                 }
                 .font(RFFont.caption(11))
                 .foregroundColor(Color.rfOffline)
