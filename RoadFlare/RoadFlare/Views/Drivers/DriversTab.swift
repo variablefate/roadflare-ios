@@ -100,9 +100,14 @@ struct DriversTab: View {
             .sheet(item: $selectedDriver) { item in DriverDetailSheet(pubkey: item.pubkey) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(item: $sharingDriver) { item in
+                // Pass the raw cached name (nil when unresolved) rather than
+                // item.displayName. DriverListItem.displayName falls back to a
+                // "<pubkey-prefix>..." string, which the share sheet would URL-
+                // encode into the `?name=` deeplink param — surfacing the pubkey
+                // prefix as a "name" on the scanning rider's side.
                 DriverShareSheet(
                     pubkey: item.pubkey,
-                    driverName: item.displayName,
+                    driverName: appState.driverDisplayName(pubkey: item.pubkey),
                     pictureURL: item.pictureURL
                 )
             }
@@ -154,7 +159,6 @@ struct DriversTab: View {
 // MARK: - Driver Card
 
 struct DriverCard: View {
-    @Environment(AppState.self) private var appState
     let item: DriverListItem
     let onRequest: () -> Void
     let onShare: () -> Void

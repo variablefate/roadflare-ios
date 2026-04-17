@@ -324,10 +324,10 @@ struct RideRequestView: View {
         let favorites = appState.favoriteLocationRows.map { row in
             (name: row.label, address: row.addressLine, lat: row.latitude, lon: row.longitude)
         }
-        let recents = appState.recentLocationRows.map { row in
+        let recents = appState.recentLocationRows.prefix(5).map { row in
             (name: row.displayName, address: row.addressLine, lat: row.latitude, lon: row.longitude)
         }
-        return favorites + recents
+        return favorites + Array(recents)
     }
 
     private func useCurrentLocation() {

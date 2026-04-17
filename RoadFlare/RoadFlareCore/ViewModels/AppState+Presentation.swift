@@ -58,11 +58,16 @@ extension AppState {
 
     /// Favorite saved locations as display-ready rows.
     public var favoriteLocationRows: [SavedLocationRow] {
-        SavedLocationRow.favorites(from: savedLocations.locations)
+        savedLocations.favorites.map { SavedLocationRow.from($0) }
     }
 
     /// Recent (non-pinned) saved locations as display-ready rows, newest first.
+    ///
+    /// Mirrors `SavedLocationsRepository.recents` exactly — including the
+    /// proximity filter that drops recents within ~50m of any favorite. Using
+    /// `SavedLocationRow.recents(from:)` would skip that filter and show
+    /// duplicates that the repo has deliberately suppressed.
     public var recentLocationRows: [SavedLocationRow] {
-        SavedLocationRow.recents(from: savedLocations.locations)
+        savedLocations.recents.map { SavedLocationRow.from($0) }
     }
 }

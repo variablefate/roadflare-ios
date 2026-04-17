@@ -28,7 +28,7 @@ private func setOnline(_ repo: FollowedDriversRepository, pubkey: String) {
 
 @Suite("AppState.driverListItems")
 @MainActor
-struct AppStatDriverListItemsTests {
+struct AppStateDriverListItemsTests {
 
     @Test func returnsEmptyWhenNoRepository() {
         let appState = AppState()
@@ -270,4 +270,38 @@ struct AppStateLocationRowsTests {
 
         #expect(appState.recentLocationRows.isEmpty)
     }
+
+    // Pins the contract that `recentLocationRows` routes through
+    // SavedLocationsRepository.recents (which filters out recents within
+    // ~50m of any favorite) rather than iterating locations directly.
+    // A direct `savedLocations.locations.filter { !$0.isPinned }` path would
+    // include both entries in this test.
+    @Test func recentLocationRowsExcludesRecentsNearFavorites() {
+        let appState = AppState()
+        appState.savedLocations.clearAll()
+        defer { appState.savedLocations.clearAll() }
+
+        // Favorite at lat=37.7, lon=-122.4
+        appState.savedLocations.save(SavedLocation(
+            id: "fav", latitude: 37.7, longitude: -122.4,
+            displayName: "Work", addressLine: "1 Market St",
+            isPinned: true, nickname: "Work", timestampMs: 1_000_000
+        ))
+        // Recent within ~50m of the favorite (dedup threshold)
+        appState.savedLocations.save(SavedLocation(
+            id: "near", latitude: 37.7, longitude: -122.4,
+            displayName: "Same spot", addressLine: "1 Market St",
+            isPinned: false, timestampMs: 2_000_000
+        ))
+        // Recent far from any favorite
+        appState.savedLocations.save(SavedLocation(
+            id: "far", latitude: 40.0, longitude: -74.0,
+            displayName: "Faraway", addressLine: "99 Broad St",
+            isPinned: false, timestampMs: 3_000_000
+        ))
+
+        let rows = appState.recentLocationRows
+        #expect(rows.map(\.id) == ["far"])
+    }
+
 }
