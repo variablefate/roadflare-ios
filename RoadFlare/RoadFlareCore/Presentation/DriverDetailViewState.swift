@@ -5,12 +5,15 @@ import RidestrSDK
 ///
 /// All strings are pre-resolved so the view doesn't need to touch any
 /// SDK repository or derive logic.
-public struct DriverDetailViewState: Equatable, Sendable {
+public struct DriverDetailViewState: Equatable, Sendable, Identifiable {
 
     // MARK: - Identity
 
     /// Hex public key — used as a stable identifier for actions.
     public let pubkey: String
+
+    /// `Identifiable` conformance keyed on `pubkey`.
+    public var id: String { pubkey }
 
     /// Best available display name shown as the sheet title.
     public let displayName: String
@@ -70,6 +73,8 @@ public struct DriverDetailViewState: Equatable, Sendable {
     ///   - isKeyStale: Whether this driver's key has been flagged as stale.
     ///   - canPing: Whether the ping action is currently available for this driver.
     ///   - referenceDate: Used for relative timestamp formatting (injectable for testing).
+    ///   - locale: Locale used for the relative timestamp. Defaults to `.current` so
+    ///     production output follows the device locale; tests may inject a fixed locale.
     public static func from(
         _ driver: FollowedDriver,
         displayName: String?,
@@ -77,34 +82,28 @@ public struct DriverDetailViewState: Equatable, Sendable {
         profile: UserProfileContent?,
         isKeyStale: Bool,
         canPing: Bool,
-        referenceDate: Date = .now
+        referenceDate: Date = .now,
+        locale: Locale = .current
     ) -> DriverDetailViewState {
         let resolvedName = displayName
             ?? driver.name
             ?? (String(driver.pubkey.prefix(8)) + "...")
 
         let canRequestRide = driver.hasKey && !isKeyStale && location?.status == "online"
+        let status = resolveDriverPresentationStatus(
+            hasKey: driver.hasKey, isKeyStale: isKeyStale, location: location
+        )
+        let statusLabel = status.detailLabel
 
-        let statusLabel: String
-        if isKeyStale {
-            statusLabel = "Key outdated"
-        } else if !driver.hasKey {
-            statusLabel = "Pending approval"
-        } else if let loc = location {
-            switch loc.status {
-            case "online":  statusLabel = "Available"
-            case "on_ride": statusLabel = "On a ride"
-            default:        statusLabel = "Offline"
-            }
-        } else {
-            statusLabel = "Offline"
-        }
-
+        // Suppress the raw location fields when the key is stale — showing "3 min ago"
+        // next to "Key outdated" contradicts itself, since that broadcast was decrypted
+        // with the pre-rotation key and no longer reflects the driver's current state.
         let lastLocationTimestampLabel: String?
-        if let loc = location {
+        if let loc = location, !isKeyStale {
             let date = Date(timeIntervalSince1970: TimeInterval(loc.timestamp))
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .abbreviated
+            formatter.locale = locale
             lastLocationTimestampLabel = formatter.localizedString(for: date, relativeTo: referenceDate)
         } else {
             lastLocationTimestampLabel = nil

@@ -3,8 +3,9 @@ import RidestrSDK
 
 /// Display-ready representation of an online driver option in the ride request flow.
 ///
-/// Only drivers that are online (have a key and are broadcasting "online") should
-/// be projected into this type — the factory enforces that precondition.
+/// Only drivers that are requestable — have a key, the key is not stale, and
+/// they are broadcasting "online" — should be projected into this type.
+/// The factory enforces that precondition and returns `nil` otherwise.
 public struct RideRequestDriverOption: Equatable, Sendable, Identifiable {
 
     // MARK: - Identity

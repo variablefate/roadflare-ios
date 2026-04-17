@@ -203,9 +203,11 @@ struct DriverDetailViewStateTests {
                                                isKeyStale: true, canPing: false)
         #expect(state.statusLabel == "Key outdated")
         #expect(state.canRequestRide == false)
-        // lastLocationStatus must be nil for stale keys — the raw "online" string
-        // would contradict the "Key outdated" label if shown in the detail sheet.
+        // Both last-location fields must be nil when the key is stale — the
+        // raw "online" status and the "3 min ago" timestamp were both derived
+        // from a broadcast decrypted with the pre-rotation key.
         #expect(state.lastLocationStatus == nil)
+        #expect(state.lastLocationTimestampLabel == nil)
     }
 
     @Test func pictureURLFromProfile() {
@@ -263,12 +265,15 @@ struct DriverDetailViewStateTests {
         let driver = makeDriver()
         let referenceDate = Date(timeIntervalSince1970: 1_000_000 + 180)  // 3 min after timestamp
         let loc = makeLocation(status: "online", timestamp: 1_000_000)
+        // Locale pinned to en_US so the assertion is deterministic across CI hosts —
+        // production callers use the default `.current` locale.
         let state = DriverDetailViewState.from(driver, displayName: nil,
                                                location: loc, profile: nil,
                                                isKeyStale: false, canPing: false,
-                                               referenceDate: referenceDate)
+                                               referenceDate: referenceDate,
+                                               locale: Locale(identifier: "en_US"))
         let label = try #require(state.lastLocationTimestampLabel)
-        #expect(label.contains("min") || label.contains("minute") || label.contains("3"))
+        #expect(label.contains("min"))
     }
 
     @Test func noteDefaultsToEmptyString() {
