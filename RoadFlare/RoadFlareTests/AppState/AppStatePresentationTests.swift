@@ -24,6 +24,18 @@ private func setOnline(_ repo: FollowedDriversRepository, pubkey: String) {
                                   status: "online", timestamp: 1_000_000, keyVersion: 1)
 }
 
+/// Build an AppState whose `rideHistory` / `savedLocations` repos are backed
+/// by in-memory persistence, so tests don't read or write `UserDefaults.standard`
+/// (which is shared with any concurrently-running instance of the app).
+@MainActor
+private func makeAppStateWithInMemoryStores() -> (AppState, RideHistoryRepository, SavedLocationsRepository) {
+    let rideHistory = RideHistoryRepository(persistence: InMemoryRideHistoryPersistence())
+    let savedLocations = SavedLocationsRepository(persistence: InMemorySavedLocationsPersistence())
+    let appState = AppState()
+    appState.installPresentationTestContext(rideHistory: rideHistory, savedLocations: savedLocations)
+    return (appState, rideHistory, savedLocations)
+}
+
 // MARK: - AppState.driverListItems()
 
 @Suite("AppState.driverListItems")
@@ -190,19 +202,13 @@ struct AppStateRideHistoryRowsTests {
     )
 
     @Test func returnsEmptyWhenNoRides() {
-        let appState = AppState()
-        appState.rideHistory.clearAll()
-        defer { appState.rideHistory.clearAll() }
-
+        let (appState, _, _) = makeAppStateWithInMemoryStores()
         #expect(appState.rideHistoryRows.isEmpty)
     }
 
     @Test func mapsEntryToRow() {
-        let appState = AppState()
-        appState.rideHistory.clearAll()
-        defer { appState.rideHistory.clearAll() }
-
-        appState.rideHistory.addRide(Self.fakeEntry)
+        let (appState, rideHistory, _) = makeAppStateWithInMemoryStores()
+        rideHistory.addRide(Self.fakeEntry)
 
         let rows = appState.rideHistoryRows
         #expect(rows.count == 1)
@@ -234,12 +240,9 @@ struct AppStateLocationRowsTests {
     )
 
     @Test func favoriteLocationRowsMapsOnlyPinned() {
-        let appState = AppState()
-        appState.savedLocations.clearAll()
-        defer { appState.savedLocations.clearAll() }
-
-        appState.savedLocations.save(Self.favoriteLocation)
-        appState.savedLocations.save(Self.recentLocation)
+        let (appState, _, savedLocations) = makeAppStateWithInMemoryStores()
+        savedLocations.save(Self.favoriteLocation)
+        savedLocations.save(Self.recentLocation)
 
         let rows = appState.favoriteLocationRows
         #expect(rows.count == 1)
@@ -249,12 +252,9 @@ struct AppStateLocationRowsTests {
     }
 
     @Test func recentLocationRowsMapsOnlyUnpinned() {
-        let appState = AppState()
-        appState.savedLocations.clearAll()
-        defer { appState.savedLocations.clearAll() }
-
-        appState.savedLocations.save(Self.favoriteLocation)
-        appState.savedLocations.save(Self.recentLocation)
+        let (appState, _, savedLocations) = makeAppStateWithInMemoryStores()
+        savedLocations.save(Self.favoriteLocation)
+        savedLocations.save(Self.recentLocation)
 
         let rows = appState.recentLocationRows
         #expect(rows.count == 1)
@@ -264,10 +264,7 @@ struct AppStateLocationRowsTests {
     }
 
     @Test func recentLocationRowsEmpty() {
-        let appState = AppState()
-        appState.savedLocations.clearAll()
-        defer { appState.savedLocations.clearAll() }
-
+        let (appState, _, _) = makeAppStateWithInMemoryStores()
         #expect(appState.recentLocationRows.isEmpty)
     }
 
@@ -277,24 +274,22 @@ struct AppStateLocationRowsTests {
     // A direct `savedLocations.locations.filter { !$0.isPinned }` path would
     // include both entries in this test.
     @Test func recentLocationRowsExcludesRecentsNearFavorites() {
-        let appState = AppState()
-        appState.savedLocations.clearAll()
-        defer { appState.savedLocations.clearAll() }
+        let (appState, _, savedLocations) = makeAppStateWithInMemoryStores()
 
         // Favorite at lat=37.7, lon=-122.4
-        appState.savedLocations.save(SavedLocation(
+        savedLocations.save(SavedLocation(
             id: "fav", latitude: 37.7, longitude: -122.4,
             displayName: "Work", addressLine: "1 Market St",
             isPinned: true, nickname: "Work", timestampMs: 1_000_000
         ))
         // Recent within ~50m of the favorite (dedup threshold)
-        appState.savedLocations.save(SavedLocation(
+        savedLocations.save(SavedLocation(
             id: "near", latitude: 37.7, longitude: -122.4,
             displayName: "Same spot", addressLine: "1 Market St",
             isPinned: false, timestampMs: 2_000_000
         ))
         // Recent far from any favorite
-        appState.savedLocations.save(SavedLocation(
+        savedLocations.save(SavedLocation(
             id: "far", latitude: 40.0, longitude: -74.0,
             displayName: "Faraway", addressLine: "99 Broad St",
             isPinned: false, timestampMs: 3_000_000

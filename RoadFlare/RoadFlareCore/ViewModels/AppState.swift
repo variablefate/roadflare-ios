@@ -47,8 +47,8 @@ public final class AppState {
     public private(set) var rideCoordinator: RideCoordinator?
     public private(set) var fareCalculator: FareCalculator?
     public private(set) var remoteConfigManager: RemoteConfigManager?
-    public let rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
-    public let savedLocations = SavedLocationsRepository(persistence: UserDefaultsSavedLocationsPersistence())
+    public private(set) var rideHistory = RideHistoryRepository(persistence: UserDefaultsRideHistoryPersistence())
+    public private(set) var savedLocations = SavedLocationsRepository(persistence: UserDefaultsSavedLocationsPersistence())
     public let bitcoinPrice = BitcoinPriceService()
 
     // MARK: - User State
@@ -886,6 +886,18 @@ extension AppState {
 
     func primePingCooldownForTesting(driverPubkey: String, lastPing: Date) {
         pingCooldowns[driverPubkey] = lastPing
+    }
+
+    /// Replace the persistence-backed `rideHistory` / `savedLocations` repos so
+    /// presentation-façade tests don't mutate `UserDefaults.standard` on the
+    /// simulator (which would wipe any saved state from a concurrently-running
+    /// instance of the app).
+    func installPresentationTestContext(
+        rideHistory: RideHistoryRepository? = nil,
+        savedLocations: SavedLocationsRepository? = nil
+    ) {
+        if let rideHistory { self.rideHistory = rideHistory }
+        if let savedLocations { self.savedLocations = savedLocations }
     }
 }
 #endif
