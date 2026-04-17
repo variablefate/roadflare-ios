@@ -21,7 +21,7 @@ struct ActiveRideView: View {
             paymentMethods: coordinator?.activeRidePaymentMethods
                 ?? appState.settings.roadflarePaymentMethods,
             driverName: coordinator?.session.driverPubkey.flatMap {
-                appState.driversRepository?.cachedDriverName(pubkey: $0)
+                appState.driverDisplayName(pubkey: $0)
             },
             pickupAddress: coordinator?.pickupLocation?.address,
             destinationAddress: coordinator?.destinationLocation?.address,

@@ -19,7 +19,7 @@ struct SavedLocationsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Favorites")
 
-                        if appState.savedLocations.favorites.isEmpty {
+                        if appState.favoriteLocations.isEmpty {
                             HStack {
                                 Image(systemName: "star")
                                     .foregroundColor(Color.rfOnSurfaceVariant)
@@ -29,7 +29,7 @@ struct SavedLocationsView: View {
                             }
                             .rfCard(.low)
                         } else {
-                            ForEach(appState.savedLocations.favorites) { loc in
+                            ForEach(appState.favoriteLocations) { loc in
                                 Button { editingLocation = loc } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: iconForNickname(loc.nickname))
@@ -60,7 +60,7 @@ struct SavedLocationsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Recent Locations")
 
-                        if appState.savedLocations.recents.isEmpty {
+                        if appState.recentLocations.isEmpty {
                             HStack {
                                 Image(systemName: "clock")
                                     .foregroundColor(Color.rfOnSurfaceVariant)
@@ -70,11 +70,11 @@ struct SavedLocationsView: View {
                             }
                             .rfCard(.low)
                         } else {
-                            ForEach(appState.savedLocations.recents) { loc in
+                            ForEach(appState.recentLocations) { loc in
                                 SwipeToDeleteRow {
                                     editingLocation = loc
                                 } onDelete: {
-                                    withAnimation { appState.savedLocations.remove(id: loc.id) }
+                                    withAnimation { appState.removeLocation(id: loc.id) }
                                 } content: {
                                     HStack(spacing: 12) {
                                         Image(systemName: "clock")
@@ -104,10 +104,9 @@ struct SavedLocationsView: View {
                         }
                     }
 
-                    if !appState.savedLocations.locations.isEmpty {
+                    if !appState.allSavedLocations.isEmpty {
                         Button("Clear All Locations") {
-                            appState.savedLocations.clearAll()
-                            Task { await appState.publishProfileBackup() }
+                            Task { await appState.clearAllLocations() }
                         }
                         .buttonStyle(RFGhostButtonStyle())
                     }
@@ -239,7 +238,7 @@ struct AddFavoriteSheet: View {
                         isPinned: true, nickname: completion.title,
                         timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
                     )
-                    appState.savedLocations.save(loc)
+                    appState.saveLocation(loc)
                     await appState.publishProfileBackup()
                 }
             } catch {
@@ -307,7 +306,7 @@ struct EditLocationSheet: View {
                     // Save as favorite
                     if !location.isPinned {
                         Button {
-                            appState.savedLocations.pin(id: location.id, nickname: nickname.isEmpty ? location.displayName : nickname)
+                            appState.pinLocation(id: location.id, nickname: nickname.isEmpty ? location.displayName : nickname)
                             Task { await appState.publishProfileBackup() }
                             dismiss()
                         } label: {
@@ -319,7 +318,7 @@ struct EditLocationSheet: View {
                         // Update nickname
                         Button {
                             if !nickname.isEmpty {
-                                appState.savedLocations.pin(id: location.id, nickname: nickname)
+                                appState.pinLocation(id: location.id, nickname: nickname)
                             }
                             Task { await appState.publishProfileBackup() }
                             dismiss()
@@ -333,7 +332,7 @@ struct EditLocationSheet: View {
 
                     // Delete
                     Button(role: .destructive) {
-                        appState.savedLocations.remove(id: location.id)
+                        appState.removeLocation(id: location.id)
                         Task { await appState.publishProfileBackup() }
                         dismiss()
                     } label: {

@@ -21,21 +21,20 @@ struct DriversTab: View {
                 ZStack {
                     Color.rfSurface
 
-                    if let repo = appState.driversRepository, repo.hasDrivers {
+                    if appState.hasFollowedDrivers {
                     ScrollView {
                         VStack(spacing: 16) {
                             // Sorted: online first, then on_ride, then offline
-                            ForEach(sortedDrivers(repo: repo)) { driver in
+                            ForEach(sortedDrivers) { driver in
                                 DriverCard(
                                     driver: driver,
-                                    repo: repo,
                                     onRequest: {
                                         appState.requestRideDriverPubkey = driver.pubkey
                                         appState.selectedTab = 0  // RoadFlare tab
                                     },
                                     onShare: { shareDriver(driver) },
                                     onPing: { pingDriver(driver) },
-                                    onDelete: { removeDriver(driver) },
+                                    onDelete: { appState.removeDriver(pubkey: driver.pubkey) },
                                     onTap: { selectedDriver = driver }
                                 )
                             }
@@ -104,8 +103,8 @@ struct DriversTab: View {
             .sheet(item: $sharingDriver) { driver in
                 DriverShareSheet(
                     driver: driver,
-                    driverName: appState.driversRepository?.driverNames[driver.pubkey] ?? driver.name,
-                    driverProfile: appState.driversRepository?.driverProfiles[driver.pubkey]
+                    driverName: appState.driverDisplayName(pubkey: driver.pubkey) ?? driver.name,
+                    driverProfile: appState.driverProfile(pubkey: driver.pubkey)
                 )
             }
             .refreshable {
@@ -113,7 +112,7 @@ struct DriversTab: View {
             }
             .task {
                 while !Task.isCancelled {
-                    if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
+                    isOffline = !(await appState.isRelayConnected())
                     try? await Task.sleep(for: .seconds(10))
                 }
             }
@@ -128,12 +127,11 @@ struct DriversTab: View {
     private func pingDriver(_ driver: FollowedDriver) {
         // Capture pubkey as a plain String (Sendable) before the task boundary so
         // `driver` (a struct that may not be Sendable) doesn't need to cross the
-        // isolation boundary. The view is @MainActor so the Task body inherits that
-        // isolation; `appState.driversRepository` is accessible without a hop.
+        // isolation boundary.
         let driverPubkey = driver.pubkey
         Task {
             let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
-            let name = appState.driversRepository?.cachedDriverName(pubkey: driverPubkey)
+            let name = appState.driverDisplayName(pubkey: driverPubkey)
                 ?? String(driverPubkey.prefix(8)) + "..."
             switch result {
             case .sent:
@@ -156,30 +154,21 @@ struct DriversTab: View {
         }
     }
 
-    private func removeDriver(_ driver: FollowedDriver) {
-        appState.driversRepository?.removeDriver(pubkey: driver.pubkey)
-        Task {
-            await appState.rideCoordinator?.publishFollowedDriversList()
-            appState.rideCoordinator?.startLocationSubscriptions()
-        }
-    }
-
     private func refreshDrivers() async {
-        appState.driversRepository?.clearDriverLocations()
-        appState.rideCoordinator?.startLocationSubscriptions()
-        await appState.rideCoordinator?.checkForStaleKeys()
+        appState.refreshDriverLocations()
+        await appState.checkForStaleDriverKeys()
     }
 
     /// Sort drivers: online first, then on_ride, then pending, then offline.
-    private func sortedDrivers(repo: FollowedDriversRepository) -> [FollowedDriver] {
-        repo.drivers.sorted { a, b in
-            driverSortOrder(a, repo: repo) < driverSortOrder(b, repo: repo)
+    private var sortedDrivers: [FollowedDriver] {
+        appState.followedDrivers.sorted { a, b in
+            driverSortOrder(a) < driverSortOrder(b)
         }
     }
 
-    private func driverSortOrder(_ driver: FollowedDriver, repo: FollowedDriversRepository) -> Int {
+    private func driverSortOrder(_ driver: FollowedDriver) -> Int {
         guard driver.hasKey else { return 3 }  // Pending approval
-        guard let loc = repo.driverLocations[driver.pubkey] else { return 4 }  // Offline (no location)
+        guard let loc = appState.driverLocation(pubkey: driver.pubkey) else { return 4 }  // Offline (no location)
         switch loc.status {
         case "online": return 0
         case "on_ride": return 1
@@ -193,17 +182,16 @@ struct DriversTab: View {
 struct DriverCard: View {
     @Environment(AppState.self) private var appState
     let driver: FollowedDriver
-    let repo: FollowedDriversRepository
     let onRequest: () -> Void
     let onShare: () -> Void
     let onPing: () -> Void
     let onDelete: () -> Void
     let onTap: () -> Void
 
-    private var profile: UserProfileContent? { repo.driverProfiles[driver.pubkey] }
-    private var location: CachedDriverLocation? { repo.driverLocations[driver.pubkey] }
+    private var profile: UserProfileContent? { appState.driverProfile(pubkey: driver.pubkey) }
+    private var location: CachedDriverLocation? { appState.driverLocation(pubkey: driver.pubkey) }
     private var displayName: String {
-        repo.driverNames[driver.pubkey] ?? driver.name ?? shortPubkey
+        appState.driverDisplayName(pubkey: driver.pubkey) ?? driver.name ?? shortPubkey
     }
 
     @State private var showDeleteConfirm = false
@@ -371,11 +359,11 @@ struct DriverCard: View {
     // MARK: - Status
 
     private var hasStaleKey: Bool {
-        repo.staleKeyPubkeys.contains(driver.pubkey)
+        appState.isDriverKeyStale(pubkey: driver.pubkey)
     }
 
     private var isOnline: Bool {
-        driver.hasKey && location?.status == "online"
+        appState.canRequestRide(driver)
     }
 
     private var statusText: String {

@@ -185,7 +185,7 @@ struct AddDriverSheet: View {
             }
 
             // Already following check
-            if appState.driversRepository?.isFollowing(pubkey: hexPubkey) == true {
+            if appState.isFollowingDriver(pubkey: hexPubkey) {
                 Label("You're already following this driver", systemImage: "checkmark.circle.fill")
                     .font(RFFont.body(15))
                     .foregroundColor(Color.rfOnline)
@@ -281,16 +281,10 @@ struct AddDriverSheet: View {
         // Fetch driver's Kind 0 profile from Nostr, then show the card
         isFetchingProfile = true
         Task {
-            await fetchDriverProfile(hexPubkey)
+            resolvedProfile = await appState.fetchDriverProfile(pubkey: hexPubkey)
             resolvedHexPubkey = hexPubkey
             isFetchingProfile = false
         }
-    }
-
-    private func fetchDriverProfile(_ hexPubkey: String) async {
-        guard let service = appState.roadflareDomainService else { return }
-        let profiles = await service.fetchDriverProfiles(pubkeys: [hexPubkey])
-        resolvedProfile = profiles[hexPubkey]?.value
     }
 
     // MARK: - Add Driver
@@ -302,29 +296,22 @@ struct AddDriverSheet: View {
             name: name,
             note: noteInput.isEmpty ? nil : noteInput
         )
-        appState.driversRepository?.addDriver(driver)
-
-        // Cache the driver's full profile if we fetched it
-        if let profile = resolvedProfile {
-            appState.driversRepository?.cacheDriverProfile(pubkey: hexPubkey, profile: profile)
-        } else if let name, !name.isEmpty {
-            appState.driversRepository?.cacheDriverName(pubkey: hexPubkey, name: name)
-        }
+        appState.addDriver(driver, profile: resolvedProfile, name: name)
 
         // Publish Kind 30011 (source of truth) + Kind 3187 (real-time nudge to driver).
         // On re-add, try to restore the key from Kind 30011 on the relay first.
         // If still no key, send a stale ack to request one from the driver.
         Task {
-            await appState.rideCoordinator?.publishFollowedDriversList()
+            await appState.publishDriversList()
             await appState.sendFollowNotification(driverPubkey: hexPubkey)
 
             // If no key locally, try restoring from our Kind 30011 backup on the relay
-            if appState.driversRepository?.getRoadflareKey(driverPubkey: hexPubkey) == nil {
+            if !appState.hasKeyForDriver(pubkey: hexPubkey) {
                 await appState.restoreKeyFromBackup(driverPubkey: hexPubkey)
             }
             // If still no key after restore attempt, request from driver
-            if appState.driversRepository?.getRoadflareKey(driverPubkey: hexPubkey) == nil {
-                await appState.rideCoordinator?.requestKeyRefresh(driverPubkey: hexPubkey)
+            if !appState.hasKeyForDriver(pubkey: hexPubkey) {
+                await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
             }
         }
 

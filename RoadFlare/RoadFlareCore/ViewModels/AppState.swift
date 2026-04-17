@@ -260,6 +260,17 @@ public final class AppState {
         return repo.canPingDriver(driver)
     }
 
+    /// Returns `true` when `driver` is a valid target for a ride request.
+    ///
+    /// Checks: driver exists in the repo, has a current RoadFlare key, key is not
+    /// stale, and is currently broadcasting status `online`. Used to gate the
+    /// Request-Ride button and online-drivers list. Returns `false` when services
+    /// are not yet configured.
+    public func canRequestRide(_ driver: FollowedDriver) -> Bool {
+        guard let repo = driversRepository else { return false }
+        return repo.canRequestRide(driver)
+    }
+
     /// Send Kind 3189 driver ping request to an offline driver.
     ///
     /// Enforces a 10-minute per-driver cooldown locally. Returns `.rateLimited` if the
@@ -645,6 +656,208 @@ public final class AppState {
         fareCalculator = nil
         remoteConfigManager = nil
         bitcoinPrice.stop()
+    }
+}
+
+// MARK: - Façade: Connectivity
+
+extension AppState {
+    /// Async connectivity check for views that need to poll relay status.
+    public func isRelayConnected() async -> Bool {
+        await relayManager?.isConnected ?? false
+    }
+}
+
+// MARK: - Façade: Drivers
+
+extension AppState {
+    /// Whether the rider has any followed drivers.
+    public var hasFollowedDrivers: Bool {
+        driversRepository?.hasDrivers ?? false
+    }
+
+    /// The current list of followed drivers.
+    public var followedDrivers: [FollowedDriver] {
+        driversRepository?.drivers ?? []
+    }
+
+    /// Cached location broadcast for a driver. Nil if no broadcast has been received.
+    public func driverLocation(pubkey: String) -> CachedDriverLocation? {
+        driversRepository?.driverLocations[pubkey]
+    }
+
+    /// Best available display name for a driver: cached Kind 0 profile name, then
+    /// stored follow-list name.
+    public func driverDisplayName(pubkey: String) -> String? {
+        driversRepository?.cachedDriverName(pubkey: pubkey)
+    }
+
+    /// Cached Kind 0 profile for a driver. Nil until a profile fetch has run.
+    public func driverProfile(pubkey: String) -> UserProfileContent? {
+        driversRepository?.driverProfiles[pubkey]
+    }
+
+    /// Whether the driver's current key is flagged as stale.
+    public func isDriverKeyStale(pubkey: String) -> Bool {
+        driversRepository?.staleKeyPubkeys.contains(pubkey) ?? false
+    }
+
+    /// Whether the rider is already following this pubkey.
+    public func isFollowingDriver(pubkey: String) -> Bool {
+        driversRepository?.isFollowing(pubkey: pubkey) ?? false
+    }
+
+    /// Whether the rider has a RoadFlare key for this driver.
+    public func hasKeyForDriver(pubkey: String) -> Bool {
+        driversRepository?.getRoadflareKey(driverPubkey: pubkey) != nil
+    }
+
+    /// Get the current `FollowedDriver` struct for a pubkey (re-fetches live state).
+    public func getDriver(pubkey: String) -> FollowedDriver? {
+        driversRepository?.getDriver(pubkey: pubkey)
+    }
+
+    /// Add a driver and cache their profile and name if available.
+    /// Note: unlike `removeDriver` and `updateDriverNote`, this does NOT auto-publish the
+    /// updated list. Call `publishDriversList()` and `sendFollowNotification(driverPubkey:)`
+    /// separately after adding (see `AddDriverSheet.addDriver()`).
+    public func addDriver(_ driver: FollowedDriver, profile: UserProfileContent? = nil, name: String? = nil) {
+        driversRepository?.addDriver(driver)
+        if let profile {
+            driversRepository?.cacheDriverProfile(pubkey: driver.pubkey, profile: profile)
+        } else if let name, !name.isEmpty {
+            driversRepository?.cacheDriverName(pubkey: driver.pubkey, name: name)
+        }
+    }
+
+    /// Remove a driver and republish the updated list.
+    public func removeDriver(pubkey: String) {
+        driversRepository?.removeDriver(pubkey: pubkey)
+        Task {
+            await rideCoordinator?.publishFollowedDriversList()
+            rideCoordinator?.startLocationSubscriptions()
+        }
+    }
+
+    /// Update the personal note for a driver and republish.
+    public func updateDriverNote(pubkey: String, note: String) {
+        driversRepository?.updateDriverNote(driverPubkey: pubkey, note: note)
+        Task {
+            await rideCoordinator?.publishFollowedDriversList()
+        }
+    }
+
+    /// Clear all cached driver locations and restart location subscriptions.
+    public func refreshDriverLocations() {
+        driversRepository?.clearDriverLocations()
+        rideCoordinator?.startLocationSubscriptions()
+    }
+
+    /// Fetch a driver's Kind 0 profile from Nostr. Returns nil if the service
+    /// is not yet initialized or the fetch yields no result.
+    public func fetchDriverProfile(pubkey: String) async -> UserProfileContent? {
+        guard let service = roadflareDomainService else { return nil }
+        let profiles = await service.fetchDriverProfiles(pubkeys: [pubkey])
+        return profiles[pubkey]?.value
+    }
+
+    /// Publish the current followed-drivers list (Kind 30011) to the relay.
+    public func publishDriversList() async {
+        await rideCoordinator?.publishFollowedDriversList()
+    }
+
+    /// Request a fresh share key from a driver.
+    public func requestDriverKeyRefresh(driverPubkey: String) async {
+        await rideCoordinator?.requestKeyRefresh(driverPubkey: driverPubkey)
+    }
+
+    /// Check all followed drivers for stale keys and request refreshes.
+    public func checkForStaleDriverKeys() async {
+        await rideCoordinator?.checkForStaleKeys()
+    }
+}
+
+// MARK: - Façade: Ride History
+
+extension AppState {
+    /// The rider's completed ride history entries.
+    public var rideHistoryEntries: [RideHistoryEntry] {
+        rideHistory.rides
+    }
+
+    /// Remove a ride history entry by ID and trigger a backup.
+    public func removeRideHistoryEntry(id: String) {
+        rideHistory.removeRide(id: id)
+        rideCoordinator?.backupRideHistory()
+    }
+}
+
+// MARK: - Façade: Saved Locations
+
+extension AppState {
+    /// Favorite saved locations.
+    public var favoriteLocations: [SavedLocation] {
+        savedLocations.favorites
+    }
+
+    /// Recent (non-pinned) saved locations.
+    public var recentLocations: [SavedLocation] {
+        savedLocations.recents
+    }
+
+    /// All saved locations (favorites + recents).
+    public var allSavedLocations: [SavedLocation] {
+        savedLocations.locations
+    }
+
+    /// Save a location to the recent list.
+    public func saveLocation(_ location: SavedLocation) {
+        savedLocations.save(location)
+    }
+
+    /// Pin a recent location as a favorite.
+    public func pinLocation(id: String, nickname: String) {
+        savedLocations.pin(id: id, nickname: nickname)
+    }
+
+    /// Remove a saved location by ID.
+    public func removeLocation(id: String) {
+        savedLocations.remove(id: id)
+    }
+
+    /// Clear all saved locations and publish the profile backup.
+    public func clearAllLocations() async {
+        savedLocations.clearAll()
+        await publishProfileBackup()
+    }
+}
+
+// MARK: - Façade: Settings (read-only badge and display helpers; writes still use appState.settings directly)
+
+extension AppState {
+    /// The rider's display name.
+    public var profileName: String {
+        settings.profileName
+    }
+
+    /// The rider's configured payment method count (for settings badge).
+    public var paymentMethodCount: Int {
+        settings.roadflarePaymentMethods.count
+    }
+
+    /// Number of followed drivers (for settings badge).
+    public var followedDriverCount: Int {
+        driversRepository?.drivers.count ?? 0
+    }
+
+    /// Number of pinned (favorite) locations.
+    public var favoritesCount: Int {
+        savedLocations.favorites.count
+    }
+
+    /// Display names for all configured payment methods.
+    public var allPaymentMethodNames: [String] {
+        settings.allPaymentMethodNames
     }
 }
 

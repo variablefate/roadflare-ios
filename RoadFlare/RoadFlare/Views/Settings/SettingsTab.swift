@@ -43,9 +43,9 @@ struct SettingsTab: View {
                                             .foregroundColor(Color.rfPrimary)
                                     }
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(appState.settings.profileName.isEmpty ? "Set your name" : appState.settings.profileName)
+                                        Text(appState.profileName.isEmpty ? "Set your name" : appState.profileName)
                                             .font(RFFont.title(16))
-                                            .foregroundColor(appState.settings.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
+                                            .foregroundColor(appState.profileName.isEmpty ? Color.rfOnSurfaceVariant : Color.rfOnSurface)
                                         Text("Edit Profile")
                                             .font(RFFont.caption(12))
                                             .foregroundColor(Color.rfOnSurfaceVariant)
@@ -78,7 +78,7 @@ struct SettingsTab: View {
                                             .font(RFFont.body(15))
                                             .foregroundColor(Color.rfOnSurface)
                                         Spacer()
-                                        Text("\(appState.savedLocations.favorites.count) favorites")
+                                        Text("\(appState.favoritesCount) favorites")
                                             .font(RFFont.caption(12))
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Image(systemName: "chevron.right")
@@ -108,7 +108,7 @@ struct SettingsTab: View {
                                         .font(RFFont.body(15))
                                         .foregroundColor(Color.rfOnSurface)
                                     Spacer()
-                                    Text("\(appState.settings.roadflarePaymentMethods.count)")
+                                    Text("\(appState.paymentMethodCount)")
                                         .font(RFFont.caption(12))
                                         .foregroundColor(Color.rfOnSurfaceVariant)
                                     Image(systemName: "chevron.right")
@@ -162,7 +162,7 @@ struct SettingsTab: View {
                                 }
                                 .buttonStyle(.plain)
                                 Button { appState.selectedTab = 1 } label: {
-                                    SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
+                                    SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.followedDriverCount)")
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
@@ -371,14 +371,14 @@ struct EditProfileSheet: View {
                 }
             }
             .onAppear {
-                editedName = appState.settings.profileName
+                editedName = appState.profileName
             }
         }
     }
 
     private var hasChanges: Bool {
         let trimmed = editedName.trimmingCharacters(in: .whitespaces)
-        return !trimmed.isEmpty && trimmed != appState.settings.profileName
+        return !trimmed.isEmpty && trimmed != appState.profileName
     }
 
     private func save() {

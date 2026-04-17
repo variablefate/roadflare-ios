@@ -21,7 +21,7 @@ struct DriverDetailSheet: View {
                     LabeledContent("Name", value: displayName)
                     LabeledContent("Status", value: statusText)
 
-                    if let vehicle = appState.driversRepository?.driverProfiles[driver.pubkey]?.vehicleDescription {
+                    if let vehicle = appState.driverProfile(pubkey: driver.pubkey)?.vehicleDescription {
                         LabeledContent("Vehicle", value: vehicle)
                     }
 
@@ -48,7 +48,7 @@ struct DriverDetailSheet: View {
                     }
                 }
 
-                if let loc = appState.driversRepository?.driverLocations[driver.pubkey] {
+                if let loc = appState.driverLocation(pubkey: driver.pubkey) {
                     Section("Last Known Location") {
                         LabeledContent("Status", value: loc.status)
                         LabeledContent("Last Update", value: formatTimestamp(loc.timestamp))
@@ -75,12 +75,7 @@ struct DriverDetailSheet: View {
 
                 Section {
                     Button("Remove Driver", role: .destructive) {
-                        appState.driversRepository?.removeDriver(pubkey: driver.pubkey)
-                        // Republish updated list and restart location subs with new filter
-                        Task {
-                            await appState.rideCoordinator?.publishFollowedDriversList()
-                            appState.rideCoordinator?.startLocationSubscriptions()
-                        }
+                        appState.removeDriver(pubkey: driver.pubkey)
                         dismiss()
                     }
                 }
@@ -99,19 +94,19 @@ struct DriverDetailSheet: View {
     }
 
     private var currentDriver: FollowedDriver {
-        appState.driversRepository?.getDriver(pubkey: driver.pubkey) ?? driver
+        appState.getDriver(pubkey: driver.pubkey) ?? driver
     }
 
     private var currentLocation: CachedDriverLocation? {
-        appState.driversRepository?.driverLocations[driver.pubkey]
+        appState.driverLocation(pubkey: driver.pubkey)
     }
 
     private var canRequestRide: Bool {
-        currentDriver.hasKey && currentLocation?.status == "online"
+        appState.canRequestRide(currentDriver)
     }
 
     private var displayName: String {
-        appState.driversRepository?.driverNames[driver.pubkey]
+        appState.driverDisplayName(pubkey: driver.pubkey)
             ?? currentDriver.name
             ?? String(driver.pubkey.prefix(8)) + "..."
     }
@@ -127,16 +122,10 @@ struct DriverDetailSheet: View {
     }
 
     private func persistNoteIfNeeded() {
-        guard let repo = appState.driversRepository else { return }
         let normalized = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existing = repo.getDriver(pubkey: driver.pubkey)?.note?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let existing = currentDriver.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard normalized != existing else { return }
-
-        repo.updateDriverNote(driverPubkey: driver.pubkey, note: normalized)
-        Task {
-            await appState.rideCoordinator?.publishFollowedDriversList()
-        }
+        appState.updateDriverNote(pubkey: driver.pubkey, note: normalized)
     }
 
     private func formatTimestamp(_ timestamp: Int) -> String {

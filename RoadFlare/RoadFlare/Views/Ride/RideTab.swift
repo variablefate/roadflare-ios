@@ -91,7 +91,7 @@ struct RideTab: View {
 
     private func monitorConnection() async {
         while !Task.isCancelled {
-            if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
+            isOffline = !(await appState.isRelayConnected())
             try? await Task.sleep(for: .seconds(10))
         }
     }
