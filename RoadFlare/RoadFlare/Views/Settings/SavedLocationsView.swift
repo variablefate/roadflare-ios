@@ -10,7 +10,14 @@ struct SavedLocationsView: View {
     @State private var editingLocation: SavedLocationRow?
 
     var body: some View {
-        ZStack {
+        // Capture each row list once per body invocation — SwiftUI calls
+        // body frequently, and reading these twice (empty-check + ForEach)
+        // each time would double the `SavedLocationsRepository.favorites`
+        // and `.recents` compute (and for recents, the proximity-filter
+        // pass against favorites).
+        let favorites = appState.favoriteLocationRows
+        let recents = appState.recentLocationRows
+        return ZStack {
             Color.rfSurface.ignoresSafeArea()
 
             ScrollView {
@@ -19,7 +26,7 @@ struct SavedLocationsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Favorites")
 
-                        if appState.favoriteLocationRows.isEmpty {
+                        if favorites.isEmpty {
                             HStack {
                                 Image(systemName: "star")
                                     .foregroundColor(Color.rfOnSurfaceVariant)
@@ -29,7 +36,7 @@ struct SavedLocationsView: View {
                             }
                             .rfCard(.low)
                         } else {
-                            ForEach(appState.favoriteLocationRows) { row in
+                            ForEach(favorites) { row in
                                 Button { editingLocation = row } label: {
                                     HStack(spacing: 12) {
                                         Image(systemName: row.iconSystemName)
@@ -60,7 +67,7 @@ struct SavedLocationsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Recent Locations")
 
-                        if appState.recentLocationRows.isEmpty {
+                        if recents.isEmpty {
                             HStack {
                                 Image(systemName: "clock")
                                     .foregroundColor(Color.rfOnSurfaceVariant)
@@ -70,7 +77,7 @@ struct SavedLocationsView: View {
                             }
                             .rfCard(.low)
                         } else {
-                            ForEach(appState.recentLocationRows) { row in
+                            ForEach(recents) { row in
                                 SwipeToDeleteRow {
                                     editingLocation = row
                                 } onDelete: {

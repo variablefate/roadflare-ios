@@ -183,6 +183,53 @@ struct AppStateOnlineDriverOptionsTests {
     }
 }
 
+// MARK: - AppState.hasPingableDriver
+
+@Suite("AppState.hasPingableDriver")
+@MainActor
+struct AppStateHasPingableDriverTests {
+
+    @Test func falseWhenNoRepository() {
+        let appState = AppState()
+        #expect(appState.hasPingableDriver == false)
+    }
+
+    @Test func falseWhenDriverIsOnline() {
+        // Online drivers are not valid ping targets (they don't need one).
+        let driver = FollowedDriver(pubkey: fakePubkeyA, name: "Online", roadflareKey: fakeKey)
+        let repo = makeRepo(drivers: [driver])
+        setOnline(repo, pubkey: fakePubkeyA)
+
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        #expect(appState.hasPingableDriver == false)
+    }
+
+    @Test func trueWhenOfflineDriverHasCurrentKey() {
+        let driver = FollowedDriver(pubkey: fakePubkeyA, name: "Offline", roadflareKey: fakeKey)
+        let repo = makeRepo(drivers: [driver])
+        // No location update → driver is "offline" by the repo's definition,
+        // which makes it a valid ping target (has key, not stale, not online).
+
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        #expect(appState.hasPingableDriver == true)
+    }
+
+    @Test func falseWhenKeyStale() {
+        let driver = FollowedDriver(pubkey: fakePubkeyA, name: "Stale", roadflareKey: fakeKey)
+        let repo = makeRepo(drivers: [driver])
+        repo.markKeyStale(pubkey: fakePubkeyA)
+
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        #expect(appState.hasPingableDriver == false)
+    }
+}
+
 // MARK: - AppState.rideHistoryRows
 
 @Suite("AppState.rideHistoryRows")

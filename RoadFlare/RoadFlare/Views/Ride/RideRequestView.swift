@@ -21,17 +21,22 @@ struct RideRequestView: View {
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.session.stage ?? .idle }
-    private var onlineDriverOptions: [RideRequestDriverOption] {
-        appState.onlineDriverOptions()
-    }
-    private var onlineDriverPubkeys: [String] { onlineDriverOptions.map(\.pubkey) }
-    private var hasValidSelectedDriver: Bool {
-        guard let selectedDriverPubkey else { return false }
-        return onlineDriverPubkeys.contains(selectedDriverPubkey)
-    }
 
     var body: some View {
-        ScrollView {
+        // Capture expensive façade reads once per body invocation. `body` uses
+        // each of these in multiple places (isEmpty / ForEach / .onChange /
+        // the ride-details gate), and every access to `appState.onlineDriverOptions()`
+        // rebuilds the filtered `RideRequestDriverOption` list from the repo.
+        let onlineOptions = appState.onlineDriverOptions()
+        let onlinePubkeys = onlineOptions.map(\.pubkey)
+        let favorites = appState.favoriteLocationRows
+        let recents = appState.recentLocationRows
+        let addressSearchItems = makeAddressSearchItems(favorites: favorites, recents: recents)
+        let hasValidSelectedDriver: Bool = {
+            guard let selectedDriverPubkey else { return false }
+            return onlinePubkeys.contains(selectedDriverPubkey)
+        }()
+        return ScrollView {
             VStack(spacing: 16) {
                 if !appState.hasFollowedDrivers {
                     VStack(spacing: 24) {
@@ -53,7 +58,7 @@ struct RideRequestView: View {
                         .buttonStyle(RFPrimaryButtonStyle())
                         .padding(.horizontal, 48)
                     }
-                } else if onlineDriverOptions.isEmpty {
+                } else if onlineOptions.isEmpty {
                         VStack(spacing: 24) {
                             Spacer().frame(height: 80)
                             Image(systemName: "car.side")
@@ -79,7 +84,7 @@ struct RideRequestView: View {
                     // Available drivers
                     VStack(alignment: .leading, spacing: 8) {
                         SectionLabel("Available Drivers")
-                        ForEach(onlineDriverOptions) { option in
+                        ForEach(onlineOptions) { option in
                             Button { selectedDriverPubkey = option.pubkey } label: {
                                 HStack(spacing: 12) {
                                     FlareIndicator(color: selectedDriverPubkey == option.pubkey ? .rfPrimary : .rfOnline)
@@ -120,7 +125,7 @@ struct RideRequestView: View {
                                         onResolvedLocation: { lat, lon in resolvedPickupCoord = Coordinate(lat: lat, lon: lon) },
                                         showCurrentLocation: true,
                                         onUseCurrentLocation: { useCurrentLocation() },
-                                        savedLocations: recentLocationItems
+                                        savedLocations: addressSearchItems
                                     )
 
                                     Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
@@ -132,7 +137,7 @@ struct RideRequestView: View {
                                         text: $destinationAddress,
                                         onSelect: { _ in recalculateFare() },
                                         onResolvedLocation: { lat, lon in resolvedDestCoord = Coordinate(lat: lat, lon: lon) },
-                                        savedLocations: recentLocationItems
+                                        savedLocations: addressSearchItems
                                     )
                                 }
 
@@ -203,7 +208,7 @@ struct RideRequestView: View {
                                 .buttonStyle(RFPrimaryButtonStyle())
                             } else if pickupAddress.isEmpty || destinationAddress.isEmpty {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(appState.favoriteLocationRows) { row in
+                                    ForEach(favorites) { row in
                                         Button {
                                             fillNextAddress(row)
                                         } label: {
@@ -230,7 +235,7 @@ struct RideRequestView: View {
                                         .buttonStyle(.plain)
                                     }
 
-                                    ForEach(appState.recentLocationRows) { row in
+                                    ForEach(recents) { row in
                                         SwipeToDeleteRow {
                                             fillNextAddress(row)
                                         } onDelete: {
@@ -283,7 +288,7 @@ struct RideRequestView: View {
         .onChange(of: appState.requestRideDriverPubkey) {
             refreshSelectedDriverSelection()
         }
-        .onChange(of: onlineDriverPubkeys) {
+        .onChange(of: onlinePubkeys) {
             refreshSelectedDriverSelection()
         }
         .onChange(of: pickupAddress) {
@@ -320,14 +325,20 @@ struct RideRequestView: View {
         recalculateFare()
     }
 
-    private var recentLocationItems: [(name: String, address: String, lat: Double, lon: Double)] {
-        let favorites = appState.favoriteLocationRows.map { row in
+    /// Build the flat (name, address, lat, lon) tuple list that
+    /// `AddressSearchField` consumes. Takes already-captured row arrays so the
+    /// façade is not re-read twice (once per AddressSearchField instance).
+    private func makeAddressSearchItems(
+        favorites: [SavedLocationRow],
+        recents: [SavedLocationRow]
+    ) -> [(name: String, address: String, lat: Double, lon: Double)] {
+        let favItems = favorites.map { row in
             (name: row.label, address: row.addressLine, lat: row.latitude, lon: row.longitude)
         }
-        let recents = appState.recentLocationRows.prefix(5).map { row in
+        let recentItems = recents.prefix(5).map { row in
             (name: row.displayName, address: row.addressLine, lat: row.latitude, lon: row.longitude)
         }
-        return favorites + Array(recents)
+        return favItems + Array(recentItems)
     }
 
     private func useCurrentLocation() {
@@ -416,8 +427,9 @@ struct RideRequestView: View {
     private func sendOffer() {
         fareCalcTask?.cancel()
         fareCalcTask = nil
+        let onlinePubkeys = appState.onlineDriverOptions().map(\.pubkey)
         guard let driverPubkey = selectedDriverPubkey,
-              onlineDriverPubkeys.contains(driverPubkey),
+              onlinePubkeys.contains(driverPubkey),
               let fare = coordinator?.currentFareEstimate,
               let pickup = coordinator?.pickupLocation,
               let destination = coordinator?.destinationLocation else { return }
@@ -430,6 +442,12 @@ struct RideRequestView: View {
     }
 
     func refreshSelectedDriverSelection() {
+        // Pay for the façade call once per invocation rather than four times
+        // (3 `onlineDriverPubkeys` reads + 1 `onlineDriverOptions.first` read
+        // in the pre-capture shape).
+        let onlineOptions = appState.onlineDriverOptions()
+        let onlinePubkeys = onlineOptions.map(\.pubkey)
+
         var appliedExplicitSelection = false
         if let requestedPubkey = appState.requestRideDriverPubkey {
             selectedDriverPubkey = requestedPubkey
@@ -442,13 +460,13 @@ struct RideRequestView: View {
         }
 
         guard stage == .idle else { return }
-        guard !onlineDriverPubkeys.isEmpty else {
+        guard !onlinePubkeys.isEmpty else {
             self.selectedDriverPubkey = nil
             return
         }
 
         if let selectedDriverPubkey {
-            guard onlineDriverPubkeys.contains(selectedDriverPubkey) else {
+            guard onlinePubkeys.contains(selectedDriverPubkey) else {
                 self.selectedDriverPubkey = nil
                 return
             }
@@ -456,7 +474,7 @@ struct RideRequestView: View {
         }
 
         if !appliedExplicitSelection {
-            self.selectedDriverPubkey = onlineDriverOptions.first?.pubkey
+            self.selectedDriverPubkey = onlineOptions.first?.pubkey
         }
     }
 }

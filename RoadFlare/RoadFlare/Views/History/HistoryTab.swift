@@ -8,14 +8,18 @@ struct HistoryTab: View {
     @State private var isOffline = false
 
     var body: some View {
-        NavigationStack {
+        // Capture once per body — `rideHistoryRows` allocates a NumberFormatter
+        // per row on every access, and body would otherwise read it twice
+        // (empty check + ForEach).
+        let rows = appState.rideHistoryRows
+        return NavigationStack {
             VStack(spacing: 0) {
                 AppHeader(title: "History", showProfile: $showProfile, showConnectivity: $showConnectivity, isOffline: isOffline)
 
                 ZStack {
                     Color.rfSurface
 
-                    if appState.rideHistoryRows.isEmpty {
+                    if rows.isEmpty {
                     VStack(spacing: 24) {
                         Image(systemName: "clock")
                             .font(.system(size: 48))
@@ -30,7 +34,7 @@ struct HistoryTab: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 12) {
-                            ForEach(appState.rideHistoryRows) { row in
+                            ForEach(rows) { row in
                                 SwipeToDeleteRow {
                                     // History cards are currently read-only.
                                 } onDelete: {
