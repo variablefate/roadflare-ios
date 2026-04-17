@@ -57,6 +57,32 @@ public struct RelayDeletionResult: Sendable {
     }
 }
 
+/// Result of verifying a deletion — re-scans relays and counts how many of the
+/// originally-requested event IDs are still visible. Relays implementing NIP-09
+/// should have removed the events; relays that refuse NIP-09 (policy choice)
+/// will still have them. The counts let callers tell the user honestly.
+public struct DeletionVerificationResult: Sendable {
+    /// How many event IDs were in the Kind 5 deletion request.
+    public let requestedCount: Int
+    /// How many of those are still visible on relays after the verification scan.
+    public let remainingCount: Int
+    /// How many appear to have been honoured (requested - remaining).
+    public var deletedCount: Int { requestedCount - remainingCount }
+    /// Whether the verification scan itself produced relay errors (timeouts,
+    /// disconnects). When non-empty the `remainingCount` is a lower bound —
+    /// some relays couldn't be checked.
+    public let scanErrors: [String]
+
+    public init(requestedCount: Int, remainingCount: Int, scanErrors: [String]) {
+        self.requestedCount = requestedCount
+        self.remainingCount = remainingCount
+        self.scanErrors = scanErrors
+    }
+
+    /// True when every requested event is gone from every reachable relay.
+    public var fullyHonoured: Bool { remainingCount == 0 && scanErrors.isEmpty }
+}
+
 // MARK: - Service
 
 /// Scans relays for rider-authored events and publishes NIP-09 Kind 5 deletion requests.
@@ -145,6 +171,35 @@ public final class AccountDeletionService: Sendable {
         return await publishDeletion(
             eventIds: eventIds,
             kinds: Self.roadflareKinds + [.metadata]
+        )
+    }
+
+    // MARK: - Verify
+
+    /// Re-scan relays and count how many of the requested event IDs are still
+    /// visible. Intended to run a beat after a deletion publish so relays have
+    /// time to process the Kind 5 and drop the referenced events.
+    ///
+    /// Waits `settleDelay` seconds before the scan to give relays time to
+    /// process the Kind 5. Defaults to 2s which comfortably covers healthy
+    /// relay processing time; slow relays may still be mid-process when the
+    /// scan runs, in which case their events will show up in `remainingCount`.
+    public func verifyDeletion(
+        targetEventIds: [String],
+        settleDelay: TimeInterval = 2.0
+    ) async -> DeletionVerificationResult {
+        if targetEventIds.isEmpty {
+            return DeletionVerificationResult(requestedCount: 0, remainingCount: 0, scanErrors: [])
+        }
+        try? await Task.sleep(for: .seconds(settleDelay))
+        let scan = await scanRelays()
+        let stillPresent = Set(scan.roadflareEvents.map(\.id))
+            .union(scan.metadataEvents.map(\.id))
+        let remaining = Set(targetEventIds).intersection(stillPresent)
+        return DeletionVerificationResult(
+            requestedCount: targetEventIds.count,
+            remainingCount: remaining.count,
+            scanErrors: scan.scanErrors
         )
     }
 

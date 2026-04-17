@@ -447,6 +447,52 @@ public final class AppState {
         return result
     }
 
+    /// Publish the Kind 5 account deletion event for all Ridestr events + Kind 0.
+    /// Unlike `deleteAllRidestrEvents`, this DOES NOT call `logout()` on success —
+    /// the caller is responsible for invoking `logout()` after the user confirms
+    /// a post-publish verification step. This lets the UI show a verification
+    /// screen (re-scans relays to confirm deletion was honoured) before the
+    /// keypair is destroyed.
+    public func publishAccountDeletion(from scan: RelayScanResult) async -> RelayDeletionResult {
+        guard let keypair, let relayManager else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false, publishError: "Services not ready"
+            )
+        }
+        guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
+            return RelayDeletionResult(
+                deletedEventIds: [], targetRelayURLs: DefaultRelays.all,
+                publishedSuccessfully: false,
+                publishError: "An active ride started during deletion — cancel it and try again."
+            )
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        let result = await service.deleteAllRidestrEvents(from: scan)
+        if !result.publishedSuccessfully {
+            AppLogger.auth.error(
+                "Account deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
+            )
+        }
+        return result
+    }
+
+    /// Re-scan relays for the given event IDs to verify how many were honoured.
+    /// Intended to run after `publishAccountDeletion` returns successfully and
+    /// before the user confirms the final logout. The keypair + relay manager
+    /// must still be live when this is called.
+    public func verifyAccountDeletion(eventIds: [String]) async -> DeletionVerificationResult {
+        guard let keypair, let relayManager else {
+            return DeletionVerificationResult(
+                requestedCount: eventIds.count,
+                remainingCount: eventIds.count,
+                scanErrors: ["Services not ready"]
+            )
+        }
+        let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
+        return await service.verifyDeletion(targetEventIds: eventIds)
+    }
+
     // MARK: - Service Setup
 
     /// Setup with sync status updates for the import flow UI.

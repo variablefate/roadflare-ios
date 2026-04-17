@@ -256,43 +256,81 @@ struct DeleteAccountResultsView: View {
     @Environment(AppState.self) private var appState
     let scan: RelayScanResult
 
+    /// Phases of the delete flow on page 2. Starts at .ready (show scan +
+    /// delete button). Progresses through .publishing → .verifying → .success
+    /// after user confirms in the checkbox sheet. .failed surfaces publish
+    /// errors so the user can retry with the session still alive.
+    enum Phase {
+        case ready
+        case publishing
+        case verifying(deletedEventIds: [String])
+        case success(DeletionVerificationResult)
+        case failed(String)
+    }
+
+    @State private var phase: Phase = .ready
     @State private var showDeleteSheet = false
-    @State private var isDeleting = false
-    /// On publish failure the session is preserved (AppState only logs out on
-    /// success), so the banner below renders and the user can retry. Cleared
-    /// at the start of each retry via the sheet's onConfirm.
-    @State private var publishErrorMessage: String?
+
+    private var isBusy: Bool {
+        switch phase {
+        case .publishing, .verifying: true
+        default: false
+        }
+    }
+
+    private var isSuccess: Bool {
+        if case .success = phase { return true }
+        return false
+    }
+
+    private var navTitle: String {
+        switch phase {
+        case .ready, .failed: "Delete Account"
+        case .publishing, .verifying: "Deleting…"
+        case .success: ""
+        }
+    }
 
     var body: some View {
         ZStack {
             Color.rfSurface.ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: 24) {
-                    header
-                    scanSummaryCard
-                    if let publishErrorMessage {
-                        publishErrorBanner(publishErrorMessage)
-                    }
-                    deleteAccountOption
-                    if isDeleting {
-                        deletingIndicator
-                    }
-                    Spacer(minLength: 24)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            switch phase {
+            case .success(let verification):
+                successContent(verification)
+            default:
+                scanAndConfirmContent
             }
         }
-        .navigationTitle("Delete Account")
+        .navigationTitle(navTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.rfSurface, for: .navigationBar)
-        .navigationBarBackButtonHidden(isDeleting)
+        .navigationBarBackButtonHidden(isBusy || isSuccess)
         .sheet(isPresented: $showDeleteSheet) {
             FullDeletionConfirmSheet(scan: scan) {
-                isDeleting = true
-                publishErrorMessage = nil
                 Task { await performDeletion() }
             }
+        }
+    }
+
+    // MARK: Scan + confirm (pre-delete)
+
+    @ViewBuilder
+    private var scanAndConfirmContent: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                header
+                scanSummaryCard
+                if case .failed(let msg) = phase {
+                    publishErrorBanner(msg)
+                }
+                deleteAccountOption
+                if isBusy {
+                    deletingIndicator
+                }
+                Spacer(minLength: 24)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
     }
 
@@ -342,8 +380,8 @@ struct DeleteAccountResultsView: View {
             } label: {
                 Text("Delete Account")
             }
-            .buttonStyle(RFDestructiveButtonStyle(isDisabled: isDeleting))
-            .disabled(isDeleting)
+            .buttonStyle(RFDestructiveButtonStyle(isDisabled: isBusy))
+            .disabled(isBusy)
 
             Text("Permanently deletes your RoadFlare account, all associated events, and your Nostr profile (Kind 0) from relays. This may affect other Nostr apps that use this identity. This action cannot be undone.")
                 .font(RFFont.caption(12))
@@ -355,7 +393,7 @@ struct DeleteAccountResultsView: View {
     private var deletingIndicator: some View {
         HStack(spacing: 12) {
             ProgressView().tint(Color.rfOnSurface)
-            Text("Deleting…")
+            Text(deletingStatus)
                 .font(RFFont.body(15))
                 .foregroundColor(Color.rfOnSurfaceVariant)
         }
@@ -363,6 +401,61 @@ struct DeleteAccountResultsView: View {
         .padding(.vertical, 16)
         .background(Color.rfSurfaceContainer)
         .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var deletingStatus: String {
+        switch phase {
+        case .publishing: "Publishing deletion request to relays…"
+        case .verifying: "Verifying with relays…"
+        default: "Deleting…"
+        }
+    }
+
+    // MARK: Success (post-delete, pre-logout)
+
+    @ViewBuilder
+    private func successContent(_ verification: DeletionVerificationResult) -> some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 96, weight: .regular))
+                .foregroundColor(Color.rfOnline)
+            VStack(spacing: 12) {
+                Text("Account Deletion Successful")
+                    .font(RFFont.headline(22))
+                    .foregroundColor(Color.rfOnSurface)
+                    .multilineTextAlignment(.center)
+                Text(successDetail(for: verification))
+                    .font(RFFont.body(14))
+                    .foregroundColor(Color.rfOnSurfaceVariant)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+            }
+            Spacer()
+            Button {
+                Task { await appState.logout() }
+            } label: {
+                Text("Done")
+            }
+            .buttonStyle(RFPrimaryButtonStyle())
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func successDetail(for v: DeletionVerificationResult) -> String {
+        if v.requestedCount == 0 {
+            return "Your local account data has been cleared. There were no relay events to remove."
+        }
+        if v.fullyHonoured {
+            return "All \(v.requestedCount) event\(v.requestedCount == 1 ? "" : "s") were removed from relays. Tap Done to finish and clear your local account."
+        }
+        if !v.scanErrors.isEmpty && v.remainingCount == 0 {
+            return "Your deletion request was sent to \(scan.targetRelayURLs.count) relays. Some relays couldn't be re-checked, but none of the reachable relays still hold your events. Tap Done to finish and clear your local account."
+        }
+        return "Your deletion request was sent to \(scan.targetRelayURLs.count) relays. \(v.deletedCount) of \(v.requestedCount) event\(v.requestedCount == 1 ? " was" : "s were") confirmed removed; some relays may still be processing or may not honour NIP-09. Tap Done to finish and clear your local account."
     }
 
     private func publishErrorBanner(_ message: String) -> some View {
@@ -387,20 +480,19 @@ struct DeleteAccountResultsView: View {
     // MARK: Actions
 
     private func performDeletion() async {
-        // isDeleting and publishErrorMessage are set synchronously by the
-        // confirm-button action (closes the rapid-tap race); defer guarantees
-        // the UI is unstuck if deletion stops short of logout (publish failure
-        // or active-ride guard hit). On success, logout() replaces the view
-        // tree before this defer fires, so the reset is purely defensive.
-        defer { isDeleting = false }
-        let result = await appState.deleteAllRidestrEvents(from: scan)
-        // On success: logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
-        // On failure: AppState preserves the session so this banner can render and the user can retry
-        // (logging out on publish failure would destroy the keypair before the user sees the error,
-        // stranding their events on relays with no retry path).
-        if !result.publishedSuccessfully, let err = result.publishError {
-            publishErrorMessage = err
+        phase = .publishing
+        let result = await appState.publishAccountDeletion(from: scan)
+        guard result.publishedSuccessfully else {
+            phase = .failed(result.publishError ?? "Unknown publish error")
+            return
         }
+        // Publish succeeded; verify before logging out so the user can see
+        // whether relays actually honoured the request. The keypair + relay
+        // manager stay alive through this step because logout() is deferred
+        // until the user taps Done on the success screen.
+        phase = .verifying(deletedEventIds: result.deletedEventIds)
+        let verification = await appState.verifyAccountDeletion(eventIds: result.deletedEventIds)
+        phase = .success(verification)
     }
 }
 
