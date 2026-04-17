@@ -178,3 +178,6 @@ of this PR (ADR-0011 companion, issue #48).
 - `RoadFlare/RoadFlare/Views/Ride/RideRequestView.swift` (Phase B: remove SDK bypass)
 - `RoadFlare/RoadFlare/Views/History/HistoryTab.swift` (Phase B: remove SDK bypass)
 - `RoadFlare/RoadFlare/Views/Settings/SettingsTab.swift` (Phase B: remove SDK bypass)
+- `RoadFlare/RoadFlare/Views/Settings/SavedLocationsView.swift` (Phase B: remove SDK bypass)
+- `RoadFlare/RoadFlare/Views/Shared/ConnectivityIndicator.swift` (Phase B: remove SDK bypass)
+- `RoadFlare/RoadFlare/Views/Ride/RideTab.swift` (Phase B: remove SDK bypass)
