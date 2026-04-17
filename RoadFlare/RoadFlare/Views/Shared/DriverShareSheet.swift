@@ -3,11 +3,10 @@ import UIKit
 import RidestrSDK
 
 /// Custom in-app share tray for sharing a driver's QR code and deeplink.
-/// Shows an orange-on-gray QR code matching the Kinetic Beacon design system.
 struct DriverShareSheet: View {
-    let driver: FollowedDriver
+    let pubkey: String
     let driverName: String?
-    var driverProfile: UserProfileContent? = nil
+    var pictureURL: String? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var copied = false
 
@@ -23,8 +22,8 @@ struct DriverShareSheet: View {
     }
 
     private var deeplink: String {
-        guard let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) else {
-            return driver.pubkey
+        guard let npub = try? NIP19.npubEncode(publicKeyHex: pubkey) else {
+            return pubkey
         }
         let name = driverName ?? ""
         let nameParam = name.isEmpty ? "" : "?name=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)"
@@ -32,8 +31,8 @@ struct DriverShareSheet: View {
     }
 
     private var shareText: String {
-        guard let npub = try? NIP19.npubEncode(publicKeyHex: driver.pubkey) else {
-            return driver.pubkey
+        guard let npub = try? NIP19.npubEncode(publicKeyHex: pubkey) else {
+            return pubkey
         }
         return npub
     }
@@ -46,13 +45,11 @@ struct DriverShareSheet: View {
                 VStack(spacing: 24) {
                     Spacer().frame(height: 8)
 
-                    // Driver name
-                    Text(driverName ?? String(driver.pubkey.prefix(8)) + "...")
+                    Text(driverName ?? String(pubkey.prefix(8)) + "...")
                         .font(RFFont.headline(20))
                         .foregroundColor(Color.rfOnSurface)
 
-                    // Profile photo
-                    if let pictureURL = driverProfile?.picture, let url = URL(string: pictureURL) {
+                    if let urlStr = pictureURL, let url = URL(string: urlStr) {
                         AsyncImage(url: url) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
@@ -64,7 +61,6 @@ struct DriverShareSheet: View {
                         driverAvatarPlaceholder
                     }
 
-                    // QR Code (orange on dark gray)
                     if let qrImage = QRCodeImage.generate(from: deeplink) {
                         Image(uiImage: qrImage)
                             .interpolation(.none)
@@ -74,7 +70,6 @@ struct DriverShareSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
 
-                    // Deeplink text
                     Text(shareText)
                         .font(RFFont.mono(11))
                         .foregroundColor(Color.rfOffline)
@@ -82,9 +77,7 @@ struct DriverShareSheet: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
 
-                    // Action buttons
                     HStack(spacing: 16) {
-                        // Copy
                         Button {
                             UIPasteboard.general.string = shareText
                             copied = true
@@ -103,11 +96,9 @@ struct DriverShareSheet: View {
                         }
                         .buttonStyle(.plain)
 
-                        // Share
                         Button {
                             guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                                   let root = windowScene.keyWindow?.rootViewController else { return }
-                            // Find the topmost presented controller
                             var topVC = root
                             while let presented = topVC.presentedViewController {
                                 topVC = presented

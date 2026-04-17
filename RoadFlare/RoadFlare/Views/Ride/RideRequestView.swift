@@ -21,18 +21,13 @@ struct RideRequestView: View {
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.session.stage ?? .idle }
-    private var onlineDrivers: [FollowedDriver] {
-        appState.followedDrivers.filter { appState.canRequestRide($0) }
+    private var onlineDriverOptions: [RideRequestDriverOption] {
+        appState.onlineDriverOptions()
     }
-    private var onlineDriverPubkeys: [String] { onlineDrivers.map(\.pubkey) }
+    private var onlineDriverPubkeys: [String] { onlineDriverOptions.map(\.pubkey) }
     private var hasValidSelectedDriver: Bool {
         guard let selectedDriverPubkey else { return false }
         return onlineDriverPubkeys.contains(selectedDriverPubkey)
-    }
-    private func displayName(for driver: FollowedDriver) -> String {
-        appState.driverDisplayName(pubkey: driver.pubkey)
-            ?? driver.name
-            ?? String(driver.pubkey.prefix(8)) + "..."
     }
 
     var body: some View {
@@ -58,7 +53,7 @@ struct RideRequestView: View {
                         .buttonStyle(RFPrimaryButtonStyle())
                         .padding(.horizontal, 48)
                     }
-                } else if onlineDrivers.isEmpty {
+                } else if onlineDriverOptions.isEmpty {
                         VStack(spacing: 24) {
                             Spacer().frame(height: 80)
                             Image(systemName: "car.side")
@@ -72,7 +67,7 @@ struct RideRequestView: View {
                                 .foregroundColor(Color.rfOnSurfaceVariant)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
-                            if appState.followedDrivers.contains(where: { appState.canPingDriver($0) }) {
+                            if appState.driverListItems().contains(where: { $0.canPing }) {
                                 Button("Ping a Driver") {
                                     appState.selectedTab = 1
                                 }
@@ -84,13 +79,13 @@ struct RideRequestView: View {
                     // Available drivers
                     VStack(alignment: .leading, spacing: 8) {
                         SectionLabel("Available Drivers")
-                        ForEach(onlineDrivers) { driver in
-                            Button { selectedDriverPubkey = driver.pubkey } label: {
+                        ForEach(onlineDriverOptions) { option in
+                            Button { selectedDriverPubkey = option.pubkey } label: {
                                 HStack(spacing: 12) {
-                                    FlareIndicator(color: selectedDriverPubkey == driver.pubkey ? .rfPrimary : .rfOnline)
+                                    FlareIndicator(color: selectedDriverPubkey == option.pubkey ? .rfPrimary : .rfOnline)
                                         .frame(height: 36)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(displayName(for: driver))
+                                        Text(option.displayName)
                                             .font(RFFont.title(15))
                                             .foregroundColor(Color.rfOnSurface)
                                         Text("Available")
@@ -98,12 +93,12 @@ struct RideRequestView: View {
                                             .foregroundColor(Color.rfOnline)
                                     }
                                     Spacer()
-                                    if selectedDriverPubkey == driver.pubkey {
+                                    if selectedDriverPubkey == option.pubkey {
                                         Image(systemName: "checkmark.circle.fill")
                                             .foregroundColor(Color.rfPrimary)
                                     }
                                 }
-                                .rfCard(selectedDriverPubkey == driver.pubkey ? .high : .standard)
+                                .rfCard(selectedDriverPubkey == option.pubkey ? .high : .standard)
                             }
                             .buttonStyle(.plain)
                         }
@@ -141,7 +136,6 @@ struct RideRequestView: View {
                                     )
                                 }
 
-                                // Swap button
                                 Button {
                                     let temp = pickupAddress
                                     pickupAddress = destinationAddress
@@ -189,7 +183,6 @@ struct RideRequestView: View {
                                 .rfCard(.high)
                             }
 
-                            // Payment info
                             HStack {
                                 Image(systemName: "creditcard")
                                     .foregroundColor(Color.rfPrimary)
@@ -203,30 +196,27 @@ struct RideRequestView: View {
                                 Text(error).font(RFFont.caption()).foregroundColor(Color.rfError)
                             }
 
-                            // Show send button only when fare is calculated
                             if coordinator?.currentFareEstimate != nil && !isCalculatingFare {
                                 Button { sendOffer() } label: {
                                     Text("Send RoadFlare Request")
                                 }
                                 .buttonStyle(RFPrimaryButtonStyle())
                             } else if pickupAddress.isEmpty || destinationAddress.isEmpty {
-                                // Show saved locations as quick picks
                                 VStack(alignment: .leading, spacing: 8) {
-                                    // Favorites
-                                    ForEach(appState.favoriteLocations) { loc in
+                                    ForEach(appState.favoriteLocationRows) { row in
                                         Button {
-                                            fillNextAddress(loc)
+                                            fillNextAddress(row)
                                         } label: {
                                             HStack(spacing: 10) {
-                                                Image(systemName: iconForLocation(loc.nickname ?? loc.displayName))
+                                                Image(systemName: row.iconSystemName)
                                                     .font(.system(size: 13))
                                                     .foregroundColor(Color.rfPrimary)
                                                     .frame(width: 20)
                                                 VStack(alignment: .leading, spacing: 1) {
-                                                    Text(loc.nickname ?? loc.displayName)
+                                                    Text(row.label)
                                                         .font(RFFont.title(13))
                                                         .foregroundColor(Color.rfOnSurface)
-                                                    Text(loc.addressLine)
+                                                    Text(row.addressLine)
                                                         .font(RFFont.caption(11))
                                                         .foregroundColor(Color.rfOnSurfaceVariant)
                                                         .lineLimit(1)
@@ -240,12 +230,11 @@ struct RideRequestView: View {
                                         .buttonStyle(.plain)
                                     }
 
-                                    // Recents (swipe left to delete)
-                                    ForEach(appState.recentLocations) { loc in
+                                    ForEach(appState.recentLocationRows) { row in
                                         SwipeToDeleteRow {
-                                            fillNextAddress(loc)
+                                            fillNextAddress(row)
                                         } onDelete: {
-                                            withAnimation { appState.removeLocation(id: loc.id) }
+                                            withAnimation { appState.removeLocation(id: row.id) }
                                         } content: {
                                             HStack(spacing: 10) {
                                                 Image(systemName: "clock")
@@ -253,10 +242,10 @@ struct RideRequestView: View {
                                                     .foregroundColor(Color.rfOffline)
                                                     .frame(width: 20)
                                                 VStack(alignment: .leading, spacing: 1) {
-                                                    Text(loc.displayName)
+                                                    Text(row.displayName)
                                                         .font(RFFont.body(13))
                                                         .foregroundColor(Color.rfOnSurface)
-                                                    Text(loc.addressLine)
+                                                    Text(row.addressLine)
                                                         .font(RFFont.caption(11))
                                                         .foregroundColor(Color.rfOnSurfaceVariant)
                                                         .lineLimit(1)
@@ -319,32 +308,24 @@ struct RideRequestView: View {
 
     // MARK: - Actions
 
-    private func fillNextAddress(_ loc: SavedLocation) {
-        let address = loc.addressLine.isEmpty ? loc.displayName : loc.addressLine
+    private func fillNextAddress(_ row: SavedLocationRow) {
+        let address = row.addressLine.isEmpty ? row.displayName : row.addressLine
         if pickupAddress.isEmpty {
             pickupAddress = address
-            resolvedPickupCoord = Coordinate(lat: loc.latitude, lon: loc.longitude)
+            resolvedPickupCoord = Coordinate(lat: row.latitude, lon: row.longitude)
         } else {
             destinationAddress = address
-            resolvedDestCoord = Coordinate(lat: loc.latitude, lon: loc.longitude)
+            resolvedDestCoord = Coordinate(lat: row.latitude, lon: row.longitude)
         }
         recalculateFare()
     }
 
-    private func iconForLocation(_ name: String) -> String {
-        switch name.lowercased() {
-        case "home": return "house.fill"
-        case "work": return "briefcase.fill"
-        default: return "mappin"
-        }
-    }
-
     private var recentLocationItems: [(name: String, address: String, lat: Double, lon: Double)] {
-        let favorites = appState.favoriteLocations.map { loc in
-            (name: loc.nickname ?? loc.displayName, address: loc.addressLine, lat: loc.latitude, lon: loc.longitude)
+        let favorites = appState.favoriteLocationRows.map { row in
+            (name: row.label, address: row.addressLine, lat: row.latitude, lon: row.longitude)
         }
-        let recents = appState.recentLocations.prefix(5).map { loc in
-            (name: loc.displayName, address: loc.addressLine, lat: loc.latitude, lon: loc.longitude)
+        let recents = appState.recentLocationRows.map { row in
+            (name: row.displayName, address: row.addressLine, lat: row.latitude, lon: row.longitude)
         }
         return favorites + recents
     }
@@ -417,16 +398,14 @@ struct RideRequestView: View {
                 coordinator?.pickupLocation = pickup
                 coordinator?.destinationLocation = destination
 
-                appState.saveLocation(SavedLocation(
+                appState.saveGeocodedLocation(
                     id: UUID().uuidString, latitude: pickup.latitude, longitude: pickup.longitude,
-                    displayName: pickupAddress, addressLine: pickup.address ?? pickupAddress,
-                    isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
-                ))
-                appState.saveLocation(SavedLocation(
+                    displayName: pickupAddress, addressLine: pickup.address ?? pickupAddress
+                )
+                appState.saveGeocodedLocation(
                     id: UUID().uuidString, latitude: destination.latitude, longitude: destination.longitude,
-                    displayName: destinationAddress, addressLine: destination.address ?? destinationAddress,
-                    isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
-                ))
+                    displayName: destinationAddress, addressLine: destination.address ?? destinationAddress
+                )
             } catch {
                 if !Task.isCancelled { fareError = "Route calculation failed. Check addresses." }
             }
@@ -477,7 +456,7 @@ struct RideRequestView: View {
         }
 
         if !appliedExplicitSelection {
-            self.selectedDriverPubkey = onlineDrivers.first?.pubkey
+            self.selectedDriverPubkey = onlineDriverOptions.first?.pubkey
         }
     }
 }

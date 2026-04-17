@@ -7,7 +7,7 @@ import RoadFlareCore
 struct SavedLocationsView: View {
     @Environment(AppState.self) private var appState
     @State private var showAddFavorite = false
-    @State private var editingLocation: SavedLocation?
+    @State private var editingLocation: SavedLocationRow?
 
     var body: some View {
         ZStack {
@@ -19,7 +19,7 @@ struct SavedLocationsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Favorites")
 
-                        if appState.favoriteLocations.isEmpty {
+                        if appState.favoriteLocationRows.isEmpty {
                             HStack {
                                 Image(systemName: "star")
                                     .foregroundColor(Color.rfOnSurfaceVariant)
@@ -29,17 +29,17 @@ struct SavedLocationsView: View {
                             }
                             .rfCard(.low)
                         } else {
-                            ForEach(appState.favoriteLocations) { loc in
-                                Button { editingLocation = loc } label: {
+                            ForEach(appState.favoriteLocationRows) { row in
+                                Button { editingLocation = row } label: {
                                     HStack(spacing: 12) {
-                                        Image(systemName: iconForNickname(loc.nickname))
+                                        Image(systemName: row.iconSystemName)
                                             .foregroundColor(Color.rfPrimary)
                                             .frame(width: 24)
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(loc.nickname ?? loc.displayName)
+                                            Text(row.label)
                                                 .font(RFFont.title(15))
                                                 .foregroundColor(Color.rfOnSurface)
-                                            Text(loc.addressLine)
+                                            Text(row.addressLine)
                                                 .font(RFFont.caption(12))
                                                 .foregroundColor(Color.rfOnSurfaceVariant)
                                                 .lineLimit(1)
@@ -60,7 +60,7 @@ struct SavedLocationsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         SectionLabel("Recent Locations")
 
-                        if appState.recentLocations.isEmpty {
+                        if appState.recentLocationRows.isEmpty {
                             HStack {
                                 Image(systemName: "clock")
                                     .foregroundColor(Color.rfOnSurfaceVariant)
@@ -70,28 +70,28 @@ struct SavedLocationsView: View {
                             }
                             .rfCard(.low)
                         } else {
-                            ForEach(appState.recentLocations) { loc in
+                            ForEach(appState.recentLocationRows) { row in
                                 SwipeToDeleteRow {
-                                    editingLocation = loc
+                                    editingLocation = row
                                 } onDelete: {
-                                    withAnimation { appState.removeLocation(id: loc.id) }
+                                    withAnimation { appState.removeLocation(id: row.id) }
                                 } content: {
                                     HStack(spacing: 12) {
                                         Image(systemName: "clock")
                                             .foregroundColor(Color.rfOffline)
                                             .frame(width: 24)
                                         VStack(alignment: .leading, spacing: 2) {
-                                            Text(loc.displayName)
+                                            Text(row.displayName)
                                                 .font(RFFont.body(14))
                                                 .foregroundColor(Color.rfOnSurface)
-                                            Text(loc.addressLine)
+                                            Text(row.addressLine)
                                                 .font(RFFont.caption(12))
                                                 .foregroundColor(Color.rfOnSurfaceVariant)
                                                 .lineLimit(1)
                                         }
                                         Spacer()
 
-                                        Button { editingLocation = loc } label: {
+                                        Button { editingLocation = row } label: {
                                             Image(systemName: "star")
                                                 .foregroundColor(Color.rfOffline)
                                                 .frame(width: 36, height: 36)
@@ -129,16 +129,8 @@ struct SavedLocationsView: View {
         .sheet(isPresented: $showAddFavorite) {
             AddFavoriteSheet()
         }
-        .sheet(item: $editingLocation) { loc in
-            EditLocationSheet(location: loc)
-        }
-    }
-
-    private func iconForNickname(_ nickname: String?) -> String {
-        switch nickname?.lowercased() {
-        case "home": return "house.fill"
-        case "work": return "briefcase.fill"
-        default: return "star.fill"
+        .sheet(item: $editingLocation) { row in
+            EditLocationSheet(location: row)
         }
     }
 }
@@ -253,7 +245,7 @@ struct AddFavoriteSheet: View {
 // MARK: - Edit Location Sheet
 
 struct EditLocationSheet: View {
-    let location: SavedLocation
+    let location: SavedLocationRow
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var nickname: String = ""
@@ -266,7 +258,6 @@ struct EditLocationSheet: View {
                 VStack(spacing: 24) {
                     Spacer().frame(height: 8)
 
-                    // Address display
                     VStack(spacing: 4) {
                         Text(location.displayName)
                             .font(RFFont.headline(18))
@@ -276,7 +267,6 @@ struct EditLocationSheet: View {
                             .foregroundColor(Color.rfOnSurfaceVariant)
                     }
 
-                    // Nickname field
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Label")
                             .font(RFFont.caption())
@@ -290,7 +280,6 @@ struct EditLocationSheet: View {
                     }
                     .padding(.horizontal, 24)
 
-                    // Quick label buttons
                     HStack(spacing: 12) {
                         QuickLabelButton(icon: "house.fill", label: "Home") {
                             nickname = "Home"
@@ -303,8 +292,7 @@ struct EditLocationSheet: View {
 
                     Spacer()
 
-                    // Save as favorite
-                    if !location.isPinned {
+                    if !location.isFavorite {
                         Button {
                             appState.pinLocation(id: location.id, nickname: nickname.isEmpty ? location.displayName : nickname)
                             Task { await appState.publishProfileBackup() }
@@ -315,7 +303,6 @@ struct EditLocationSheet: View {
                         .buttonStyle(RFPrimaryButtonStyle())
                         .padding(.horizontal, 24)
                     } else {
-                        // Update nickname
                         Button {
                             if !nickname.isEmpty {
                                 appState.pinLocation(id: location.id, nickname: nickname)
@@ -330,13 +317,12 @@ struct EditLocationSheet: View {
                         .padding(.horizontal, 24)
                     }
 
-                    // Delete
                     Button(role: .destructive) {
                         appState.removeLocation(id: location.id)
                         Task { await appState.publishProfileBackup() }
                         dismiss()
                     } label: {
-                        Text(location.isPinned ? "Remove Favorite" : "Remove")
+                        Text(location.isFavorite ? "Remove Favorite" : "Remove")
                             .font(RFFont.body(15))
                             .foregroundColor(Color.rfError)
                     }
@@ -344,7 +330,7 @@ struct EditLocationSheet: View {
                     Spacer().frame(height: 16)
                 }
             }
-            .navigationTitle(location.isPinned ? "Edit Favorite" : "Save Location")
+            .navigationTitle(location.isFavorite ? "Edit Favorite" : "Save Location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color.rfSurface, for: .navigationBar)
             .toolbar {
@@ -354,7 +340,7 @@ struct EditLocationSheet: View {
                 }
             }
             .onAppear {
-                nickname = location.nickname ?? location.displayName
+                nickname = location.label
             }
         }
     }

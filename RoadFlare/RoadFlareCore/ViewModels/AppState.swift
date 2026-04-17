@@ -815,6 +815,16 @@ extension AppState {
         savedLocations.save(location)
     }
 
+    /// Save a geocoded location as a recent entry (called after fare calculation).
+    public func saveGeocodedLocation(id: String, latitude: Double, longitude: Double,
+                                     displayName: String, addressLine: String) {
+        savedLocations.save(SavedLocation(
+            id: id, latitude: latitude, longitude: longitude,
+            displayName: displayName, addressLine: addressLine,
+            isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
+        ))
+    }
+
     /// Pin a recent location as a favorite.
     public func pinLocation(id: String, nickname: String) {
         savedLocations.pin(id: id, nickname: nickname)
