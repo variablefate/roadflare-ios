@@ -141,6 +141,7 @@ struct DeleteAccountScanView: View {
 
         case .complete(let scan):
             VStack(spacing: 12) {
+                scanCompleteCard(scan)
                 // Surface scan errors honestly — silent "0 events" when relays
                 // were unreachable would mislead the user into thinking nothing
                 // exists when their data may still be on those relays.
@@ -151,10 +152,7 @@ struct DeleteAccountScanView: View {
                 NavigationLink {
                     DeleteAccountResultsView(scan: scan)
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: scan.hasErrors ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                        Text("Continue — \(scan.totalCount) event\(scan.totalCount == 1 ? "" : "s") found")
-                    }
+                    Text("Continue")
                 }
                 .buttonStyle(RFDestructiveButtonStyle())
             }
@@ -167,6 +165,33 @@ struct DeleteAccountScanView: View {
             }
             .buttonStyle(RFSecondaryButtonStyle())
         }
+    }
+
+    @ViewBuilder
+    private func scanCompleteCard(_ scan: RelayScanResult) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: "doc.text.magnifyingglass")
+                    .foregroundColor(Color.rfPrimary)
+                Text("Scan Complete")
+                    .font(RFFont.title(15))
+                    .foregroundColor(Color.rfOnSurface)
+            }
+            // Same nested-Text interpolation pattern as page 2's scan summary —
+            // bold counts anchor the numbers, surrounding text stays muted.
+            Text("Found \(Text("\(scan.roadflareCount)").bold().foregroundColor(Color.rfOnSurface)) RoadFlare event\(scan.roadflareCount == 1 ? "" : "s") and \(Text("\(scan.metadataCount)").bold().foregroundColor(Color.rfOnSurface)) Nostr profile event\(scan.metadataCount == 1 ? "" : "s") across \(scan.targetRelayURLs.count) relays created by your account.")
+                .font(RFFont.body(14))
+                .foregroundColor(Color.rfOnSurfaceVariant)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Continue to review and confirm deletion.")
+                .font(RFFont.caption(12))
+                .foregroundColor(Color.rfOnSurfaceVariant)
+                .padding(.top, 2)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.rfSurfaceContainer)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder
