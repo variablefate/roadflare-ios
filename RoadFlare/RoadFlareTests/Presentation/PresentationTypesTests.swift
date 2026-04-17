@@ -106,6 +106,19 @@ struct DriverListItemTests {
         #expect(item.canRequestRide == false)
     }
 
+    // Pins the short-circuit in resolveDriverPresentationStatus: isKeyStale must
+    // win over any location state. If the priority ladder is ever reordered, these
+    // assertions catch it regardless of which location.status string is present.
+    @Test(arguments: ["on_ride", "offline", "unknown_status"])
+    func keyStalePrecedenceAcrossLocationStates(status: String) {
+        let driver = makeDriver()
+        let loc = makeLocation(status: status)
+        let item = DriverListItem.from(driver, displayName: nil, location: loc,
+                                       profile: nil, isKeyStale: true, canPing: false)
+        #expect(item.status == .keyStale)
+        #expect(item.canRequestRide == false)
+    }
+
     @Test func vehicleDescriptionFromProfile() {
         let driver = makeDriver()
         let profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
@@ -206,6 +219,22 @@ struct DriverDetailViewStateTests {
         // Both last-location fields must be nil when the key is stale — the
         // raw "online" status and the "3 min ago" timestamp were both derived
         // from a broadcast decrypted with the pre-rotation key.
+        #expect(state.lastLocationStatus == nil)
+        #expect(state.lastLocationTimestampLabel == nil)
+    }
+
+    // Mirrors the DriverListItem precedence test: stale wins over any location
+    // status. Also verifies lastLocationStatus stays nil regardless of the raw
+    // value, so views can't accidentally render a pre-rotation status string.
+    @Test(arguments: ["on_ride", "offline", "unknown_status"])
+    func keyStalePrecedenceAcrossLocationStates(status: String) {
+        let driver = makeDriver()
+        let loc = makeLocation(status: status)
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: loc, profile: nil,
+                                               isKeyStale: true, canPing: false)
+        #expect(state.statusLabel == "Key outdated")
+        #expect(state.canRequestRide == false)
         #expect(state.lastLocationStatus == nil)
         #expect(state.lastLocationTimestampLabel == nil)
     }
@@ -453,6 +482,15 @@ struct RideHistoryRowTests {
     @Test func fareLabelZeroShowsDash() {
         let row = RideHistoryRow.from(makeEntry(fare: 0))
         #expect(row.fareLabel == "–")
+    }
+
+    @Test func fareLabelNegativeShowsMinusSign() {
+        // Pins the NumberFormatter behavior the pass-2 fix was made for:
+        // the previous Double-conversion path could render "$-0.00" for very
+        // small negative values. NumberFormatter puts the sign in the correct
+        // position ("-$5.00"), which is what we want to show for refunds.
+        let row = RideHistoryRow.from(makeEntry(fare: Decimal(string: "-5.00")!))
+        #expect(row.fareLabel == "-$5.00")
     }
 
     @Test func distanceLabelFormatted() {
