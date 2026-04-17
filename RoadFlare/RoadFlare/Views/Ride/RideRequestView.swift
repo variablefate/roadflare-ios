@@ -40,8 +40,27 @@ struct RideRequestView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if appState.hasFollowedDrivers {
-                    if onlineDrivers.isEmpty {
+                if !appState.hasFollowedDrivers {
+                    VStack(spacing: 24) {
+                        Spacer().frame(height: 80)
+                        Image(systemName: "person.2")
+                            .font(.system(size: 48))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                        Text("No Drivers Added")
+                            .font(RFFont.headline(20))
+                            .foregroundColor(Color.rfOnSurface)
+                        Text("Add trusted drivers to your network to request a ride.")
+                            .font(RFFont.body(15))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                        Button("Add a Driver") {
+                            appState.selectedTab = 1
+                        }
+                        .buttonStyle(RFPrimaryButtonStyle())
+                        .padding(.horizontal, 48)
+                    }
+                } else if onlineDrivers.isEmpty {
                         VStack(spacing: 24) {
                             Spacer().frame(height: 80)
                             Image(systemName: "car.side")
@@ -63,193 +82,192 @@ struct RideRequestView: View {
                                 .padding(.horizontal, 48)
                             }
                         }
-                    } else {
-                        // Available drivers
-                        VStack(alignment: .leading, spacing: 8) {
-                            SectionLabel("Available Drivers")
-                            ForEach(onlineDrivers) { driver in
-                                Button { selectedDriverPubkey = driver.pubkey } label: {
-                                    HStack(spacing: 12) {
-                                        FlareIndicator(color: selectedDriverPubkey == driver.pubkey ? .rfPrimary : .rfOnline)
-                                            .frame(height: 36)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(displayName(for: driver))
-                                                .font(RFFont.title(15))
-                                                .foregroundColor(Color.rfOnSurface)
-                                            Text("Available")
-                                                .font(RFFont.caption(11))
-                                                .foregroundColor(Color.rfOnline)
-                                        }
-                                        Spacer()
-                                        if selectedDriverPubkey == driver.pubkey {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundColor(Color.rfPrimary)
-                                        }
+                } else {
+                    // Available drivers
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionLabel("Available Drivers")
+                        ForEach(onlineDrivers) { driver in
+                            Button { selectedDriverPubkey = driver.pubkey } label: {
+                                HStack(spacing: 12) {
+                                    FlareIndicator(color: selectedDriverPubkey == driver.pubkey ? .rfPrimary : .rfOnline)
+                                        .frame(height: 36)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(displayName(for: driver))
+                                            .font(RFFont.title(15))
+                                            .foregroundColor(Color.rfOnSurface)
+                                        Text("Available")
+                                            .font(RFFont.caption(11))
+                                            .foregroundColor(Color.rfOnline)
                                     }
-                                    .rfCard(selectedDriverPubkey == driver.pubkey ? .high : .standard)
+                                    Spacer()
+                                    if selectedDriverPubkey == driver.pubkey {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundColor(Color.rfPrimary)
+                                    }
+                                }
+                                .rfCard(selectedDriverPubkey == driver.pubkey ? .high : .standard)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    // Ride details
+                    if hasValidSelectedDriver {
+                        VStack(alignment: .leading, spacing: 14) {
+                            SectionLabel("Ride Details")
+
+                            HStack(spacing: 0) {
+                                VStack(spacing: 0) {
+                                    AddressSearchField(
+                                        placeholder: "Pickup address",
+                                        icon: "circle.fill",
+                                        iconColor: .rfOnline,
+                                        text: $pickupAddress,
+                                        onSelect: { _ in recalculateFare() },
+                                        onResolvedLocation: { lat, lon in resolvedPickupCoord = Coordinate(lat: lat, lon: lon) },
+                                        showCurrentLocation: true,
+                                        onUseCurrentLocation: { useCurrentLocation() },
+                                        savedLocations: recentLocationItems
+                                    )
+
+                                    Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
+
+                                    AddressSearchField(
+                                        placeholder: "Destination",
+                                        icon: "circle.fill",
+                                        iconColor: .rfPrimary,
+                                        text: $destinationAddress,
+                                        onSelect: { _ in recalculateFare() },
+                                        onResolvedLocation: { lat, lon in resolvedDestCoord = Coordinate(lat: lat, lon: lon) },
+                                        savedLocations: recentLocationItems
+                                    )
+                                }
+
+                                // Swap button
+                                Button {
+                                    let temp = pickupAddress
+                                    pickupAddress = destinationAddress
+                                    destinationAddress = temp
+                                    let tempCoord = resolvedPickupCoord
+                                    resolvedPickupCoord = resolvedDestCoord
+                                    resolvedDestCoord = tempCoord
+                                    coordinator?.currentFareEstimate = nil
+                                    recalculateFare()
+                                } label: {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                        .frame(width: 36, height: 36)
+                                        .background(Color.rfSurfaceContainerHigh)
+                                        .clipShape(Circle())
                                 }
                                 .buttonStyle(.plain)
+                                .padding(.trailing, 8)
                             }
-                        }
+                            .background(Color.rfSurfaceContainer)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
 
-                        // Ride details
-                        if hasValidSelectedDriver {
-                            VStack(alignment: .leading, spacing: 14) {
-                                SectionLabel("Ride Details")
-
-                                HStack(spacing: 0) {
-                                    VStack(spacing: 0) {
-                                        AddressSearchField(
-                                            placeholder: "Pickup address",
-                                            icon: "circle.fill",
-                                            iconColor: .rfOnline,
-                                            text: $pickupAddress,
-                                            onSelect: { _ in recalculateFare() },
-                                            onResolvedLocation: { lat, lon in resolvedPickupCoord = Coordinate(lat: lat, lon: lon) },
-                                            showCurrentLocation: true,
-                                            onUseCurrentLocation: { useCurrentLocation() },
-                                            savedLocations: recentLocationItems
-                                        )
-
-                                        Rectangle().fill(Color.rfSurfaceContainerHigh).frame(height: 1).padding(.leading, 32)
-
-                                        AddressSearchField(
-                                            placeholder: "Destination",
-                                            icon: "circle.fill",
-                                            iconColor: .rfPrimary,
-                                            text: $destinationAddress,
-                                            onSelect: { _ in recalculateFare() },
-                                            onResolvedLocation: { lat, lon in resolvedDestCoord = Coordinate(lat: lat, lon: lon) },
-                                            savedLocations: recentLocationItems
-                                        )
-                                    }
-
-                                    // Swap button
-                                    Button {
-                                        let temp = pickupAddress
-                                        pickupAddress = destinationAddress
-                                        destinationAddress = temp
-                                        let tempCoord = resolvedPickupCoord
-                                        resolvedPickupCoord = resolvedDestCoord
-                                        resolvedDestCoord = tempCoord
-                                        coordinator?.currentFareEstimate = nil
-                                        recalculateFare()
-                                    } label: {
-                                        Image(systemName: "arrow.up.arrow.down")
-                                            .font(.system(size: 14, weight: .semibold))
-                                            .foregroundColor(Color.rfOnSurfaceVariant)
-                                            .frame(width: 36, height: 36)
-                                            .background(Color.rfSurfaceContainerHigh)
-                                            .clipShape(Circle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.trailing, 8)
+                            if isCalculatingFare {
+                                HStack {
+                                    ProgressView().tint(Color.rfPrimary)
+                                    Text("Calculating fare...")
+                                        .font(RFFont.body(14))
+                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                    Spacer()
                                 }
-                                .background(Color.rfSurfaceContainer)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                                if isCalculatingFare {
+                                .rfCard(.high)
+                            } else if let fare = coordinator?.currentFareEstimate {
+                                VStack(spacing: 6) {
                                     HStack {
-                                        ProgressView().tint(Color.rfPrimary)
-                                        Text("Calculating fare...")
-                                            .font(RFFont.body(14))
+                                        Text(String(format: "%.1f mi · %.0f min", fare.distanceMiles, fare.durationMinutes))
+                                            .font(RFFont.caption())
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Spacer()
+                                        Text(formatFare(fare.fareUSD))
+                                            .font(RFFont.headline(24))
+                                            .foregroundColor(Color.rfPrimary)
                                     }
-                                    .rfCard(.high)
-                                } else if let fare = coordinator?.currentFareEstimate {
-                                    VStack(spacing: 6) {
-                                        HStack {
-                                            Text(String(format: "%.1f mi · %.0f min", fare.distanceMiles, fare.durationMinutes))
-                                                .font(RFFont.caption())
-                                                .foregroundColor(Color.rfOnSurfaceVariant)
-                                            Spacer()
-                                            Text(formatFare(fare.fareUSD))
-                                                .font(RFFont.headline(24))
-                                                .foregroundColor(Color.rfPrimary)
-                                        }
-                                    }
-                                    .rfCard(.high)
                                 }
+                                .rfCard(.high)
+                            }
 
-                                // Payment info
-                                HStack {
-                                    Image(systemName: "creditcard")
-                                        .foregroundColor(Color.rfPrimary)
-                                    Text(appState.settings.allPaymentMethodNames.joined(separator: ", "))
-                                        .font(RFFont.caption(12))
-                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                            // Payment info
+                            HStack {
+                                Image(systemName: "creditcard")
+                                    .foregroundColor(Color.rfPrimary)
+                                Text(appState.settings.allPaymentMethodNames.joined(separator: ", "))
+                                    .font(RFFont.caption(12))
+                                    .foregroundColor(Color.rfOnSurfaceVariant)
+                            }
+                            .padding(.horizontal, 4)
+
+                            if let error = fareError {
+                                Text(error).font(RFFont.caption()).foregroundColor(Color.rfError)
+                            }
+
+                            // Show send button only when fare is calculated
+                            if coordinator?.currentFareEstimate != nil && !isCalculatingFare {
+                                Button { sendOffer() } label: {
+                                    Text("Send RoadFlare Request")
                                 }
-                                .padding(.horizontal, 4)
-
-                                if let error = fareError {
-                                    Text(error).font(RFFont.caption()).foregroundColor(Color.rfError)
-                                }
-
-                                // Show send button only when fare is calculated
-                                if coordinator?.currentFareEstimate != nil && !isCalculatingFare {
-                                    Button { sendOffer() } label: {
-                                        Text("Send RoadFlare Request")
-                                    }
-                                    .buttonStyle(RFPrimaryButtonStyle())
-                                } else if pickupAddress.isEmpty || destinationAddress.isEmpty {
-                                    // Show saved locations as quick picks
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        // Favorites
-                                        ForEach(appState.favoriteLocations) { loc in
-                                            Button {
-                                                fillNextAddress(loc)
-                                            } label: {
-                                                HStack(spacing: 10) {
-                                                    Image(systemName: iconForLocation(loc.nickname ?? loc.displayName))
-                                                        .font(.system(size: 13))
-                                                        .foregroundColor(Color.rfPrimary)
-                                                        .frame(width: 20)
-                                                    VStack(alignment: .leading, spacing: 1) {
-                                                        Text(loc.nickname ?? loc.displayName)
-                                                            .font(RFFont.title(13))
-                                                            .foregroundColor(Color.rfOnSurface)
-                                                        Text(loc.addressLine)
-                                                            .font(RFFont.caption(11))
-                                                            .foregroundColor(Color.rfOnSurfaceVariant)
-                                                            .lineLimit(1)
-                                                    }
-                                                    Spacer()
+                                .buttonStyle(RFPrimaryButtonStyle())
+                            } else if pickupAddress.isEmpty || destinationAddress.isEmpty {
+                                // Show saved locations as quick picks
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Favorites
+                                    ForEach(appState.favoriteLocations) { loc in
+                                        Button {
+                                            fillNextAddress(loc)
+                                        } label: {
+                                            HStack(spacing: 10) {
+                                                Image(systemName: iconForLocation(loc.nickname ?? loc.displayName))
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(Color.rfPrimary)
+                                                    .frame(width: 20)
+                                                VStack(alignment: .leading, spacing: 1) {
+                                                    Text(loc.nickname ?? loc.displayName)
+                                                        .font(RFFont.title(13))
+                                                        .foregroundColor(Color.rfOnSurface)
+                                                    Text(loc.addressLine)
+                                                        .font(RFFont.caption(11))
+                                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                                        .lineLimit(1)
                                                 }
-                                                .padding(10)
-                                                .background(Color.rfSurfaceContainer)
-                                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                Spacer()
                                             }
-                                            .buttonStyle(.plain)
+                                            .padding(10)
+                                            .background(Color.rfSurfaceContainer)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
                                         }
+                                        .buttonStyle(.plain)
+                                    }
 
-                                        // Recents (swipe left to delete)
-                                        ForEach(appState.recentLocations) { loc in
-                                            SwipeToDeleteRow {
-                                                fillNextAddress(loc)
-                                            } onDelete: {
-                                                withAnimation { appState.removeLocation(id: loc.id) }
-                                            } content: {
-                                                HStack(spacing: 10) {
-                                                    Image(systemName: "clock")
-                                                        .font(.system(size: 13))
-                                                        .foregroundColor(Color.rfOffline)
-                                                        .frame(width: 20)
-                                                    VStack(alignment: .leading, spacing: 1) {
-                                                        Text(loc.displayName)
-                                                            .font(RFFont.body(13))
-                                                            .foregroundColor(Color.rfOnSurface)
-                                                        Text(loc.addressLine)
-                                                            .font(RFFont.caption(11))
-                                                            .foregroundColor(Color.rfOnSurfaceVariant)
-                                                            .lineLimit(1)
-                                                    }
-                                                    Spacer()
+                                    // Recents (swipe left to delete)
+                                    ForEach(appState.recentLocations) { loc in
+                                        SwipeToDeleteRow {
+                                            fillNextAddress(loc)
+                                        } onDelete: {
+                                            withAnimation { appState.removeLocation(id: loc.id) }
+                                        } content: {
+                                            HStack(spacing: 10) {
+                                                Image(systemName: "clock")
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(Color.rfOffline)
+                                                    .frame(width: 20)
+                                                VStack(alignment: .leading, spacing: 1) {
+                                                    Text(loc.displayName)
+                                                        .font(RFFont.body(13))
+                                                        .foregroundColor(Color.rfOnSurface)
+                                                    Text(loc.addressLine)
+                                                        .font(RFFont.caption(11))
+                                                        .foregroundColor(Color.rfOnSurfaceVariant)
+                                                        .lineLimit(1)
                                                 }
-                                                .padding(10)
-                                                .background(Color.rfSurfaceContainer)
-                                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                                Spacer()
                                             }
+                                            .padding(10)
+                                            .background(Color.rfSurfaceContainer)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
                                         }
                                     }
                                 }
