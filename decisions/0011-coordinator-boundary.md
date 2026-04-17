@@ -24,7 +24,8 @@ remain:
    captures that review.
 
 The five coordinators are:
-- `AppState` — owns SDK services, auth lifecycle, orchestration (~650 LOC)
+- `AppState` — owns SDK services, auth lifecycle, orchestration, plus the
+  Phase B façade extensions added in this PR
 - `SyncCoordinator` — Nostr sync orchestration, startup resolution, dirty-tracking
 - `RideCoordinator` — app-layer adapter around `RiderRideSession`; owns UI state,
   chat/location coordinators, ride state persistence
