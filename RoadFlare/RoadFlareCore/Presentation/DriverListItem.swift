@@ -5,14 +5,18 @@ import RidestrSDK
 ///
 /// Projected from `FollowedDriver` + live `FollowedDriversRepository` state.
 /// Does not expose raw Nostr keypair material or the `RoadflareKey` struct.
-public struct DriverListItem: Equatable, Sendable {
+public struct DriverListItem: Equatable, Sendable, Identifiable {
 
     // MARK: - Identity
 
     /// Hex public key — used as a stable identifier for navigation and actions.
     public let pubkey: String
 
-    /// Best available display name: profile name > follow-time name > short pubkey.
+    /// `Identifiable` conformance keyed on `pubkey`.
+    public var id: String { pubkey }
+
+    /// Best available display name: caller-resolved `displayName` if set,
+    /// otherwise `FollowedDriver.name`, otherwise a short pubkey prefix.
     public let displayName: String
 
     // MARK: - Status
@@ -71,20 +75,9 @@ public struct DriverListItem: Equatable, Sendable {
             ?? driver.name
             ?? (String(driver.pubkey.prefix(8)) + "...")
 
-        let status: Status
-        if isKeyStale {
-            status = .keyStale
-        } else if !driver.hasKey {
-            status = .pendingApproval
-        } else if let loc = location {
-            switch loc.status {
-            case "online":  status = .online
-            case "on_ride": status = .onRide
-            default:        status = .offline
-            }
-        } else {
-            status = .offline
-        }
+        let status = resolveDriverPresentationStatus(
+            hasKey: driver.hasKey, isKeyStale: isKeyStale, location: location
+        )
 
         return DriverListItem(
             pubkey: driver.pubkey,
