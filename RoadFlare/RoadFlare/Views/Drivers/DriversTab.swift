@@ -127,8 +127,7 @@ struct DriversTab: View {
     private func pingDriver(_ driver: FollowedDriver) {
         // Capture pubkey as a plain String (Sendable) before the task boundary so
         // `driver` (a struct that may not be Sendable) doesn't need to cross the
-        // isolation boundary. The view is @MainActor so the Task body inherits that
-        // isolation; `appState.driversRepository` is accessible without a hop.
+        // isolation boundary.
         let driverPubkey = driver.pubkey
         Task {
             let result = await appState.sendDriverPing(driverPubkey: driverPubkey)
@@ -364,7 +363,9 @@ struct DriverCard: View {
     }
 
     private var isOnline: Bool {
-        driver.hasKey && location?.status == "online"
+        driver.hasKey
+            && !appState.isDriverKeyStale(pubkey: driver.pubkey)
+            && location?.status == "online"
     }
 
     private var statusText: String {
