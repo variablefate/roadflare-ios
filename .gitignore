@@ -37,3 +37,9 @@ fastlane/test_output
 # Contributors regenerate via `npx gitnexus@1.5.3 setup`.
 CLAUDE.md
 AGENTS.md
+
+# Claude Code per-session worktrees. `.claude/` itself is intentionally tracked
+# (contains .claude/CLAUDE.md and .claude/skills/gitnexus/**), but the
+# `.claude/worktrees/` subdirectory is local session scratch space created by
+# the Claude Code CLI — never repo content.
+.claude/worktrees/
