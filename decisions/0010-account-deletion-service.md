@@ -20,7 +20,7 @@ Three pressures shape the design:
 
 **App-layer wrapper.** `AppState` exposes three methods that layer in app-specific preflight and teardown:
 
-- `scanRelaysForDeletion()` — checks keypair + relayManager are live, checks no active ride is in progress (throws `activeRideInProgress`), calls `reconnectAndRestoreSession()` to defensively rebuild dead WebSockets (without stranding live ride subscriptions), then delegates to the service.
+- `scanRelaysForDeletion()` — checks keypair + relayManager are live, checks no active ride is in progress (throws `activeRideInProgress`), calls `reconnectIfNeeded()` + `rideCoordinator?.restoreLiveSubscriptions()` to defensively rebuild dead WebSockets (without stranding live ride subscriptions), then delegates to the service. Deliberately does NOT call `reconnectAndRestoreSession()` because that also flushes pending sync publishes — flushing dirty profile/drivers/history state right before the user asks to delete everything wastes relay traffic and risks a race where freshly-flushed events aren't indexed in time for the scan query.
 - `deleteRoadflareEvents(from:)` / `deleteAllRidestrEvents(from:)` — re-check the active-ride guard at delete time (the user could have accepted an offer in another tab after the scan completed), publish the Kind 5 event via the service, then call `logout()` to tear down local state.
 
 **Two-tier deletion.** The UI (`DeleteAccountSheet`) offers two options on page 2:

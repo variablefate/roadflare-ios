@@ -358,10 +358,13 @@ public final class AppState {
     ///
     /// Defensively reconnects the relay manager if its notification handler died
     /// (e.g. after backgrounding) so the scan doesn't silently return 0 events
-    /// because the WebSocket is dead. Uses `reconnectAndRestoreSession()` so any
-    /// live subscriptions (ride coordinator) are restored if the user cancels the
-    /// deletion flow — `reconnectIfNeeded()` alone tears down subscriptions without
-    /// restoring them.
+    /// because the WebSocket is dead. Restores live ride subscriptions (so they
+    /// survive the user cancelling the sheet) but deliberately skips
+    /// `flushPendingSyncPublishes`: flushing here would push dirty profile/drivers/
+    /// history state to relays right before the user asks to delete everything,
+    /// wasting relay traffic and risking a race where freshly-flushed events
+    /// aren't indexed in time for the scan query — orphaning them on relays
+    /// after the keypair is destroyed.
     public func scanRelaysForDeletion() async throws -> RelayScanResult {
         guard let keypair, let relayManager else {
             throw AccountDeletionError.servicesNotReady
@@ -369,7 +372,10 @@ public final class AppState {
         guard !(rideCoordinator?.session.stage.isActiveRide ?? false) else {
             throw AccountDeletionError.activeRideInProgress
         }
-        await reconnectAndRestoreSession()
+        await relayManager.reconnectIfNeeded()
+        if await relayManager.isConnected {
+            await rideCoordinator?.restoreLiveSubscriptions()
+        }
         let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
         return await service.scanRelays()
     }
