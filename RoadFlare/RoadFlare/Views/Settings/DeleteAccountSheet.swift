@@ -385,7 +385,7 @@ struct DeleteAccountResultsView: View {
             VStack(spacing: 0) {
                 confirmRow(
                     isOn: $checkProfile,
-                    text: "I understand this deletes my Nostr profile (display name) from relays"
+                    text: "I understand this deletes all my RoadFlare events, Ridestr protocol events, and my Nostr profile (Kind 0 / display name) from relays"
                 )
                 Divider().padding(.leading, 46)
                 confirmRow(
@@ -484,12 +484,18 @@ struct DeleteAccountResultsView: View {
                     .font(RFFont.headline(22))
                     .foregroundColor(Color.rfOnSurface)
                     .multilineTextAlignment(.center)
-                Text(successDetail(for: verification))
-                    .font(RFFont.body(14))
-                    .foregroundColor(Color.rfOnSurfaceVariant)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 8)
+                // Only surface a detail line when verification turned up
+                // something worth telling the user (partial deletion or relay
+                // errors). On a clean success the checkmark + title say enough
+                // — keeps the happy path uncluttered for the App Review video.
+                if let detail = successDetail(for: verification) {
+                    Text(detail)
+                        .font(RFFont.body(14))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+                }
             }
             Spacer()
             Button {
@@ -504,17 +510,15 @@ struct DeleteAccountResultsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func successDetail(for v: DeletionVerificationResult) -> String {
-        if v.requestedCount == 0 {
-            return "Your local account data has been cleared. There were no relay events to remove."
-        }
-        if v.fullyHonoured {
-            return "All \(v.requestedCount) event\(v.requestedCount == 1 ? "" : "s") were removed from relays. Tap Done to finish and clear your local account."
-        }
+    /// Returns a detail string only when verification surfaced a partial
+    /// deletion or relay-side check error. Fully-honoured and zero-event
+    /// cases return nil so the success screen stays minimal.
+    private func successDetail(for v: DeletionVerificationResult) -> String? {
+        if v.requestedCount == 0 || v.fullyHonoured { return nil }
         if !v.scanErrors.isEmpty && v.remainingCount == 0 {
-            return "Your deletion request was sent to \(scan.targetRelayURLs.count) relays. Some relays couldn't be re-checked, but none of the reachable relays still hold your events. Tap Done to finish and clear your local account."
+            return "Some relays couldn't be re-checked, but none of the reachable relays still hold your events."
         }
-        return "Your deletion request was sent to \(scan.targetRelayURLs.count) relays. \(v.deletedCount) of \(v.requestedCount) event\(v.requestedCount == 1 ? " was" : "s were") confirmed removed; some relays may still be processing or may not honour NIP-09. Tap Done to finish and clear your local account."
+        return "\(v.deletedCount) of \(v.requestedCount) event\(v.requestedCount == 1 ? " was" : "s were") confirmed removed; some relays may still be processing or may not honour NIP-09."
     }
 
     private func publishErrorBanner(_ message: String) -> some View {
