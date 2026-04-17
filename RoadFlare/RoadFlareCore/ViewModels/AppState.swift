@@ -379,6 +379,12 @@ public final class AppState {
     /// Re-checks active-ride state: the user could have started a ride between scan
     /// and confirm (e.g. accepted an offer in another tab), and `logout()` → `clearAll()`
     /// would otherwise tear down an active ride mid-flight.
+    ///
+    /// Only calls `logout()` when the Kind 5 publish succeeds — logging out on
+    /// publish failure would destroy the keypair before the user sees the error,
+    /// leaving their events stranded on relays with no way to retry from this
+    /// device. On failure the caller must surface the error and let the user retry
+    /// or abandon the flow; the local session stays intact until then.
     public func deleteRoadflareEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
         guard let keypair, let relayManager else {
             return RelayDeletionResult(
@@ -395,18 +401,20 @@ public final class AppState {
         }
         let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
         let result = await service.deleteRoadflareEvents(from: scan)
-        if !result.publishedSuccessfully {
+        if result.publishedSuccessfully {
+            await logout()
+        } else {
             AppLogger.auth.error(
                 "RoadFlare event deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
             )
         }
-        await logout()
         return result
     }
 
     /// Delete all Ridestr events (including Kind 0 metadata) from relays,
     /// then clear local data and log out. Re-checks active-ride state for the same
-    /// reason as `deleteRoadflareEvents`.
+    /// reason as `deleteRoadflareEvents`, and only logs out on publish success —
+    /// see `deleteRoadflareEvents` for the keypair-preservation rationale.
     public func deleteAllRidestrEvents(from scan: RelayScanResult) async -> RelayDeletionResult {
         guard let keypair, let relayManager else {
             return RelayDeletionResult(
@@ -423,12 +431,13 @@ public final class AppState {
         }
         let service = AccountDeletionService(relayManager: relayManager, keypair: keypair)
         let result = await service.deleteAllRidestrEvents(from: scan)
-        if !result.publishedSuccessfully {
+        if result.publishedSuccessfully {
+            await logout()
+        } else {
             AppLogger.auth.error(
                 "Full Ridestr event deletion publish failed: \(result.publishError ?? "unknown", privacy: .public)"
             )
         }
-        await logout()
         return result
     }
 

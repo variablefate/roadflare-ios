@@ -425,14 +425,15 @@ struct DeleteAccountResultsView: View {
 
     private func performRoadflareDeletion() async {
         isDeleting = true
-        // defer guarantees the UI is unstuck if deletion ever stops short of logout
-        // (e.g. publish failure or active-ride guard hit). On success, logout() replaces
+        // defer guarantees the UI is unstuck if deletion stops short of logout
+        // (publish failure or active-ride guard hit). On success, logout() replaces
         // the view tree before this defer fires, so the reset is purely defensive.
         defer { isDeleting = false }
         let result = await appState.deleteRoadflareEvents(from: scan)
         // On success: logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
-        // On failure: publish never succeeded; AppState still called logout() for RoadFlare-only deletion.
-        // The active-ride guard failure short-circuits before logout — keep the sheet visible with the error.
+        // On failure: AppState preserves the session so this banner can render and the user can retry
+        // (logging out on publish failure would destroy the keypair before the user sees the error,
+        // stranding their events on relays with no retry path).
         if !result.publishedSuccessfully, let err = result.publishError {
             publishErrorMessage = err
         }

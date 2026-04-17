@@ -32,6 +32,8 @@ Three pressures shape the design:
 
 **Error surfacing.** Publish failures are captured in `RelayDeletionResult.publishError` and surfaced to the user in `DeleteAccountResultsView` as a persistent banner (not just a log line). Scan errors are surfaced on page 1 via the existing `scanErrorWarning` affordance.
 
+**Logout timing.** `logout()` is called only when the Kind 5 publish succeeds. On publish failure the session is preserved so the error banner can render and the user can retry — logging out would destroy the keypair before the error is visible, stranding their events on relays with no retry path from this device. Active-ride and services-not-ready guards also short-circuit before logout so the sheet remains visible with the guard message.
+
 ## Rationale Over Alternatives
 
 | Alternative | Rejected because |
