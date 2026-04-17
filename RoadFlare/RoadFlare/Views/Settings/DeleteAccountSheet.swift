@@ -376,7 +376,7 @@ struct DeleteAccountResultsView: View {
 
     private var fullDeleteOption: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Full Deletion")
+            Text("Complete Deletion")
                 .font(RFFont.caption(12))
                 .foregroundColor(Color.rfOnSurfaceVariant)
                 .textCase(.uppercase)
@@ -385,7 +385,7 @@ struct DeleteAccountResultsView: View {
             Button {
                 showFullDeleteSheet = true
             } label: {
-                Text("Delete All Ridestr Events")
+                Text("Completely Delete Account")
             }
             .buttonStyle(RFDestructiveSecondaryButtonStyle())
             .disabled(isDeleting)
@@ -476,59 +476,65 @@ struct FullDeletionConfirmSheet: View {
         ZStack {
             Color.rfSurface.ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.octagon.fill")
-                        .font(.system(size: 40))
-                        .foregroundColor(Color.rfError)
-                    Text("Full Nostr Deletion")
-                        .font(RFFont.headline(20))
-                        .foregroundColor(Color.rfOnSurface)
+            ScrollView {
+                VStack(spacing: 24) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.octagon.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(Color.rfError)
+                        Text("Complete Account Deletion")
+                            .font(RFFont.headline(20))
+                            .foregroundColor(Color.rfOnSurface)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, 16)
+
+                    Text("This deletes all \(scan.totalCount) event\(scan.totalCount == 1 ? "" : "s") including your Nostr profile (Kind 0 metadata). Please confirm you understand:")
+                        .font(RFFont.body(14))
+                        .foregroundColor(Color.rfOnSurfaceVariant)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
+
+                    VStack(spacing: 0) {
+                        confirmRow(
+                            isOn: $checkProfile,
+                            text: "I understand this deletes my Nostr profile (display name) from relays"
+                        )
+                        Divider().padding(.leading, 46)
+                        confirmRow(
+                            isOn: $checkOtherApps,
+                            text: "I understand this may affect other Nostr apps that use this identity"
+                        )
+                        Divider().padding(.leading, 46)
+                        confirmRow(
+                            isOn: $checkBackedUp,
+                            text: "I have backed up my private key, or I no longer need it"
+                        )
+                    }
+                    .background(Color.rfSurfaceContainer)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                    Button {
+                        dismiss()
+                        onConfirm()
+                    } label: {
+                        Text("Completely Delete Account")
+                    }
+                    .buttonStyle(RFDestructiveButtonStyle(isDisabled: !allChecked))
+                    .disabled(!allChecked)
+
+                    Button("Cancel") { dismiss() }
+                        .buttonStyle(RFGhostButtonStyle())
                 }
-                .padding(.top, 16)
-
-                Text("This deletes all \(scan.totalCount) event\(scan.totalCount == 1 ? "" : "s") including your Nostr profile (Kind 0 metadata). Please confirm you understand:")
-                    .font(RFFont.body(14))
-                    .foregroundColor(Color.rfOnSurfaceVariant)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
-
-                VStack(spacing: 0) {
-                    confirmRow(
-                        isOn: $checkProfile,
-                        text: "I understand this deletes my Nostr profile (display name) from relays"
-                    )
-                    Divider().padding(.leading, 46)
-                    confirmRow(
-                        isOn: $checkOtherApps,
-                        text: "I understand this may affect other Nostr apps that use this identity"
-                    )
-                    Divider().padding(.leading, 46)
-                    confirmRow(
-                        isOn: $checkBackedUp,
-                        text: "I have backed up my private key, or I no longer need it"
-                    )
-                }
-                .background(Color.rfSurfaceContainer)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                Button {
-                    dismiss()
-                    onConfirm()
-                } label: {
-                    Text("Delete All Ridestr Events")
-                }
-                .buttonStyle(RFDestructiveButtonStyle(isDisabled: !allChecked))
-                .disabled(!allChecked)
-
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(RFGhostButtonStyle())
-
-                Spacer()
+                .padding(.horizontal, 20)
+                .padding(.bottom, 24)
             }
-            .padding(.horizontal, 20)
         }
-        .presentationDetents([.medium, .large])
+        // .large instead of .medium — wrapped checkbox rows + three buttons don't
+        // fit in half-screen on compact phones, and dragging between detents was
+        // cutting the confirm button off below the fold.
+        .presentationDetents([.large])
     }
 
     @ViewBuilder
@@ -536,7 +542,7 @@ struct FullDeletionConfirmSheet: View {
         Button {
             isOn.wrappedValue.toggle()
         } label: {
-            HStack(spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
                 Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
                     .font(.system(size: 20))
                     .foregroundColor(isOn.wrappedValue ? Color.rfError : Color.rfOffline)
@@ -545,7 +551,11 @@ struct FullDeletionConfirmSheet: View {
                     .font(RFFont.body(14))
                     .foregroundColor(Color.rfOnSurface)
                     .multilineTextAlignment(.leading)
-                Spacer()
+                    // Force the Text to take the full remaining width and let it
+                    // wrap vertically as needed — without fixedSize the row keeps
+                    // the text on one line and truncates at the trailing edge.
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(14)
             .contentShape(Rectangle())
