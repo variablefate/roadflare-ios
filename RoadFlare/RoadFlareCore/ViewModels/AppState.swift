@@ -746,6 +746,21 @@ extension AppState {
         let profiles = await service.fetchDriverProfiles(pubkeys: [pubkey])
         return profiles[pubkey]?.value
     }
+
+    /// Publish the current followed-drivers list (Kind 30011) to the relay.
+    public func publishDriversList() async {
+        await rideCoordinator?.publishFollowedDriversList()
+    }
+
+    /// Request a fresh share key from a driver.
+    public func requestDriverKeyRefresh(driverPubkey: String) async {
+        await rideCoordinator?.requestKeyRefresh(driverPubkey: driverPubkey)
+    }
+
+    /// Check all followed drivers for stale keys and request refreshes.
+    public func checkForStaleDriverKeys() async {
+        await rideCoordinator?.checkForStaleKeys()
+    }
 }
 
 // MARK: - Façade: Ride History

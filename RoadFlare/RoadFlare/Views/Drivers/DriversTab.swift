@@ -157,7 +157,7 @@ struct DriversTab: View {
 
     private func refreshDrivers() async {
         appState.refreshDriverLocations()
-        await appState.rideCoordinator?.checkForStaleKeys()
+        await appState.checkForStaleDriverKeys()
     }
 
     /// Sort drivers: online first, then on_ride, then pending, then offline.

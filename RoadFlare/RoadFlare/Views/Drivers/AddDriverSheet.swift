@@ -302,7 +302,7 @@ struct AddDriverSheet: View {
         // On re-add, try to restore the key from Kind 30011 on the relay first.
         // If still no key, send a stale ack to request one from the driver.
         Task {
-            await appState.rideCoordinator?.publishFollowedDriversList()
+            await appState.publishDriversList()
             await appState.sendFollowNotification(driverPubkey: hexPubkey)
 
             // If no key locally, try restoring from our Kind 30011 backup on the relay
@@ -311,7 +311,7 @@ struct AddDriverSheet: View {
             }
             // If still no key after restore attempt, request from driver
             if !appState.hasKeyForDriver(pubkey: hexPubkey) {
-                await appState.rideCoordinator?.requestKeyRefresh(driverPubkey: hexPubkey)
+                await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
             }
         }
 
