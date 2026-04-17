@@ -269,7 +269,13 @@ struct DeleteAccountResultsView: View {
     }
 
     @State private var phase: Phase = .ready
-    @State private var showDeleteSheet = false
+    @State private var checkProfile = false
+    @State private var checkOtherApps = false
+    @State private var checkBackedUp = false
+
+    private var allChecked: Bool {
+        checkProfile && checkOtherApps && checkBackedUp
+    }
 
     private var isBusy: Bool {
         switch phase {
@@ -305,11 +311,6 @@ struct DeleteAccountResultsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.rfSurface, for: .navigationBar)
         .navigationBarBackButtonHidden(isBusy || isSuccess)
-        .sheet(isPresented: $showDeleteSheet) {
-            FullDeletionConfirmSheet(scan: scan) {
-                Task { await performDeletion() }
-            }
-        }
     }
 
     // MARK: Scan + confirm (pre-delete)
@@ -320,6 +321,7 @@ struct DeleteAccountResultsView: View {
             VStack(spacing: 24) {
                 header
                 scanSummaryCard
+                confirmCheckboxes
                 if case .failed(let msg) = phase {
                     publishErrorBanner(msg)
                 }
@@ -373,17 +375,74 @@ struct DeleteAccountResultsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
+    private var confirmCheckboxes: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Please confirm you understand:")
+                .font(RFFont.body(14))
+                .foregroundColor(Color.rfOnSurfaceVariant)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 0) {
+                confirmRow(
+                    isOn: $checkProfile,
+                    text: "I understand this deletes my Nostr profile (display name) from relays"
+                )
+                Divider().padding(.leading, 46)
+                confirmRow(
+                    isOn: $checkOtherApps,
+                    text: "I understand this may affect other Nostr apps that use this identity"
+                )
+                Divider().padding(.leading, 46)
+                confirmRow(
+                    isOn: $checkBackedUp,
+                    text: "I have backed up my private key, or I no longer need it"
+                )
+            }
+            .background(Color.rfSurfaceContainer)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    @ViewBuilder
+    private func confirmRow(isOn: Binding<Bool>, text: String) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 20))
+                    .foregroundColor(isOn.wrappedValue ? Color.rfError : Color.rfOffline)
+                    .frame(width: 24)
+                Text(text)
+                    .font(RFFont.body(14))
+                    .foregroundColor(Color.rfOnSurface)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy)
+    }
+
     private var deleteAccountOption: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                showDeleteSheet = true
+                // Gated on allChecked above — this can only fire when all three
+                // acknowledgements are ticked. Phase flip handled inside
+                // performDeletion so cancel vs. retry behave consistently.
+                Task { await performDeletion() }
             } label: {
-                Text("Delete Account")
+                Text("Delete My Account")
             }
-            .buttonStyle(RFDestructiveButtonStyle(isDisabled: isBusy))
-            .disabled(isBusy)
+            // Grey (disabled style) until all three boxes are checked; flips to
+            // red (destructive) once the user has confirmed every warning.
+            .buttonStyle(RFDestructiveButtonStyle(isDisabled: !allChecked || isBusy))
+            .disabled(!allChecked || isBusy)
 
-            Text("Permanently deletes your RoadFlare account, all associated events, and your Nostr profile (Kind 0) from relays. This may affect other Nostr apps that use this identity. This action cannot be undone.")
+            Text("This action cannot be undone.")
                 .font(RFFont.caption(12))
                 .foregroundColor(Color.rfOnSurfaceVariant)
                 .padding(.horizontal, 4)
@@ -496,109 +555,3 @@ struct DeleteAccountResultsView: View {
     }
 }
 
-// MARK: - Full Deletion Confirmation (checkbox sheet)
-
-struct FullDeletionConfirmSheet: View {
-    let scan: RelayScanResult
-    let onConfirm: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var checkProfile = false
-    @State private var checkOtherApps = false
-    @State private var checkBackedUp = false
-
-    private var allChecked: Bool {
-        checkProfile && checkOtherApps && checkBackedUp
-    }
-
-    var body: some View {
-        ZStack {
-            Color.rfSurface.ignoresSafeArea()
-
-            ScrollView {
-                VStack(spacing: 24) {
-                    VStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.octagon.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(Color.rfError)
-                        Text("Delete Account")
-                            .font(RFFont.headline(20))
-                            .foregroundColor(Color.rfOnSurface)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, 16)
-
-                    Text("This permanently deletes your account and all \(scan.totalCount) associated event\(scan.totalCount == 1 ? "" : "s"), including your Nostr profile (Kind 0 metadata). Please confirm you understand:")
-                        .font(RFFont.body(14))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
-
-                    VStack(spacing: 0) {
-                        confirmRow(
-                            isOn: $checkProfile,
-                            text: "I understand this deletes my Nostr profile (display name) from relays"
-                        )
-                        Divider().padding(.leading, 46)
-                        confirmRow(
-                            isOn: $checkOtherApps,
-                            text: "I understand this may affect other Nostr apps that use this identity"
-                        )
-                        Divider().padding(.leading, 46)
-                        confirmRow(
-                            isOn: $checkBackedUp,
-                            text: "I have backed up my private key, or I no longer need it"
-                        )
-                    }
-                    .background(Color.rfSurfaceContainer)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-
-                    Button {
-                        dismiss()
-                        onConfirm()
-                    } label: {
-                        Text("Delete My Account")
-                    }
-                    .buttonStyle(RFDestructiveButtonStyle(isDisabled: !allChecked))
-                    .disabled(!allChecked)
-
-                    Button("Cancel") { dismiss() }
-                        .buttonStyle(RFGhostButtonStyle())
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
-            }
-        }
-        // .large instead of .medium — wrapped checkbox rows + three buttons don't
-        // fit in half-screen on compact phones, and dragging between detents was
-        // cutting the confirm button off below the fold.
-        .presentationDetents([.large])
-    }
-
-    @ViewBuilder
-    private func confirmRow(isOn: Binding<Bool>, text: String) -> some View {
-        Button {
-            isOn.wrappedValue.toggle()
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 20))
-                    .foregroundColor(isOn.wrappedValue ? Color.rfError : Color.rfOffline)
-                    .frame(width: 24)
-                Text(text)
-                    .font(RFFont.body(14))
-                    .foregroundColor(Color.rfOnSurface)
-                    .multilineTextAlignment(.leading)
-                    // Force the Text to take the full remaining width and let it
-                    // wrap vertically as needed — without fixedSize the row keeps
-                    // the text on one line and truncates at the trailing edge.
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
