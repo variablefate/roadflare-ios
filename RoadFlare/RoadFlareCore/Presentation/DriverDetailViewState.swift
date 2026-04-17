@@ -25,8 +25,16 @@ public struct DriverDetailViewState: Equatable, Sendable {
 
     // MARK: - Driver Info section
 
+    /// Profile picture URL string, if available.
+    public let pictureURL: String?
+
     /// Vehicle description (e.g. "Black Tesla Model S"), or nil if unknown.
     public let vehicleDescription: String?
+
+    // MARK: - Action availability
+
+    /// `true` when the ping bell should be shown for this driver.
+    public let canPing: Bool
 
     // MARK: - RoadFlare Key section
 
@@ -60,6 +68,7 @@ public struct DriverDetailViewState: Equatable, Sendable {
     ///   - location: The driver's latest cached location broadcast, if any.
     ///   - profile: The driver's cached Kind 0 profile, if available.
     ///   - isKeyStale: Whether this driver's key has been flagged as stale.
+    ///   - canPing: Whether the ping action is currently available for this driver.
     ///   - referenceDate: Used for relative timestamp formatting (injectable for testing).
     public static func from(
         _ driver: FollowedDriver,
@@ -67,6 +76,7 @@ public struct DriverDetailViewState: Equatable, Sendable {
         location: CachedDriverLocation?,
         profile: UserProfileContent?,
         isKeyStale: Bool,
+        canPing: Bool,
         referenceDate: Date = .now
     ) -> DriverDetailViewState {
         let resolvedName = displayName
@@ -105,10 +115,12 @@ public struct DriverDetailViewState: Equatable, Sendable {
             displayName: resolvedName,
             statusLabel: statusLabel,
             canRequestRide: canRequestRide,
+            pictureURL: profile?.picture,
             vehicleDescription: profile?.vehicleDescription,
+            canPing: canPing,
             hasKey: driver.hasKey,
             keyVersion: driver.roadflareKey?.version,
-            lastLocationStatus: location?.status,
+            lastLocationStatus: isKeyStale ? nil : location?.status,
             lastLocationTimestampLabel: lastLocationTimestampLabel,
             note: driver.note ?? ""
         )

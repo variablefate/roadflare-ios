@@ -55,12 +55,13 @@ public struct RideRequestDriverOption: Equatable, Sendable, Identifiable {
     ///   - drivers: All followed drivers.
     ///   - driverNames: Cached display name map from the repository.
     ///   - driverLocations: Cached location map from the repository.
-    ///   - staleKeyPubkeys: Set of pubkeys whose keys are currently stale (from `FollowedDriversRepository`).
+    ///   - staleKeyPubkeys: Set of pubkeys whose keys are currently stale (from `FollowedDriversRepository.staleKeyPubkeys`).
+    ///     Always pass this — omitting it silently includes stale-key drivers in the result.
     public static func onlineOptions(
         from drivers: [FollowedDriver],
         driverNames: [String: String],
         driverLocations: [String: CachedDriverLocation],
-        staleKeyPubkeys: Set<String> = []
+        staleKeyPubkeys: Set<String>
     ) -> [RideRequestDriverOption] {
         drivers.compactMap { driver in
             from(

@@ -152,7 +152,8 @@ struct DriverDetailViewStateTests {
     @Test func displayNameResolution() {
         let driver = makeDriver(name: "Carol")
         let state = DriverDetailViewState.from(driver, displayName: "Carol (repo)",
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.displayName == "Carol (repo)")
     }
 
@@ -160,24 +161,27 @@ struct DriverDetailViewStateTests {
         let driver = makeDriver()
         let state = DriverDetailViewState.from(driver, displayName: nil,
                                                location: makeLocation(status: "online"),
-                                               profile: nil, isKeyStale: false)
+                                               profile: nil, isKeyStale: false, canPing: false)
         #expect(state.statusLabel == "Available")
         #expect(state.canRequestRide == true)
+        #expect(state.lastLocationStatus == "online")
     }
 
     @Test func statusLabelOnRide() {
         let driver = makeDriver()
         let state = DriverDetailViewState.from(driver, displayName: nil,
                                                location: makeLocation(status: "on_ride"),
-                                               profile: nil, isKeyStale: false)
+                                               profile: nil, isKeyStale: false, canPing: false)
         #expect(state.statusLabel == "On a ride")
         #expect(state.canRequestRide == false)
+        #expect(state.lastLocationStatus == "on_ride")
     }
 
     @Test func statusLabelOfflineWhenNoLocation() {
         let driver = makeDriver()
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.statusLabel == "Offline")
         #expect(state.canRequestRide == false)
     }
@@ -185,7 +189,8 @@ struct DriverDetailViewStateTests {
     @Test func statusLabelPendingWhenNoKey() {
         let driver = makeDriver(key: nil)
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.statusLabel == "Pending approval")
         #expect(state.hasKey == false)
     }
@@ -194,15 +199,45 @@ struct DriverDetailViewStateTests {
         let driver = makeDriver()
         let online = makeLocation(status: "online")
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: online, profile: nil, isKeyStale: true)
+                                               location: online, profile: nil,
+                                               isKeyStale: true, canPing: false)
         #expect(state.statusLabel == "Key outdated")
         #expect(state.canRequestRide == false)
+        // lastLocationStatus must be nil for stale keys — the raw "online" string
+        // would contradict the "Key outdated" label if shown in the detail sheet.
+        #expect(state.lastLocationStatus == nil)
+    }
+
+    @Test func pictureURLFromProfile() {
+        let driver = makeDriver()
+        let profile = UserProfileContent(picture: "https://example.com/pic.jpg")
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: nil, profile: profile,
+                                               isKeyStale: false, canPing: false)
+        #expect(state.pictureURL == "https://example.com/pic.jpg")
+    }
+
+    @Test func pictureURLNilWhenNoProfile() {
+        let driver = makeDriver()
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
+        #expect(state.pictureURL == nil)
+    }
+
+    @Test func canPingPropagated() {
+        let driver = makeDriver()
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: true)
+        #expect(state.canPing == true)
     }
 
     @Test func keyVersionExposesSdkVersion() {
         let driver = makeDriver()  // fakeKey has version 3
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.hasKey == true)
         #expect(state.keyVersion == 3)
     }
@@ -210,14 +245,16 @@ struct DriverDetailViewStateTests {
     @Test func noKeyVersionWhenNoKey() {
         let driver = makeDriver(key: nil)
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.keyVersion == nil)
     }
 
     @Test func lastLocationTimestampLabelIsNilWhenNoLocation() {
         let driver = makeDriver()
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.lastLocationTimestampLabel == nil)
         #expect(state.lastLocationStatus == nil)
     }
@@ -228,23 +265,25 @@ struct DriverDetailViewStateTests {
         let loc = makeLocation(status: "online", timestamp: 1_000_000)
         let state = DriverDetailViewState.from(driver, displayName: nil,
                                                location: loc, profile: nil,
-                                               isKeyStale: false, referenceDate: referenceDate)
-        // Relative formatter should produce something non-empty
+                                               isKeyStale: false, canPing: false,
+                                               referenceDate: referenceDate)
         let label = try #require(state.lastLocationTimestampLabel)
-        #expect(!label.isEmpty)
+        #expect(label.contains("min") || label.contains("minute") || label.contains("3"))
     }
 
     @Test func noteDefaultsToEmptyString() {
         let driver = makeDriver(note: nil)
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.note == "")
     }
 
     @Test func notePreserved() {
         let driver = makeDriver(note: "Great driver!")
         let state = DriverDetailViewState.from(driver, displayName: nil,
-                                               location: nil, profile: nil, isKeyStale: false)
+                                               location: nil, profile: nil,
+                                               isKeyStale: false, canPing: false)
         #expect(state.note == "Great driver!")
     }
 }
@@ -317,7 +356,26 @@ struct RideRequestDriverOptionTests {
         let options = RideRequestDriverOption.onlineOptions(
             from: [onlineDriver, offlineDriver],
             driverNames: names,
-            driverLocations: locations
+            driverLocations: locations,
+            staleKeyPubkeys: []
+        )
+        #expect(options.count == 1)
+        #expect(options.first?.pubkey == fakePubkey)
+    }
+
+    @Test func onlineOptionsFiltersOnRideDrivers() {
+        let pubkey2 = String(repeating: "d", count: 64)
+        let onlineDriver = makeDriver(pubkey: fakePubkey)
+        let onRideDriver = makeDriver(pubkey: pubkey2)
+        let locations: [String: CachedDriverLocation] = [
+            fakePubkey: makeLocation(pubkey: fakePubkey, status: "online"),
+            pubkey2:    makeLocation(pubkey: pubkey2, status: "on_ride"),
+        ]
+        let options = RideRequestDriverOption.onlineOptions(
+            from: [onlineDriver, onRideDriver],
+            driverNames: [:],
+            driverLocations: locations,
+            staleKeyPubkeys: []
         )
         #expect(options.count == 1)
         #expect(options.first?.pubkey == fakePubkey)
@@ -546,5 +604,20 @@ struct SavedLocationRowTests {
         }
         let rows = SavedLocationRow.recents(from: locs, limit: 3)
         #expect(rows.count == 3)
+    }
+
+    @Test func recentsSortedByTimestampDescending() {
+        let oldest = SavedLocation(id: "old", latitude: 0, longitude: 0,
+                                   displayName: "Old Place", addressLine: "1 Old St",
+                                   isPinned: false, timestampMs: 1_000_000)
+        let newest = SavedLocation(id: "new", latitude: 0, longitude: 0,
+                                   displayName: "New Place", addressLine: "2 New St",
+                                   isPinned: false, timestampMs: 3_000_000)
+        let middle = SavedLocation(id: "mid", latitude: 0, longitude: 0,
+                                   displayName: "Mid Place", addressLine: "3 Mid St",
+                                   isPinned: false, timestampMs: 2_000_000)
+        // Input is intentionally out of order to verify sorting, not just filtering.
+        let rows = SavedLocationRow.recents(from: [oldest, newest, middle])
+        #expect(rows.map(\.id) == ["new", "mid", "old"])
     }
 }
