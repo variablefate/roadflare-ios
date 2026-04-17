@@ -190,7 +190,7 @@ struct DriverCard: View {
                         }
                         Text(statusText)
                             .font(RFFont.caption(11))
-                            .foregroundColor(statusAccentColor)
+                            .foregroundColor(statusColor)
                     }
                     .lineLimit(1)
 
@@ -267,7 +267,7 @@ struct DriverCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(statusAccentColor)
+                .fill(statusColor)
                 .frame(width: 3)
                 .padding(.vertical, 8)
         }
@@ -305,7 +305,7 @@ struct DriverCard: View {
         }
         .overlay(alignment: .bottomTrailing) {
             Circle()
-                .fill(statusDotColor)
+                .fill(statusColor)
                 .frame(width: 12, height: 12)
                 .overlay(Circle().stroke(Color.rfSurfaceContainer, lineWidth: 2))
                 .offset(x: 2, y: 2)
@@ -335,17 +335,10 @@ struct DriverCard: View {
         }
     }
 
-    private var statusAccentColor: Color {
-        switch item.status {
-        case .online:          return .rfOnline
-        case .onRide:          return .rfOnRide
-        case .keyStale:        return .rfError
-        case .pendingApproval: return .rfTertiary
-        case .offline:         return .rfOffline
-        }
-    }
-
-    private var statusDotColor: Color {
+    /// The driver's status accent color — used for the left rail, the status-
+    /// text color, and the avatar dot overlay. All three share the same mapping
+    /// so a stale-key row stays red across every surface without drift.
+    private var statusColor: Color {
         switch item.status {
         case .online:          return .rfOnline
         case .onRide:          return .rfOnRide

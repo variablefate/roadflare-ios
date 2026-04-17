@@ -8,12 +8,13 @@ struct DriverDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var note: String = ""
 
-    private var state: DriverDetailViewState? {
-        appState.driverDetailViewState(pubkey: pubkey)
-    }
-
     var body: some View {
-        NavigationStack {
+        // Capture the presentation state once per body invocation. Each access
+        // to `appState.driverDetailViewState(pubkey:)` rebuilds the struct from
+        // repo state (6 lock acquisitions + RelativeDateTimeFormatter alloc),
+        // so reading it 13× across the body adds up.
+        let state = appState.driverDetailViewState(pubkey: pubkey)
+        return NavigationStack {
             List {
                 Section("Driver Info") {
                     LabeledContent("Name", value: state?.displayName ?? "")
@@ -90,14 +91,19 @@ struct DriverDetailSheet: View {
                 }
             }
             .onAppear {
-                note = state?.note ?? ""
+                // `state` captured above is in scope of the body evaluation that
+                // registered this onAppear — re-fetch here because the sheet may
+                // appear after the initial body render settled and `state` could
+                // still be nil if the driver is no longer in the repo.
+                note = appState.driverDetailViewState(pubkey: pubkey)?.note ?? ""
             }
         }
     }
 
     private func persistNoteIfNeeded() {
+        let existingNote = appState.driverDetailViewState(pubkey: pubkey)?.note ?? ""
         let normalized = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        let existing = (state?.note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let existing = existingNote.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized != existing else { return }
         appState.updateDriverNote(pubkey: pubkey, note: normalized)
     }

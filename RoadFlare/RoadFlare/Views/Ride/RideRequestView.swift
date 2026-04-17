@@ -67,7 +67,7 @@ struct RideRequestView: View {
                                 .foregroundColor(Color.rfOnSurfaceVariant)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
-                            if appState.driverListItems().contains(where: { $0.canPing }) {
+                            if appState.hasPingableDriver {
                                 Button("Ping a Driver") {
                                     appState.selectedTab = 1
                                 }
@@ -399,11 +399,11 @@ struct RideRequestView: View {
                 coordinator?.destinationLocation = destination
 
                 appState.saveGeocodedLocation(
-                    id: UUID().uuidString, latitude: pickup.latitude, longitude: pickup.longitude,
+                    latitude: pickup.latitude, longitude: pickup.longitude,
                     displayName: pickupAddress, addressLine: pickup.address ?? pickupAddress
                 )
                 appState.saveGeocodedLocation(
-                    id: UUID().uuidString, latitude: destination.latitude, longitude: destination.longitude,
+                    latitude: destination.latitude, longitude: destination.longitude,
                     displayName: destinationAddress, addressLine: destination.address ?? destinationAddress
                 )
             } catch {

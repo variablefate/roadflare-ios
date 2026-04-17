@@ -51,6 +51,16 @@ extension AppState {
         )
     }
 
+    /// `true` when any followed driver is currently a valid ping target.
+    ///
+    /// Lets views gate a "Ping a Driver" CTA without materializing the full
+    /// `driverListItems()` array (which builds a DriverListItem per driver and
+    /// sorts the result) just to check one boolean.
+    public var hasPingableDriver: Bool {
+        guard let repo = driversRepository else { return false }
+        return repo.drivers.contains(where: { repo.canPingDriver($0) })
+    }
+
     /// Ride history as display-ready rows.
     public var rideHistoryRows: [RideHistoryRow] {
         rideHistory.rides.map { RideHistoryRow.from($0) }
