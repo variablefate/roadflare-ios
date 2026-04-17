@@ -23,10 +23,9 @@ Three pressures shape the design:
 - `scanRelaysForDeletion()` — checks keypair + relayManager are live, checks no active ride is in progress (throws `activeRideInProgress`), calls `reconnectIfNeeded()` + `rideCoordinator?.restoreLiveSubscriptions()` to defensively rebuild dead WebSockets (without stranding live ride subscriptions), then delegates to the service. Deliberately does NOT call `reconnectAndRestoreSession()` because that also flushes pending sync publishes — flushing dirty profile/drivers/history state right before the user asks to delete everything wastes relay traffic and risks a race where freshly-flushed events aren't indexed in time for the scan query.
 - `deleteRoadflareEvents(from:)` / `deleteAllRidestrEvents(from:)` — re-check the active-ride guard at delete time (the user could have accepted an offer in another tab after the scan completed), publish the Kind 5 event via the service, then call `logout()` to tear down local state.
 
-**Two-tier deletion.** The UI (`DeleteAccountSheet`) offers two options on page 2:
+**Single-button deletion UX.** The UI (`DeleteAccountSheet`) offers one "Delete Account" action on page 2. It wipes everything: all 12 Ridestr kinds + Kind 0 metadata, destroys the local keypair, and calls `logout()`. A three-checkbox confirmation sheet (profile impact, other-app impact, key-backup acknowledgement) gates the destructive publish.
 
-- **Delete RoadFlare events** (recommended) — 12 rider-authored Ridestr kinds. Preserves Kind 0 metadata so other Nostr apps on the same identity continue to work.
-- **Delete all Ridestr events** — 12 kinds + Kind 0. Requires a three-checkbox confirmation sheet (profile impact, other-app impact, key-backup acknowledgement).
+An earlier design offered two tiers (preserve Kind 0 vs. delete Kind 0). This was collapsed after App Review feedback made clear that multiple "delete" affordances confuse reviewers who expect a single unambiguous path per App Store guideline 5.1.1(v). The SDK still exposes both `deleteRoadflareEvents` and `deleteAllRidestrEvents` — the app just never calls the former today. Keeping the preserve-Kind-0 option in the SDK is cheap insurance if a power-user disclosure ever re-emerges.
 
 **Retry on publish.** The service uses `publishWithRetry(_:)` (not plain `publish`) because the deletion event is critical and non-retryable after logout. Transient relay failures would otherwise be the final error the user ever sees on this identity.
 

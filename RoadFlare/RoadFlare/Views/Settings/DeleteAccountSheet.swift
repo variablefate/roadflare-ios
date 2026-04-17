@@ -256,12 +256,11 @@ struct DeleteAccountResultsView: View {
     @Environment(AppState.self) private var appState
     let scan: RelayScanResult
 
-    @State private var showRoadflareConfirm = false
-    @State private var showFullDeleteSheet = false
+    @State private var showDeleteSheet = false
     @State private var isDeleting = false
-    /// When deletion publish fails, the user is still logged out. The root view
-    /// tree swaps to the logged-out UI before this sheet can present an alert,
-    /// so we show a persistent banner here as well as logging to Console.app.
+    /// On publish failure the session is preserved (AppState only logs out on
+    /// success), so the banner below renders and the user can retry. Cleared
+    /// at the start of each retry via the sheet's onConfirm.
     @State private var publishErrorMessage: String?
 
     var body: some View {
@@ -274,8 +273,7 @@ struct DeleteAccountResultsView: View {
                     if let publishErrorMessage {
                         publishErrorBanner(publishErrorMessage)
                     }
-                    roadflareDeleteOption
-                    fullDeleteOption
+                    deleteAccountOption
                     if isDeleting {
                         deletingIndicator
                     }
@@ -285,29 +283,15 @@ struct DeleteAccountResultsView: View {
                 .padding(.top, 8)
             }
         }
-        .navigationTitle("Delete Events")
+        .navigationTitle("Delete Account")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.rfSurface, for: .navigationBar)
         .navigationBarBackButtonHidden(isDeleting)
-        .alert("Delete RoadFlare Events?", isPresented: $showRoadflareConfirm) {
-            Button("Delete", role: .destructive) {
-                // Flip isDeleting synchronously so rapid taps on the alert button
-                // don't spawn a second concurrent deletion Task (SwiftUI alert
-                // buttons aren't debounced and the .disabled(isDeleting) gate on
-                // the page button doesn't cover the alert's confirm).
-                isDeleting = true
-                publishErrorMessage = nil
-                Task { await performRoadflareDeletion() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This will request deletion of \(scan.roadflareCount) RoadFlare event\(scan.roadflareCount == 1 ? "" : "s") from all relays, then remove all local data and log you out.")
-        }
-        .sheet(isPresented: $showFullDeleteSheet) {
+        .sheet(isPresented: $showDeleteSheet) {
             FullDeletionConfirmSheet(scan: scan) {
                 isDeleting = true
                 publishErrorMessage = nil
-                Task { await performFullDeletion() }
+                Task { await performDeletion() }
             }
         }
     }
@@ -319,10 +303,10 @@ struct DeleteAccountResultsView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 52))
                 .foregroundColor(Color.rfError)
-            Text("Review & Delete")
+            Text("Delete Your Account")
                 .font(RFFont.headline(22))
                 .foregroundColor(Color.rfOnSurface)
-            Text("Step 2 of 2 — Choose What to Delete")
+            Text("Step 2 of 2 — Review & Confirm")
                 .font(RFFont.caption(12))
                 .foregroundColor(Color.rfOnSurfaceVariant)
         }
@@ -351,46 +335,17 @@ struct DeleteAccountResultsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private var roadflareDeleteOption: some View {
+    private var deleteAccountOption: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Recommended")
-                .font(RFFont.caption(12))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-                .textCase(.uppercase)
-                .tracking(1)
-
             Button {
-                showRoadflareConfirm = true
+                showDeleteSheet = true
             } label: {
-                Text("Delete RoadFlare Events")
+                Text("Delete Account")
             }
             .buttonStyle(RFDestructiveButtonStyle(isDisabled: isDeleting))
             .disabled(isDeleting)
 
-            Text("Removes ride history, driver list, saved locations, and all protocol events from relays. Keeps your Nostr profile (Kind 0) intact so other Nostr apps still work.")
-                .font(RFFont.caption(12))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-                .padding(.horizontal, 4)
-        }
-    }
-
-    private var fullDeleteOption: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Complete Deletion")
-                .font(RFFont.caption(12))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-                .textCase(.uppercase)
-                .tracking(1)
-
-            Button {
-                showFullDeleteSheet = true
-            } label: {
-                Text("Completely Delete Account")
-            }
-            .buttonStyle(RFDestructiveSecondaryButtonStyle())
-            .disabled(isDeleting)
-
-            Text("Removes everything above plus your Nostr profile (Kind 0). This may affect other Nostr apps using this identity.")
+            Text("Permanently deletes your RoadFlare account, all associated events, and your Nostr profile (Kind 0) from relays. This may affect other Nostr apps that use this identity. This action cannot be undone.")
                 .font(RFFont.caption(12))
                 .foregroundColor(Color.rfOnSurfaceVariant)
                 .padding(.horizontal, 4)
@@ -431,26 +386,18 @@ struct DeleteAccountResultsView: View {
 
     // MARK: Actions
 
-    private func performRoadflareDeletion() async {
+    private func performDeletion() async {
         // isDeleting and publishErrorMessage are set synchronously by the
         // confirm-button action (closes the rapid-tap race); defer guarantees
         // the UI is unstuck if deletion stops short of logout (publish failure
         // or active-ride guard hit). On success, logout() replaces the view
         // tree before this defer fires, so the reset is purely defensive.
         defer { isDeleting = false }
-        let result = await appState.deleteRoadflareEvents(from: scan)
+        let result = await appState.deleteAllRidestrEvents(from: scan)
         // On success: logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
         // On failure: AppState preserves the session so this banner can render and the user can retry
         // (logging out on publish failure would destroy the keypair before the user sees the error,
         // stranding their events on relays with no retry path).
-        if !result.publishedSuccessfully, let err = result.publishError {
-            publishErrorMessage = err
-        }
-    }
-
-    private func performFullDeletion() async {
-        defer { isDeleting = false }
-        let result = await appState.deleteAllRidestrEvents(from: scan)
         if !result.publishedSuccessfully, let err = result.publishError {
             publishErrorMessage = err
         }
@@ -482,14 +429,14 @@ struct FullDeletionConfirmSheet: View {
                         Image(systemName: "exclamationmark.octagon.fill")
                             .font(.system(size: 40))
                             .foregroundColor(Color.rfError)
-                        Text("Complete Account Deletion")
+                        Text("Delete Account")
                             .font(RFFont.headline(20))
                             .foregroundColor(Color.rfOnSurface)
                             .multilineTextAlignment(.center)
                     }
                     .padding(.top, 16)
 
-                    Text("This deletes all \(scan.totalCount) event\(scan.totalCount == 1 ? "" : "s") including your Nostr profile (Kind 0 metadata). Please confirm you understand:")
+                    Text("This permanently deletes your account and all \(scan.totalCount) associated event\(scan.totalCount == 1 ? "" : "s"), including your Nostr profile (Kind 0 metadata). Please confirm you understand:")
                         .font(RFFont.body(14))
                         .foregroundColor(Color.rfOnSurfaceVariant)
                         .multilineTextAlignment(.center)
@@ -519,7 +466,7 @@ struct FullDeletionConfirmSheet: View {
                         dismiss()
                         onConfirm()
                     } label: {
-                        Text("Completely Delete Account")
+                        Text("Delete My Account")
                     }
                     .buttonStyle(RFDestructiveButtonStyle(isDisabled: !allChecked))
                     .disabled(!allChecked)
