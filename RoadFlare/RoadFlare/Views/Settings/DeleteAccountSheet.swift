@@ -291,6 +291,12 @@ struct DeleteAccountResultsView: View {
         .navigationBarBackButtonHidden(isDeleting)
         .alert("Delete RoadFlare Events?", isPresented: $showRoadflareConfirm) {
             Button("Delete", role: .destructive) {
+                // Flip isDeleting synchronously so rapid taps on the alert button
+                // don't spawn a second concurrent deletion Task (SwiftUI alert
+                // buttons aren't debounced and the .disabled(isDeleting) gate on
+                // the page button doesn't cover the alert's confirm).
+                isDeleting = true
+                publishErrorMessage = nil
                 Task { await performRoadflareDeletion() }
             }
             Button("Cancel", role: .cancel) {}
@@ -299,6 +305,8 @@ struct DeleteAccountResultsView: View {
         }
         .sheet(isPresented: $showFullDeleteSheet) {
             FullDeletionConfirmSheet(scan: scan) {
+                isDeleting = true
+                publishErrorMessage = nil
                 Task { await performFullDeletion() }
             }
         }
@@ -424,10 +432,11 @@ struct DeleteAccountResultsView: View {
     // MARK: Actions
 
     private func performRoadflareDeletion() async {
-        isDeleting = true
-        // defer guarantees the UI is unstuck if deletion stops short of logout
-        // (publish failure or active-ride guard hit). On success, logout() replaces
-        // the view tree before this defer fires, so the reset is purely defensive.
+        // isDeleting and publishErrorMessage are set synchronously by the
+        // confirm-button action (closes the rapid-tap race); defer guarantees
+        // the UI is unstuck if deletion stops short of logout (publish failure
+        // or active-ride guard hit). On success, logout() replaces the view
+        // tree before this defer fires, so the reset is purely defensive.
         defer { isDeleting = false }
         let result = await appState.deleteRoadflareEvents(from: scan)
         // On success: logout() sets authState = .loggedOut → RootView replaces MainTabView → sheet dismissed.
@@ -440,7 +449,6 @@ struct DeleteAccountResultsView: View {
     }
 
     private func performFullDeletion() async {
-        isDeleting = true
         defer { isDeleting = false }
         let result = await appState.deleteAllRidestrEvents(from: scan)
         if !result.publishedSuccessfully, let err = result.publishError {
