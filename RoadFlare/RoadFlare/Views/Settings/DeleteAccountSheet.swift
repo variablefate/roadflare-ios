@@ -337,6 +337,13 @@ struct DeleteAccountResultsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Color.rfSurface, for: .navigationBar)
         .navigationBarBackButtonHidden(isBusy || isSuccess)
+        // Block swipe-to-dismiss of the enclosing sheet during publishing /
+        // verifying / success. Without this, a swipe-dismiss mid-verify would
+        // leave the publish completed but logout never triggered (user stays
+        // logged in after confirming delete), and during .success the Done tap
+        // is the intentional way out. The .failed phase still allows dismiss
+        // so the user can abandon a failed publish.
+        .interactiveDismissDisabled(isBusy || isSuccess)
     }
 
     // MARK: Scan + confirm (pre-delete)
