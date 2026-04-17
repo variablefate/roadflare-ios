@@ -707,6 +707,9 @@ extension AppState {
     }
 
     /// Add a driver and cache their profile and name if available.
+    /// Note: unlike `removeDriver` and `updateDriverNote`, this does NOT auto-publish the
+    /// updated list. Call `publishDriversList()` and `sendFollowNotification(driverPubkey:)`
+    /// separately after adding (see `AddDriverSheet.addDriver()`).
     public func addDriver(_ driver: FollowedDriver, profile: UserProfileContent? = nil, name: String? = nil) {
         driversRepository?.addDriver(driver)
         if let profile {
@@ -818,7 +821,7 @@ extension AppState {
     }
 }
 
-// MARK: - Façade: Settings (read-only convenience)
+// MARK: - Façade: Settings (read-only badge and display helpers; writes still use appState.settings directly)
 
 extension AppState {
     /// The rider's display name.
@@ -839,6 +842,11 @@ extension AppState {
     /// Number of pinned (favorite) locations.
     public var favoritesCount: Int {
         savedLocations.favorites.count
+    }
+
+    /// Display names for all configured payment methods.
+    public var allPaymentMethodNames: [String] {
+        settings.allPaymentMethodNames
     }
 }
 

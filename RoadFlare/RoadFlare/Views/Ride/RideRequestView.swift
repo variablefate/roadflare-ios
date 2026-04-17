@@ -195,7 +195,7 @@ struct RideRequestView: View {
                             HStack {
                                 Image(systemName: "creditcard")
                                     .foregroundColor(Color.rfPrimary)
-                                Text(appState.settings.allPaymentMethodNames.joined(separator: ", "))
+                                Text(appState.allPaymentMethodNames.joined(separator: ", "))
                                     .font(RFFont.caption(12))
                                     .foregroundColor(Color.rfOnSurfaceVariant)
                             }
