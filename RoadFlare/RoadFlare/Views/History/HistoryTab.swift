@@ -16,7 +16,7 @@ struct HistoryTab: View {
                 ZStack {
                     Color.rfSurface
 
-                    if appState.rideHistory.rides.isEmpty {
+                    if appState.rideHistoryEntries.isEmpty {
                     VStack(spacing: 24) {
                         Image(systemName: "clock")
                             .font(.system(size: 48))
@@ -31,14 +31,13 @@ struct HistoryTab: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 12) {
-                            ForEach(appState.rideHistory.rides) { ride in
+                            ForEach(appState.rideHistoryEntries) { ride in
                                 SwipeToDeleteRow {
                                     // History cards are currently read-only.
                                 } onDelete: {
                                     withAnimation {
-                                        appState.rideHistory.removeRide(id: ride.id)
+                                        appState.removeRideHistoryEntry(id: ride.id)
                                     }
-                                    appState.rideCoordinator?.backupRideHistory()
                                 } content: {
                                     RideHistoryCard(ride: ride)
                                 }
@@ -56,7 +55,7 @@ struct HistoryTab: View {
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
             .task {
                 while !Task.isCancelled {
-                    if let rm = appState.relayManager { isOffline = !(await rm.isConnected) }
+                    isOffline = !(await appState.isRelayConnected())
                     try? await Task.sleep(for: .seconds(10))
                 }
             }

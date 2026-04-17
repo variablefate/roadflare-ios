@@ -22,9 +22,8 @@ struct RideRequestView: View {
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.session.stage ?? .idle }
     private var onlineDrivers: [FollowedDriver] {
-        guard let repo = appState.driversRepository else { return [] }
-        return repo.drivers.filter { driver in
-            driver.hasKey && repo.driverLocations[driver.pubkey]?.status == "online"
+        appState.followedDrivers.filter { driver in
+            driver.hasKey && appState.driverLocation(pubkey: driver.pubkey)?.status == "online"
         }
     }
     private var onlineDriverPubkeys: [String] { onlineDrivers.map(\.pubkey) }
@@ -33,7 +32,7 @@ struct RideRequestView: View {
         return onlineDriverPubkeys.contains(selectedDriverPubkey)
     }
     private func displayName(for driver: FollowedDriver) -> String {
-        appState.driversRepository?.driverNames[driver.pubkey]
+        appState.driverDisplayName(pubkey: driver.pubkey)
             ?? driver.name
             ?? String(driver.pubkey.prefix(8)) + "..."
     }
@@ -41,7 +40,7 @@ struct RideRequestView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                if appState.driversRepository != nil {
+                if appState.hasFollowedDrivers {
                     if onlineDrivers.isEmpty {
                         VStack(spacing: 24) {
                             Spacer().frame(height: 80)
@@ -56,8 +55,7 @@ struct RideRequestView: View {
                                 .foregroundColor(Color.rfOnSurfaceVariant)
                                 .multilineTextAlignment(.center)
                                 .padding(.horizontal, 32)
-                            if let repo = appState.driversRepository,
-                               repo.drivers.contains(where: { appState.canPingDriver($0) }) {
+                            if appState.followedDrivers.contains(where: { appState.canPingDriver($0) }) {
                                 Button("Ping a Driver") {
                                     appState.selectedTab = 1
                                 }
@@ -198,7 +196,7 @@ struct RideRequestView: View {
                                     // Show saved locations as quick picks
                                     VStack(alignment: .leading, spacing: 8) {
                                         // Favorites
-                                        ForEach(appState.savedLocations.favorites) { loc in
+                                        ForEach(appState.favoriteLocations) { loc in
                                             Button {
                                                 fillNextAddress(loc)
                                             } label: {
@@ -226,11 +224,11 @@ struct RideRequestView: View {
                                         }
 
                                         // Recents (swipe left to delete)
-                                        ForEach(appState.savedLocations.recents) { loc in
+                                        ForEach(appState.recentLocations) { loc in
                                             SwipeToDeleteRow {
                                                 fillNextAddress(loc)
                                             } onDelete: {
-                                                withAnimation { appState.savedLocations.remove(id: loc.id) }
+                                                withAnimation { appState.removeLocation(id: loc.id) }
                                             } content: {
                                                 HStack(spacing: 10) {
                                                     Image(systemName: "clock")
@@ -326,10 +324,10 @@ struct RideRequestView: View {
     }
 
     private var recentLocationItems: [(name: String, address: String, lat: Double, lon: Double)] {
-        let favorites = appState.savedLocations.favorites.map { loc in
+        let favorites = appState.favoriteLocations.map { loc in
             (name: loc.nickname ?? loc.displayName, address: loc.addressLine, lat: loc.latitude, lon: loc.longitude)
         }
-        let recents = appState.savedLocations.recents.prefix(5).map { loc in
+        let recents = appState.recentLocations.prefix(5).map { loc in
             (name: loc.displayName, address: loc.addressLine, lat: loc.latitude, lon: loc.longitude)
         }
         return favorites + recents
@@ -403,12 +401,12 @@ struct RideRequestView: View {
                 coordinator?.pickupLocation = pickup
                 coordinator?.destinationLocation = destination
 
-                appState.savedLocations.save(SavedLocation(
+                appState.saveLocation(SavedLocation(
                     id: UUID().uuidString, latitude: pickup.latitude, longitude: pickup.longitude,
                     displayName: pickupAddress, addressLine: pickup.address ?? pickupAddress,
                     isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
                 ))
-                appState.savedLocations.save(SavedLocation(
+                appState.saveLocation(SavedLocation(
                     id: UUID().uuidString, latitude: destination.latitude, longitude: destination.longitude,
                     displayName: destinationAddress, addressLine: destination.address ?? destinationAddress,
                     isPinned: false, timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)

@@ -78,7 +78,7 @@ struct SettingsTab: View {
                                             .font(RFFont.body(15))
                                             .foregroundColor(Color.rfOnSurface)
                                         Spacer()
-                                        Text("\(appState.savedLocations.favorites.count) favorites")
+                                        Text("\(appState.favoritesCount) favorites")
                                             .font(RFFont.caption(12))
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Image(systemName: "chevron.right")
@@ -162,7 +162,7 @@ struct SettingsTab: View {
                                 }
                                 .buttonStyle(.plain)
                                 Button { appState.selectedTab = 1 } label: {
-                                    SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.driversRepository?.drivers.count ?? 0)")
+                                    SettingsRow(icon: "person.2", label: "Drivers", value: "\(appState.followedDriverCount)")
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
