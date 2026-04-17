@@ -121,6 +121,6 @@ struct ConnectivitySheet: View {
     }
 
     private func checkConnection() async {
-        if let rm = appState.relayManager { isConnected = await rm.isConnected }
+        isConnected = await appState.isRelayConnected()
     }
 }
