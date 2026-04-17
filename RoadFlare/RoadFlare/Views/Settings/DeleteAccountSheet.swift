@@ -19,13 +19,17 @@ struct DeleteAccountScanView: View {
     @Environment(\.dismiss) private var dismiss
 
     enum ScanPhase {
-        case idle
         case scanning
         case complete(RelayScanResult)
         case failed(String)
     }
 
-    @State private var phase: ScanPhase = .idle
+    /// Initial state is .scanning so the spinner + relay list render
+    /// immediately; the actual scan kicks off in the .task modifier below.
+    /// There is no "idle" state — a user opening this sheet has already
+    /// committed to the delete flow, so asking them to press "Scan Relays"
+    /// before anything happens was a redundant tap.
+    @State private var phase: ScanPhase = .scanning
 
     var body: some View {
         ZStack {
@@ -56,6 +60,12 @@ struct DeleteAccountScanView: View {
                         .foregroundColor(Color.rfOnSurfaceVariant)
                 }
             }
+        }
+        .task {
+            // Auto-start the scan when the view appears. Re-runs if the user
+            // navigates back from page 2, which is acceptable — a fresh scan
+            // reflects current relay state before they commit to deletion.
+            await startScan()
         }
     }
 
@@ -117,14 +127,6 @@ struct DeleteAccountScanView: View {
     @ViewBuilder
     private var primaryAction: some View {
         switch phase {
-        case .idle:
-            Button {
-                Task { await startScan() }
-            } label: {
-                Text("Scan Relays")
-            }
-            .buttonStyle(RFDestructiveButtonStyle())
-
         case .scanning:
             HStack(spacing: 12) {
                 ProgressView().tint(Color.rfOnSurface)
@@ -159,7 +161,7 @@ struct DeleteAccountScanView: View {
 
         case .failed:
             Button {
-                phase = .idle
+                Task { await startScan() }
             } label: {
                 Text("Try Again")
             }
@@ -228,7 +230,6 @@ struct DeleteAccountScanView: View {
 
     private var relayDotColor: Color {
         switch phase {
-        case .idle: Color.rfOffline
         case .scanning: Color.rfPrimary
         case .complete: Color.rfOnline
         case .failed: Color.rfError
@@ -395,7 +396,7 @@ struct DeleteAccountResultsView: View {
                 Divider().padding(.leading, 46)
                 confirmRow(
                     isOn: $checkBackedUp,
-                    text: "I have backed up my private key, or I no longer need it"
+                    text: "I understand this action cannot be undone"
                 )
             }
             .background(Color.rfSurfaceContainer)
@@ -438,14 +439,11 @@ struct DeleteAccountResultsView: View {
                 Text("Delete My Account")
             }
             // Grey (disabled style) until all three boxes are checked; flips to
-            // red (destructive) once the user has confirmed every warning.
+            // red (destructive) once the user has confirmed every warning. The
+            // third checkbox already acknowledges irreversibility, so no
+            // additional caption is needed beneath the button.
             .buttonStyle(RFDestructiveButtonStyle(isDisabled: !allChecked || isBusy))
             .disabled(!allChecked || isBusy)
-
-            Text("This action cannot be undone.")
-                .font(RFFont.caption(12))
-                .foregroundColor(Color.rfOnSurfaceVariant)
-                .padding(.horizontal, 4)
         }
     }
 
