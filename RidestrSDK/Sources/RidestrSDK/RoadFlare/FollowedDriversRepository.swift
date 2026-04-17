@@ -170,6 +170,20 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         lock.withLock { driverPingPreflightLocked(driverPubkey: driverPubkey) }
     }
 
+    /// Returns `true` when `driver` is a valid target for a ride request.
+    ///
+    /// The check is a single atomic snapshot across `staleKeyPubkeys` and `driverLocations`
+    /// so a mid-read mutation from a background sync cannot observe inconsistent state.
+    /// Criteria: the driver exists in the repo, has a current RoadFlare key, the key is not
+    /// marked stale, and the driver's last-broadcast status is `online`.
+    ///
+    /// This is the ride-side parallel of `canPingDriver`: both check `hasKey` and
+    /// `!isStale`, but `canPingDriver` requires the driver to be offline while
+    /// `canRequestRide` requires them to be online.
+    public func canRequestRide(_ driver: FollowedDriver) -> Bool {
+        lock.withLock { canRequestRideLocked(driverPubkey: driver.pubkey) }
+    }
+
     // MARK: - Driver Names
 
     /// Cache a driver's display name from their Nostr profile.
@@ -440,6 +454,15 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         let status = driverLocations[driver.pubkey]?.status
         guard status != "online" && status != "on_ride" else { return .ineligible }
         return nil
+    }
+
+    private func canRequestRideLocked(driverPubkey: String) -> Bool {
+        guard let driver = drivers.first(where: { $0.pubkey == driverPubkey }) else {
+            return false
+        }
+        guard driver.hasKey else { return false }
+        guard !staleKeyPubkeys.contains(driverPubkey) else { return false }
+        return driverLocations[driverPubkey]?.status == "online"
     }
 }
 

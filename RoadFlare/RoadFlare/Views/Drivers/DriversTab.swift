@@ -363,9 +363,7 @@ struct DriverCard: View {
     }
 
     private var isOnline: Bool {
-        driver.hasKey
-            && !appState.isDriverKeyStale(pubkey: driver.pubkey)
-            && location?.status == "online"
+        appState.canRequestRide(driver)
     }
 
     private var statusText: String {

@@ -22,11 +22,7 @@ struct RideRequestView: View {
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.session.stage ?? .idle }
     private var onlineDrivers: [FollowedDriver] {
-        appState.followedDrivers.filter { driver in
-            driver.hasKey
-                && !appState.isDriverKeyStale(pubkey: driver.pubkey)
-                && appState.driverLocation(pubkey: driver.pubkey)?.status == "online"
-        }
+        appState.followedDrivers.filter { appState.canRequestRide($0) }
     }
     private var onlineDriverPubkeys: [String] { onlineDrivers.map(\.pubkey) }
     private var hasValidSelectedDriver: Bool {

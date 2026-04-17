@@ -102,9 +102,7 @@ struct DriverDetailSheet: View {
     }
 
     private var canRequestRide: Bool {
-        currentDriver.hasKey
-            && !appState.isDriverKeyStale(pubkey: driver.pubkey)
-            && currentLocation?.status == "online"
+        appState.canRequestRide(currentDriver)
     }
 
     private var displayName: String {

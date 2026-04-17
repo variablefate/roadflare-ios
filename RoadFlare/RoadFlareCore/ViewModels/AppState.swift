@@ -260,6 +260,17 @@ public final class AppState {
         return repo.canPingDriver(driver)
     }
 
+    /// Returns `true` when `driver` is a valid target for a ride request.
+    ///
+    /// Checks: driver exists in the repo, has a current RoadFlare key, key is not
+    /// stale, and is currently broadcasting status `online`. Used to gate the
+    /// Request-Ride button and online-drivers list. Returns `false` when services
+    /// are not yet configured.
+    public func canRequestRide(_ driver: FollowedDriver) -> Bool {
+        guard let repo = driversRepository else { return false }
+        return repo.canRequestRide(driver)
+    }
+
     /// Send Kind 3189 driver ping request to an offline driver.
     ///
     /// Enforces a 10-minute per-driver cooldown locally. Returns `.rateLimited` if the
