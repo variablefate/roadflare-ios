@@ -54,7 +54,7 @@ public struct DriverListItem: Equatable, Sendable {
     ///
     /// - Parameters:
     ///   - driver: The followed driver domain model.
-    ///   - displayName: Best-available name already resolved by the repository.
+    ///   - displayName: Display name from the repository if known; the factory falls back to driver.name then a short pubkey prefix.
     ///   - location: The driver's latest cached location broadcast, if any.
     ///   - profile: The driver's cached Kind 0 profile, if available.
     ///   - isKeyStale: Whether this driver's key has been flagged as stale.
@@ -97,7 +97,7 @@ public struct DriverListItem: Equatable, Sendable {
     }
 
     // MARK: - Convenience: sort order for the drivers list
-    // Lower value = higher in list (online first, then on_ride, then pending, then offline).
+    // Lower value = higher in list (online, onRide, keyStale, pendingApproval, offline).
 
     public var sortOrder: Int {
         switch status {
