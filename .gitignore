@@ -43,3 +43,6 @@ AGENTS.md
 # `.claude/worktrees/` subdirectory is local session scratch space created by
 # the Claude Code CLI — never repo content.
 .claude/worktrees/
+
+# Project-local parallel worktrees (feature work, never repo content)
+.worktrees/
