@@ -9,14 +9,21 @@
 /* Begin PBXBuildFile section */
 		0B3B2C092F6AFCA400892751 /* RidestrSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 0B3B2C082F6AFCA400892751 /* RidestrSDK */; };
 		0B3B2C0C2F6AFCA500892751 /* RidestrUI in Frameworks */ = {isa = PBXBuildFile; productRef = 0B3B2C0B2F6AFCA500892751 /* RidestrUI */; };
-		5DF035535E1149EEA6E0BD34 /* RidestrSDK in Frameworks (RoadFlareCore) */ = {isa = PBXBuildFile; productRef = 3523092F0FF141CCBEA5F27D /* RidestrSDK */; };
 		35BB0E4FC68C44AA9ADD6A31 /* RoadFlareCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; };
+		5BB5367DFED64FC287D9D3FB /* RidestrSDK in Frameworks */ = {isa = PBXBuildFile; productRef = DBAD821719F24CCCB787C053 /* RidestrSDK */; };
+		5DF035535E1149EEA6E0BD34 /* RidestrSDK in Frameworks */ = {isa = PBXBuildFile; productRef = 3523092F0FF141CCBEA5F27D /* RidestrSDK */; };
 		656F9E8C132646F7A9C94EBA /* RoadFlareCore.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		C26E03BE7AB841449A27B6B4 /* RoadFlareCore.framework in Frameworks (Tests) */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; };
-		5BB5367DFED64FC287D9D3FB /* RidestrSDK in Frameworks (RoadFlareTests) */ = {isa = PBXBuildFile; productRef = DBAD821719F24CCCB787C053 /* RidestrSDK */; };
+		C26E03BE7AB841449A27B6B4 /* RoadFlareCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D7A7CF8667B54CAFAFEFE1F5 /* RoadFlareCore.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		064400F8951A47C4BC688847 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0B3B2BC52F6AFAAE00892751 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F3A75687158A4C8D97F05930;
+			remoteInfo = RoadFlareCore;
+		};
 		0B3B2BE72F6AFAAF00892751 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 0B3B2BC52F6AFAAE00892751 /* Project object */;
@@ -24,14 +31,7 @@
 			remoteGlobalIDString = 0B3B2BCC2F6AFAAE00892751;
 			remoteInfo = RoadFlare;
 		};
-		58168CBF277047819EBCB7AC /* PBXContainerItemProxy (RoadFlare > RoadFlareCore) */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 0B3B2BC52F6AFAAE00892751 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = F3A75687158A4C8D97F05930;
-			remoteInfo = RoadFlareCore;
-		};
-		064400F8951A47C4BC688847 /* PBXContainerItemProxy (RoadFlareTests > RoadFlareCore) */ = {
+		58168CBF277047819EBCB7AC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 0B3B2BC52F6AFAAE00892751 /* Project object */;
 			proxyType = 1;
@@ -39,6 +39,20 @@
 			remoteInfo = RoadFlareCore;
 		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5423FD4C741145B98342389C /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				656F9E8C132646F7A9C94EBA /* RoadFlareCore.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		0B3B2BCD2F6AFAAE00892751 /* RoadFlare.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RoadFlare.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -98,8 +112,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C26E03BE7AB841449A27B6B4 /* RoadFlareCore.framework in Frameworks (Tests) */,
-				5BB5367DFED64FC287D9D3FB /* RidestrSDK in Frameworks (RoadFlareTests) */,
+				C26E03BE7AB841449A27B6B4 /* RoadFlareCore.framework in Frameworks */,
+				5BB5367DFED64FC287D9D3FB /* RidestrSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -110,11 +124,11 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F88E3F4944494D528CD4F15D /* Frameworks (RoadFlareCore) */ = {
+		F88E3F4944494D528CD4F15D /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5DF035535E1149EEA6E0BD34 /* RidestrSDK in Frameworks (RoadFlareCore) */,
+				5DF035535E1149EEA6E0BD34 /* RidestrSDK in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -255,15 +269,15 @@
 					0B3B2BCC2F6AFAAE00892751 = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					F3A75687158A4C8D97F05930 = {
-						CreatedOnToolsVersion = 26.3;
-					};
 					0B3B2BDB2F6AFAAF00892751 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 					0B3B2BE52F6AFAAF00892751 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = 0B3B2BCC2F6AFAAE00892751;
+					};
+					F3A75687158A4C8D97F05930 = {
+						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
@@ -315,7 +329,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		E5993F60D67E4284AB01ACDC /* Resources (RoadFlareCore) */ = {
+		E5993F60D67E4284AB01ACDC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -323,20 +337,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		5423FD4C741145B98342389C /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				656F9E8C132646F7A9C94EBA /* RoadFlareCore.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0B3B2BC92F6AFAAE00892751 /* Sources */ = {
@@ -360,7 +360,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		CC8A73D71BDB4CE1A8A15FDA /* Sources (RoadFlareCore) */ = {
+		CC8A73D71BDB4CE1A8A15FDA /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -793,11 +793,11 @@
 			isa = XCSwiftPackageProductDependency;
 			productName = RidestrUI;
 		};
-		3523092F0FF141CCBEA5F27D /* RidestrSDK (RoadFlareCore) */ = {
+		3523092F0FF141CCBEA5F27D /* RidestrSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RidestrSDK;
 		};
-		DBAD821719F24CCCB787C053 /* RidestrSDK (RoadFlareTests) */ = {
+		DBAD821719F24CCCB787C053 /* RidestrSDK */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = RidestrSDK;
 		};
