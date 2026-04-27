@@ -12,5 +12,18 @@
 	<array>
 		<string>SpaceGrotesk-Bold.ttf</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.roadflare.RoadFlare.driver-share</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>roadflared</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

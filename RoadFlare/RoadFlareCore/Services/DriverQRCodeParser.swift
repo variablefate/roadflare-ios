@@ -9,13 +9,18 @@ public enum DriverQRCodeParser {
     /// Parse a driver identifier from any supported format.
     ///
     /// Accepted inputs:
-    /// - `nostr:npub1...` URI (with optional `?name=`)
+    /// - `roadflared:npub1...` URI (with optional `?name=`) — RoadFlare iOS custom URL scheme
+    /// - `nostr:npub1...` URI (with optional `?name=`) — NIP-21 convention used by QR codes
     /// - Bare `npub1...` key (with optional `?name=`)
     /// - 64-character hex public key
     /// - URL containing an embedded npub (e.g. `https://roadflare.app/share/d/npub1...`)
     public static func parse(_ rawValue: String) -> ParsedDriverQRCode? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+
+        if let parsed = parseRoadflaredURI(trimmed) {
+            return parsed
+        }
 
         if let parsed = parseNostrURI(trimmed) {
             return parsed
@@ -32,6 +37,12 @@ public enum DriverQRCodeParser {
         return parseURLOrEmbeddedNpub(trimmed)
     }
 
+    private static func parseRoadflaredURI(_ value: String) -> ParsedDriverQRCode? {
+        guard value.hasPrefix("roadflared:") else { return nil }
+        let withoutScheme = String(value.dropFirst("roadflared:".count))
+        return parseNpubWithOptionalQuery(withoutScheme)
+    }
+
     private static func parseNostrURI(_ value: String) -> ParsedDriverQRCode? {
         guard value.hasPrefix("nostr:") else { return nil }
         let withoutScheme = String(value.dropFirst(6))
@@ -44,6 +55,10 @@ public enum DriverQRCodeParser {
     }
 
     private static func parseNpubWithOptionalQuery(_ value: String) -> ParsedDriverQRCode? {
+        // `split` with default `omittingEmptySubsequences: true` returns an
+        // empty array for an empty input, so an `parts[0]` access without
+        // this guard would crash for inputs like `"nostr:"` or `"roadflared:"`.
+        guard !value.isEmpty else { return nil }
         let parts = value.split(separator: "?", maxSplits: 1)
         let npubPart = String(parts[0])
         guard npubPart.hasPrefix("npub1") else { return nil }

@@ -37,6 +37,11 @@ public final class AppState {
     public var requestRideDriverPubkey: String?
     /// Set to switch tabs programmatically.
     public var selectedTab: Int = 0
+    /// Pending Add-Driver intent from a custom URL scheme (`roadflared:`) or
+    /// other deep-link source. `DriversTab` observes this and presents
+    /// `AddDriverSheet` pre-filled; the consumer is responsible for clearing
+    /// it back to `nil` after the sheet is dismissed. See `handleIncomingURL`.
+    public var pendingDriverDeepLink: ParsedDriverQRCode?
 
     // MARK: - SDK Services
 
@@ -330,6 +335,25 @@ public final class AppState {
             pingCooldowns[driverPubkey] = nil  // rollback so user can retry
             return .publishFailed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Deep Links
+
+    /// Route an incoming custom-scheme URL into the app.
+    ///
+    /// Recognized URLs (`roadflared:npub1...?name=...` and friends — see
+    /// `DriverQRCodeParser.parse` for the full set) populate
+    /// `pendingDriverDeepLink` and switch `selectedTab` to the drivers tab.
+    /// `DriversTab` observes `pendingDriverDeepLink` and presents
+    /// `AddDriverSheet` pre-filled with the parsed npub + display name.
+    ///
+    /// Unrecognized URLs are dropped silently — the URL scheme registration
+    /// in Info.plist is the gate, but we defend against any unexpected payload
+    /// (e.g. a future scheme we don't yet handle, or a malformed link).
+    public func handleIncomingURL(_ url: URL) {
+        guard let parsed = DriverQRCodeParser.parse(url.absoluteString) else { return }
+        pendingDriverDeepLink = parsed
+        selectedTab = 1  // Drivers tab — see MainTabView.swift
     }
 
     // MARK: - Connection & Foreground

@@ -5,6 +5,10 @@ import RoadFlareCore
 struct DriversTab: View {
     @Environment(AppState.self) private var appState
     @State private var showAddDriver = false
+    /// Captured from `appState.pendingDriverDeepLink` when a `roadflared:` URL
+    /// arrives, then handed to `AddDriverSheet` as initial input. Cleared when
+    /// the sheet dismisses.
+    @State private var addDriverPrefill: ParsedDriverQRCode?
     @State private var selectedDriver: DriverListItem?
     @State private var showProfile = false
     @State private var showConnectivity = false
@@ -96,7 +100,16 @@ struct DriversTab: View {
             .background(Color.rfSurface)
             .navigationBarHidden(true)
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
-            .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
+            .sheet(isPresented: $showAddDriver, onDismiss: {
+                // Clear deep-link state once the sheet is dismissed (whether it
+                // completed the add or the user cancelled). Do NOT clear before
+                // dismiss — the sheet reads `addDriverPrefill` after its first
+                // render to seed input.
+                addDriverPrefill = nil
+                appState.pendingDriverDeepLink = nil
+            }) {
+                AddDriverSheet(prefill: addDriverPrefill)
+            }
             .sheet(item: $selectedDriver) { item in DriverDetailSheet(pubkey: item.pubkey) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(item: $sharingDriver) { item in
@@ -118,6 +131,22 @@ struct DriversTab: View {
                 while !Task.isCancelled {
                     isOffline = !(await appState.isRelayConnected())
                     try? await Task.sleep(for: .seconds(10))
+                }
+            }
+            .onChange(of: appState.pendingDriverDeepLink) { _, newValue in
+                // A `roadflared:` URL arrived. Capture the parsed payload into
+                // local state and present the Add Driver sheet pre-filled.
+                guard let parsed = newValue else { return }
+                addDriverPrefill = parsed
+                showAddDriver = true
+            }
+            .task {
+                // On first appearance, also consume any pending deep link that
+                // was set before the view rendered (cold-start path: `.onOpenURL`
+                // fires very early; the drivers tab may not have mounted yet).
+                if let parsed = appState.pendingDriverDeepLink {
+                    addDriverPrefill = parsed
+                    showAddDriver = true
                 }
             }
             .toast($pingToastMessage, isError: pingToastIsError)
