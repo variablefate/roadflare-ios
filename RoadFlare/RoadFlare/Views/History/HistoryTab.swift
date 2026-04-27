@@ -82,7 +82,7 @@ struct RideHistoryCard: View {
                     Spacer()
                     Text(row.fareLabel)
                         .font(RFFont.headline(18))
-                        .foregroundColor(Color.rfPrimary)
+                        .foregroundColor(row.isCancelled ? Color.rfError : Color.rfPrimary)
                 }
 
                 if let name = row.counterpartyName {
