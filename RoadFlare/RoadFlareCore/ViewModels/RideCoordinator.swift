@@ -39,6 +39,17 @@ public final class RideCoordinator {
     public var destinationLocation: Location?
     public var lastError: String?
 
+    /// Snapshot of the most recently active ride's identity, captured while
+    /// the session still holds it (in `sessionDidChangeStage` and on session
+    /// restore). Used to record cancelled-ride history entries after the SDK
+    /// has reset state. Cleared on every terminal outcome.
+    private var lastActiveRideIdentity: ActiveRideIdentity?
+
+    private struct ActiveRideIdentity {
+        let confirmationEventId: String
+        let driverPubkey: String
+    }
+
     var driversRepository: FollowedDriversRepository { location.driversRepository }
     public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] { chat.chatMessages }
     public var activeRidePaymentMethods: [String] {
@@ -158,6 +169,14 @@ public final class RideCoordinator {
                 distanceMiles: saved.fareDistanceMiles ?? 0,
                 durationMinutes: saved.fareDurationMinutes ?? 0,
                 fareUSD: fareDecimal
+            )
+        }
+        if session.stage.isActiveRide,
+           let confirmationId = session.confirmationEventId,
+           let driverPubkey = session.driverPubkey {
+            lastActiveRideIdentity = ActiveRideIdentity(
+                confirmationEventId: confirmationId,
+                driverPubkey: driverPubkey
             )
         }
     }
@@ -408,6 +427,7 @@ extension RideCoordinator: RiderRideSessionDelegate {
             clearCoordinatorUIState(clearError: message == nil)
             lastError = message
         }
+        lastActiveRideIdentity = nil
     }
 
     public func sessionDidEncounterError(_ error: Error) {
@@ -415,6 +435,14 @@ extension RideCoordinator: RiderRideSessionDelegate {
     }
 
     public func sessionDidChangeStage(from: RiderStage, to: RiderStage) {
+        if to.isActiveRide,
+           let confirmationId = session.confirmationEventId,
+           let driverPubkey = session.driverPubkey {
+            lastActiveRideIdentity = ActiveRideIdentity(
+                confirmationEventId: confirmationId,
+                driverPubkey: driverPubkey
+            )
+        }
         if !from.isActiveRide && to.isActiveRide,
            let driverPubkey = session.driverPubkey,
            let confirmationId = session.confirmationEventId {
