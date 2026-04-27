@@ -234,16 +234,23 @@ Distance/duration labels stay nil-safe and will be `nil` for cancelled entries b
 
 **File:** `RoadFlare/RoadFlare/Views/History/HistoryTab.swift`
 
-The `RideHistoryCard` view (lines ~67+) renders `row.fareLabel` somewhere in the card body — the existing `Text` view rendering needs a foreground color override when `row.isCancelled`:
+`RideHistoryCard` renders the fare label at lines 83-85:
 
 ```swift
 Text(row.fareLabel)
-    .foregroundColor(row.isCancelled ? Color.rfError : <existing color>)
+    .font(RFFont.headline(18))
+    .foregroundColor(Color.rfPrimary)
 ```
 
-The exact `Text` callsite and existing styling are deferred to the implementation plan (the plan should `grep` for `row.fareLabel` in `HistoryTab.swift` to identify the exact location). The design constraint is unambiguous: when `row.isCancelled`, the fare label reads "Cancelled" in `Color.rfError`; everything else inherits existing styling.
+Change line 85 to swap the foreground color when the ride is cancelled:
 
-Note: `FlareIndicator` (line 74) already uses `.rfError` for non-completed rides, so cancelled entries get the red flare automatically — no change needed there.
+```swift
+.foregroundColor(row.isCancelled ? Color.rfError : Color.rfPrimary)
+```
+
+That's the only view change. The font (`RFFont.headline(18)`) is unchanged; the word "Cancelled" reads in red where dollars previously rendered.
+
+`FlareIndicator` at line 74 already uses `.rfError` for non-completed rides via `row.isCompleted ? .rfOnline : .rfError`. Since `isCompleted` becomes a computed property (`status == .completed`), cancelled entries will automatically render with `.rfError` here — no change needed.
 
 ### What does NOT change
 
