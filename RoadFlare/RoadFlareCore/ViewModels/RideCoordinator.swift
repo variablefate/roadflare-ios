@@ -350,27 +350,37 @@ public final class RideCoordinator {
         chat.reset()
     }
 
-    private func recordRideHistory() {
-        guard let driverPubkey = session.driverPubkey,
-              let confirmationId = session.confirmationEventId else {
-            return
+    private func recordRideHistory(status: RideHistoryEntry.Status = .completed) {
+        let confirmationId: String
+        let driverPubkey: String
+        if let live = session.confirmationEventId, let livePubkey = session.driverPubkey {
+            confirmationId = live
+            driverPubkey = livePubkey
+        } else if let cached = lastActiveRideIdentity {
+            confirmationId = cached.confirmationEventId
+            driverPubkey = cached.driverPubkey
+        } else {
+            return  // pre-confirmation cancellation or untracked state — drop silently
         }
 
         let pickup = pickupLocation ?? session.precisePickup ?? Location(latitude: 0, longitude: 0)
         let destination = destinationLocation ?? session.preciseDestination ?? Location(latitude: 0, longitude: 0)
+        let isCancelled = (status == .cancelled)
+
         let entry = RideHistoryEntry(
             id: confirmationId,
             date: .now,
+            status: status.rawValue,
             counterpartyPubkey: driverPubkey,
             counterpartyName: driversRepository.cachedDriverName(pubkey: driverPubkey),
             pickupGeohash: ProgressiveReveal.historyGeohash(for: pickup),
             dropoffGeohash: ProgressiveReveal.historyGeohash(for: destination),
             pickup: pickup,
             destination: destination,
-            fare: currentFareEstimate?.fareUSD ?? 0,
+            fare: isCancelled ? 0 : (currentFareEstimate?.fareUSD ?? 0),
             paymentMethod: session.paymentMethod ?? selectedPaymentMethod ?? PaymentMethod.cash.rawValue,
-            distance: currentFareEstimate?.distanceMiles,
-            duration: currentFareEstimate.map { Int($0.durationMinutes) }
+            distance: isCancelled ? nil : currentFareEstimate?.distanceMiles,
+            duration: isCancelled ? nil : currentFareEstimate.map { Int($0.durationMinutes) }
         )
         rideHistory.addRide(entry)
         backupRideHistory()
@@ -420,9 +430,15 @@ public final class RideCoordinator {
 
 extension RideCoordinator: RiderRideSessionDelegate {
     public func sessionDidReachTerminal(_ outcome: RideSessionTerminalOutcome) {
-        if case .completed = outcome {
+        switch outcome {
+        case .completed:
             recordRideHistory()
-        } else {
+        case .cancelledByRider, .cancelledByDriver:
+            recordRideHistory(status: .cancelled)
+            let message = terminalMessage(for: outcome)
+            clearCoordinatorUIState(clearError: message == nil)
+            lastError = message
+        case .expired, .bruteForcePin:
             let message = terminalMessage(for: outcome)
             clearCoordinatorUIState(clearError: message == nil)
             lastError = message
