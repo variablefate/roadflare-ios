@@ -295,14 +295,17 @@ struct DriverDetailViewStateTests {
         let referenceDate = Date(timeIntervalSince1970: 1_000_000 + 180)  // 3 min after timestamp
         let loc = makeLocation(status: "online", timestamp: 1_000_000)
         // Locale pinned to en_US so the assertion is deterministic across CI hosts —
-        // production callers use the default `.current` locale.
+        // production callers use the default `.current` locale. `.abbreviated` style
+        // also varies between "3 min. ago" and "3m ago" depending on the runner's
+        // CFLocale/ICU resource state (fresh simulator clones produce the narrower
+        // form under parallel xcodebuild test), so accept either.
         let state = DriverDetailViewState.from(driver, displayName: nil,
                                                location: loc, profile: nil,
                                                isKeyStale: false, canPing: false,
                                                referenceDate: referenceDate,
                                                locale: Locale(identifier: "en_US"))
         let label = try #require(state.lastLocationTimestampLabel)
-        #expect(label.contains("min"))
+        #expect(label.contains("min") || label.contains("m ago"))
     }
 
     @Test func noteDefaultsToEmptyString() {
