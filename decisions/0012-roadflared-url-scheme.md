@@ -56,8 +56,36 @@ view observation**.
 5. On sheet dismissal, `appState.pendingDriverDeepLink = nil` (via the
    sheet's `onDismiss`). The `addDriverPresentation` state is cleared
    automatically by `.sheet(item:)`'s binding. `pendingDriverDeepLink` is
-   also cleared in `AppState.prepareForIdentityReplacement` so an
-   unconsumed intent does not survive into a different user's session.
+   also cleared in `AppState.prepareForIdentityReplacement` — but ONLY
+   when there is a prior `keypair` to replace. On first-time setup
+   (`keypair == nil`), the deep link is preserved so a `roadflared:` URL
+   tapped during cold-start onboarding survives the user's first
+   `generateNewKey` / `createWithPasskey` / `importKey` call (each of
+   which routes through `prepareForIdentityReplacement` before
+   establishing the new identity) and is consumed by `DriversTab` once
+   the user reaches the main tab view post-`.ready`.
+
+### Onboarding interaction (issue #70)
+
+Three account-establishment paths exist on `AppState`, and they must
+match `RootView`'s authState routing to avoid surfacing the wrong
+loading screen:
+
+- **`generateNewKey()`** — random key, no relays — transitions directly
+  to `.profileIncomplete`. No sync screen.
+- **`createWithPasskey(_ nsec:)`** — passkey-derived seed for a brand-new
+  account, no relays to restore from — transitions directly to
+  `.profileIncomplete`. No sync screen. Added with this work; closes #70.
+- **`importKey(_:)`** — recovering an existing account from an nsec
+  (manually pasted or passkey-derived for a "Log In with Passkey" flow)
+  — transitions to `.syncing` first, surfacing `SyncScreen`'s "Restoring
+  Your Data" copy while relays are queried for prior state.
+
+The pre-existing `WelcomeView.createWithPasskey()` was incorrectly
+routed through `importKey`, so a brand-new passkey account briefly
+displayed "Restoring Your Data" before transitioning to profile
+setup. Re-routing through the new `createWithPasskey` method fixes
+this and keeps the sync screen reserved for actual recovery.
 
 Two-app partitioning: `roadflared:` is for the rider app (this app);
 `roadflarer:` is reserved for a future iOS driver app. The rider app
@@ -142,8 +170,9 @@ without any in-app switching logic.
 - `RoadFlare/RoadFlare/Info.plist` — `CFBundleURLTypes` entry for `roadflared`
 - `RoadFlare/RoadFlareCore/Services/DriverQRCodeParser.swift` — `parseRoadflaredURI` arm + doc comment
 - `RoadFlare/RoadFlareTests/DriverQRCodeParserTests.swift` — `roadflared:` test cases
-- `RoadFlare/RoadFlareCore/ViewModels/AppState.swift` — `pendingDriverDeepLink`, `handleIncomingURL(_:)`
-- `RoadFlare/RoadFlareTests/AppState/HandleIncomingURLTests.swift` — `handleIncomingURL` tests
+- `RoadFlare/RoadFlareCore/ViewModels/AppState.swift` — `pendingDriverDeepLink`, `handleIncomingURL(_:)`, `createWithPasskey(_:)`, conditional clear in `prepareForIdentityReplacement`
+- `RoadFlare/RoadFlareTests/AppState/HandleIncomingURLTests.swift` — `handleIncomingURL` tests + cold-start preservation + identity-replacement clearing + `createWithPasskey` transition
 - `RoadFlare/RoadFlare/RoadFlareApp.swift` — `.onOpenURL` modifier
 - `RoadFlare/RoadFlare/Views/Drivers/DriversTab.swift` — `pendingDriverDeepLink` observer + sheet wiring
 - `RoadFlare/RoadFlare/Views/Drivers/AddDriverSheet.swift` — `prefill:` init param + auto-resolve `.task`
+- `RoadFlare/RoadFlare/Views/Onboarding/WelcomeView.swift` — passkey-create flow re-routed through new `createWithPasskey` (issue #70)

@@ -86,17 +86,32 @@ struct HandleIncomingURLTests {
     }
 
     @MainActor
-    @Test func pendingDriverDeepLinkClearedOnIdentityReplacement() async throws {
-        // Regression: pendingDriverDeepLink must be reset on logout / identity
-        // switch, alongside requestRideDriverPubkey and selectedTab. Without
-        // this, an unconsumed deep link survives into the next user's session.
+    @Test func pendingDriverDeepLinkSurvivesIdentityReplacementWhenNoKeypair() async throws {
+        // Cold-start regression: when a `roadflared:` URL arrives before the
+        // user has created an account (keypair is nil), the conditional in
+        // `prepareForIdentityReplacement` must preserve the deep link.
+        // Without this guard, a first-time user who tapped a share link
+        // before onboarding would lose the intent the moment they tap
+        // "Generate Key" / "Create with Passkey" — both of which call
+        // `prepareForIdentityReplacement` internally before establishing
+        // the new identity. See ADR-0012.
+        //
+        // The keypair-SET branch (cross-user leak protection on logout)
+        // cannot be unit-tested here: the RoadFlareTests target lacks
+        // Keychain entitlement, so initialize/generateNewKey/createWithPasskey
+        // all fail with errSecMissingEntitlement (-34018). That branch is
+        // verified via the manual test checklist in PR #66.
         let appState = AppState()
         let npub = try makeNpub(hex: String(repeating: "5e", count: 32))
         appState.handleIncomingURL(URL(string: "roadflared:\(npub)")!)
         #expect(appState.pendingDriverDeepLink != nil)
+        #expect(appState.keypair == nil)
 
+        // `logout()` exercises `prepareForIdentityReplacement` with the same
+        // keypair-conditional gate; with no prior keypair, the deep link
+        // must survive.
         await appState.logout()
 
-        #expect(appState.pendingDriverDeepLink == nil)
+        #expect(appState.pendingDriverDeepLink != nil, "Deep link must survive identity replacement when no prior keypair existed")
     }
 }

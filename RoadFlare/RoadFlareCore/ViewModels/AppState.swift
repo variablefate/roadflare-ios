@@ -116,6 +116,28 @@ public final class AppState {
         authState = .profileIncomplete
     }
 
+    /// Persist a freshly-generated keypair from a passkey ceremony and finish
+    /// onboarding without going through the sync/restore screen.
+    ///
+    /// This is the passkey analog of `generateNewKey()`: a brand-new account
+    /// is being established (the seed comes from the passkey, but there is no
+    /// pre-existing identity on relays to restore), so we transition directly
+    /// to `.profileIncomplete` and skip the `.syncing` detour that
+    /// `importKey()` uses for the recover-existing-account flow.
+    ///
+    /// The "Log In with Passkey" flow (recovering an existing account from
+    /// the passkey-derived seed) should continue to use `importKey(_:)` —
+    /// that's where the sync screen / "Restoring Your Data" copy is correct.
+    /// Closes #70.
+    public func createWithPasskey(_ nsec: String) async throws {
+        guard let km = keyManager else { return }
+        let kp = try await km.importNsec(nsec)
+        await prepareForIdentityReplacement(clearPersistedSyncState: false)
+        keypair = kp
+        await setupServices(keypair: kp)
+        authState = .profileIncomplete
+    }
+
     /// Import an existing key from nsec or hex. Shows sync screen during restore.
     public func importKey(_ input: String) async throws {
         guard let km = keyManager else { return }
@@ -670,7 +692,14 @@ public final class AppState {
         // 5. UI state
         requestRideDriverPubkey = nil
         selectedTab = 0
-        pendingDriverDeepLink = nil
+        // Only clear pending deep link on actual REPLACEMENT of a prior
+        // identity (logout, key import/regen with prior keypair). Preserve
+        // on first-time setup (keypair == nil) so a `roadflared:` URL tapped
+        // during cold-start onboarding survives until DriversTab mounts
+        // post-`.ready`. See ADR-0012.
+        if keypair != nil {
+            pendingDriverDeepLink = nil
+        }
         pingCooldowns = [:]
 
         // 6. Nil service refs
