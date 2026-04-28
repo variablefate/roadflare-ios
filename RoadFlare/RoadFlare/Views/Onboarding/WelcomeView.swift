@@ -165,8 +165,10 @@ struct WelcomeView: View {
         Task {
             do {
                 let keypair = try await passkeyManager.createPasskeyAndDeriveKey()
-                try await appState.importKey(keypair.exportNsec())
-                appState.authState = .profileIncomplete
+                // Use the new-account path, NOT importKey, so the user does
+                // not see the "Restoring Your Data" sync screen during a
+                // brand-new account creation. See issue #70 / AppState.
+                try await appState.createWithPasskey(keypair.exportNsec())
             } catch {
                 if !"\(error)".contains("cancelled") { errorMessage = error.localizedDescription }
             }

@@ -2,9 +2,24 @@ import SwiftUI
 import RidestrSDK
 import RoadFlareCore
 
+/// Identity wrapper for `AddDriverSheet` presentation so that a second
+/// `roadflared:` URL arriving while the first sheet is already presented
+/// triggers SwiftUI to dismiss-and-re-present (`.sheet(item:)` reacts to
+/// changes in the item's identity, unlike `.sheet(isPresented:)` which only
+/// toggles visibility). `prefill == nil` represents the manual "Add New
+/// Driver" flow; non-nil represents a deep-link arrival.
+private struct AddDriverPresentation: Identifiable {
+    let id = UUID()
+    let prefill: ParsedDriverQRCode?
+}
+
 struct DriversTab: View {
     @Environment(AppState.self) private var appState
-    @State private var showAddDriver = false
+    /// Single source of truth for the Add Driver sheet — manual button taps and
+    /// `roadflared:` deep links both set this. Cleared by `.sheet(item:)` when
+    /// the sheet dismisses (SwiftUI sets the binding to nil), at which point
+    /// `onDismiss` also clears `appState.pendingDriverDeepLink`.
+    @State private var addDriverPresentation: AddDriverPresentation?
     @State private var selectedDriver: DriverListItem?
     @State private var showProfile = false
     @State private var showConnectivity = false
@@ -39,7 +54,7 @@ struct DriversTab: View {
                             }
 
                             // Add driver card
-                            Button { showAddDriver = true } label: {
+                            Button { addDriverPresentation = AddDriverPresentation(prefill: nil) } label: {
                                 HStack(spacing: 12) {
                                     ZStack {
                                         RoundedRectangle(cornerRadius: 12)
@@ -86,7 +101,7 @@ struct DriversTab: View {
                             .font(RFFont.body(15))
                             .foregroundColor(Color.rfOnSurfaceVariant)
                             .multilineTextAlignment(.center)
-                        Button("Add Your First Driver") { showAddDriver = true }
+                        Button("Add Your First Driver") { addDriverPresentation = AddDriverPresentation(prefill: nil) }
                             .buttonStyle(RFPrimaryButtonStyle())
                             .padding(.horizontal, 48)
                     }
@@ -96,7 +111,14 @@ struct DriversTab: View {
             .background(Color.rfSurface)
             .navigationBarHidden(true)
             .sheet(isPresented: $showConnectivity) { ConnectivitySheet() }
-            .sheet(isPresented: $showAddDriver) { AddDriverSheet() }
+            .sheet(item: $addDriverPresentation, onDismiss: {
+                // Clear the deep-link intent on AppState once the sheet
+                // dismisses. `addDriverPresentation` itself is cleared by the
+                // .sheet(item:) binding automatically when the user dismisses.
+                appState.pendingDriverDeepLink = nil
+            }) { presentation in
+                AddDriverSheet(prefill: presentation.prefill)
+            }
             .sheet(item: $selectedDriver) { item in DriverDetailSheet(pubkey: item.pubkey) }
             .sheet(isPresented: $showProfile) { EditProfileSheet() }
             .sheet(item: $sharingDriver) { item in
@@ -119,6 +141,16 @@ struct DriversTab: View {
                     isOffline = !(await appState.isRelayConnected())
                     try? await Task.sleep(for: .seconds(10))
                 }
+            }
+            .onChange(of: appState.pendingDriverDeepLink, initial: true) { _, newValue in
+                // A `roadflared:` URL arrived. `initial: true` also handles the
+                // cold-start case where `.onOpenURL` fired before this view
+                // mounted — closure runs once on first render with the current
+                // value. Each new deep-link arrival creates a new presentation
+                // identity, so SwiftUI re-presents the sheet (via .sheet(item:))
+                // even if one is already showing for an earlier link.
+                guard let parsed = newValue else { return }
+                addDriverPresentation = AddDriverPresentation(prefill: parsed)
             }
             .toast($pingToastMessage, isError: pingToastIsError)
         }

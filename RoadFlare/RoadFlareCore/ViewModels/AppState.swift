@@ -37,6 +37,11 @@ public final class AppState {
     public var requestRideDriverPubkey: String?
     /// Set to switch tabs programmatically.
     public var selectedTab: Int = 0
+    /// Pending Add-Driver intent from a custom URL scheme (`roadflared:`) or
+    /// other deep-link source. `DriversTab` observes this and presents
+    /// `AddDriverSheet` pre-filled; the consumer is responsible for clearing
+    /// it back to `nil` after the sheet is dismissed. See `handleIncomingURL`.
+    public var pendingDriverDeepLink: ParsedDriverQRCode?
 
     // MARK: - SDK Services
 
@@ -105,6 +110,28 @@ public final class AppState {
     public func generateNewKey() async throws {
         guard let km = keyManager else { return }
         let kp = try await km.generate()
+        await prepareForIdentityReplacement(clearPersistedSyncState: false)
+        keypair = kp
+        await setupServices(keypair: kp)
+        authState = .profileIncomplete
+    }
+
+    /// Persist a freshly-generated keypair from a passkey ceremony and finish
+    /// onboarding without going through the sync/restore screen.
+    ///
+    /// This is the passkey analog of `generateNewKey()`: a brand-new account
+    /// is being established (the seed comes from the passkey, but there is no
+    /// pre-existing identity on relays to restore), so we transition directly
+    /// to `.profileIncomplete` and skip the `.syncing` detour that
+    /// `importKey()` uses for the recover-existing-account flow.
+    ///
+    /// The "Log In with Passkey" flow (recovering an existing account from
+    /// the passkey-derived seed) should continue to use `importKey(_:)` —
+    /// that's where the sync screen / "Restoring Your Data" copy is correct.
+    /// Closes #70.
+    public func createWithPasskey(_ nsec: String) async throws {
+        guard let km = keyManager else { return }
+        let kp = try await km.importNsec(nsec)
         await prepareForIdentityReplacement(clearPersistedSyncState: false)
         keypair = kp
         await setupServices(keypair: kp)
@@ -330,6 +357,25 @@ public final class AppState {
             pingCooldowns[driverPubkey] = nil  // rollback so user can retry
             return .publishFailed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Deep Links
+
+    /// Route an incoming custom-scheme URL into the app.
+    ///
+    /// Recognized URLs (`roadflared:npub1...?name=...` and friends — see
+    /// `DriverQRCodeParser.parse` for the full set) populate
+    /// `pendingDriverDeepLink` and switch `selectedTab` to the drivers tab.
+    /// `DriversTab` observes `pendingDriverDeepLink` and presents
+    /// `AddDriverSheet` pre-filled with the parsed npub + display name.
+    ///
+    /// Unrecognized URLs are dropped silently — the URL scheme registration
+    /// in Info.plist is the gate, but we defend against any unexpected payload
+    /// (e.g. a future scheme we don't yet handle, or a malformed link).
+    public func handleIncomingURL(_ url: URL) {
+        guard let parsed = DriverQRCodeParser.parse(url.absoluteString) else { return }
+        pendingDriverDeepLink = parsed
+        selectedTab = 1  // Drivers tab — see MainTabView.swift
     }
 
     // MARK: - Connection & Foreground
@@ -644,8 +690,22 @@ public final class AppState {
         rideStatePersistence.clear()
 
         // 5. UI state
-        requestRideDriverPubkey = nil
-        selectedTab = 0
+        // Navigation intents (`selectedTab`, `requestRideDriverPubkey`,
+        // `pendingDriverDeepLink`) are only cleared on actual REPLACEMENT
+        // of a prior identity (logout, key import/regen with a prior
+        // keypair). On first-time setup (`keypair == nil`), preserve them
+        // so cold-start state — e.g. a `roadflared:` URL tapped before
+        // onboarding sets `selectedTab = 1` and `pendingDriverDeepLink` —
+        // survives the user's first `generateNewKey` / `createWithPasskey`
+        // / `importKey` call (each of which routes through this function
+        // BEFORE establishing the new identity) and is consumed by
+        // `DriversTab` once the user reaches the main tab view post-`.ready`.
+        // See ADR-0012.
+        if keypair != nil {
+            requestRideDriverPubkey = nil
+            selectedTab = 0
+            pendingDriverDeepLink = nil
+        }
         pingCooldowns = [:]
 
         // 6. Nil service refs

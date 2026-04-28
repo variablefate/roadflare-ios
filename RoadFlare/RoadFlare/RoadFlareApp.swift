@@ -29,6 +29,12 @@ struct RoadFlareApp: App {
                         }
                     }
                 }
+                .onOpenURL { url in
+                    // Custom URL scheme dispatch (e.g. `roadflared:npub1...?name=...`).
+                    // Fires on both cold-start and warm-app paths. AppState routes
+                    // the parsed driver intent into the drivers tab.
+                    appState.handleIncomingURL(url)
+                }
         }
     }
 }

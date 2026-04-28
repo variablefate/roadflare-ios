@@ -6,16 +6,31 @@ import RoadFlareCore
 /// After scanning or pasting a valid key, fetches the driver's profile from Nostr
 /// and shows a driver info card for confirmation before adding.
 struct AddDriverSheet: View {
+    /// Optional pre-resolved driver code (from a `roadflared:` deep link or
+    /// other external source). When non-nil, the sheet seeds `lookupDraft` and
+    /// auto-triggers profile lookup on first appear, skipping the scan/paste
+    /// step. Default `nil` preserves the existing call sites that present an
+    /// empty sheet for manual input.
+    let prefill: ParsedDriverQRCode?
+
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var lookupDraft = DriverLookupDraft()
     @State private var showScanner = false
+    /// Tracks whether `prefill` has been consumed, so re-renders don't re-fire
+    /// the auto-lookup (e.g. after the user backs out via "Look Up Different
+    /// Driver" they should not be bounced back into the prefill flow).
+    @State private var didConsumePrefill = false
 
     // Resolved driver state
     @State private var resolvedHexPubkey: String?
     @State private var resolvedProfile: UserProfileContent?
     @State private var isFetchingProfile = false
     @State private var noteInput = ""
+
+    init(prefill: ParsedDriverQRCode? = nil) {
+        self.prefill = prefill
+    }
 
     var body: some View {
         NavigationStack {
@@ -61,6 +76,19 @@ struct AddDriverSheet: View {
                 QRScannerSheet { scannedValue in
                     handleScan(scannedValue)
                 }
+            }
+            .task {
+                // If a deep-link payload was passed in, seed the draft and
+                // immediately kick off profile lookup so the user lands on
+                // the driver-info card with no manual step. The `didConsume`
+                // flag prevents re-firing if the view re-appears.
+                guard let parsed = prefill, !didConsumePrefill else { return }
+                didConsumePrefill = true
+                lookupDraft = DriverLookupDraft(
+                    pubkeyInput: parsed.pubkeyInput,
+                    scannedName: parsed.scannedName
+                )
+                resolveInput()
             }
         }
     }
