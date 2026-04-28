@@ -264,6 +264,43 @@ struct AppStateRideHistoryRowsTests {
         #expect(rows[0].fareLabel == "$12.00")
         #expect(rows[0].isCompleted == true)
     }
+
+    @Test func filtersOutNonRoadflareAppOriginEntries() {
+        let (appState, rideHistory, _) = makeAppStateWithInMemoryStores()
+
+        // Roadflare-origin entry: should appear.
+        let roadflareEntry = RideHistoryEntry(
+            id: "roadflare-1",
+            date: Date(timeIntervalSince1970: 1_000),
+            counterpartyPubkey: fakePubkeyA,
+            counterpartyName: "Driver A",
+            pickupGeohash: "abc", dropoffGeohash: "def",
+            pickup: Location(latitude: 0, longitude: 0),
+            destination: Location(latitude: 1, longitude: 1),
+            fare: Decimal(10),
+            paymentMethod: "cash"
+            // appOrigin defaults to "roadflare"
+        )
+        // Ridestr-origin entry (synced from Android rider app): should be hidden.
+        let ridestrEntry = RideHistoryEntry(
+            id: "ridestr-1",
+            date: Date(timeIntervalSince1970: 2_000),
+            counterpartyPubkey: fakePubkeyA,
+            counterpartyName: "Driver B",
+            pickupGeohash: "abc", dropoffGeohash: "def",
+            pickup: Location(latitude: 0, longitude: 0),
+            destination: Location(latitude: 1, longitude: 1),
+            fare: Decimal(20),
+            paymentMethod: "cash",
+            appOrigin: "ridestr"
+        )
+        rideHistory.addRide(roadflareEntry)
+        rideHistory.addRide(ridestrEntry)
+
+        let rows = appState.rideHistoryRows
+        #expect(rows.count == 1)
+        #expect(rows.first?.id == "roadflare-1")
+    }
 }
 
 // MARK: - AppState.favoriteLocationRows / recentLocationRows

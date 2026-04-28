@@ -61,9 +61,13 @@ extension AppState {
         return repo.drivers.contains(where: { repo.canPingDriver($0) })
     }
 
-    /// Ride history as display-ready rows.
+    /// Ride history as display-ready rows. Filters by `appOrigin == "roadflare"`
+    /// so that entries synced from a sibling app (e.g. Ridestr Android on the
+    /// same account) are merged into the local store but hidden from this view.
     public var rideHistoryRows: [RideHistoryRow] {
-        rideHistory.rides.map { RideHistoryRow.from($0) }
+        rideHistory.rides
+            .filter { $0.appOrigin == "roadflare" }
+            .map { RideHistoryRow.from($0) }
     }
 
     /// Favorite saved locations as display-ready rows.

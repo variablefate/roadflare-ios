@@ -536,6 +536,37 @@ struct RideHistoryRowTests {
         #expect(row.isCompleted == false)
     }
 
+    @Test func cancelledStatusProducesCancelledFareLabel() {
+        let row = RideHistoryRow.from(makeEntry(status: "cancelled", fare: 0, distance: nil, duration: nil))
+        #expect(row.fareLabel == "Cancelled")
+    }
+
+    @Test func cancelledStatusProducesNilDistanceAndDuration() {
+        let row = RideHistoryRow.from(makeEntry(status: "cancelled", fare: 0, distance: nil, duration: nil))
+        #expect(row.distanceLabel == nil)
+        #expect(row.durationLabel == nil)
+    }
+
+    @Test func cancelledStatusSetsIsCancelledTrue() {
+        let row = RideHistoryRow.from(makeEntry(status: "cancelled", fare: 0))
+        #expect(row.isCancelled == true)
+        #expect(row.isCompleted == false)
+    }
+
+    @Test func completedStatusSetsIsCancelledFalse() {
+        let row = RideHistoryRow.from(makeEntry(status: "completed"))
+        #expect(row.isCancelled == false)
+        #expect(row.isCompleted == true)
+    }
+
+    @Test func completedZeroFarePreservesEmDashFallback() {
+        // Legacy synced entries may have fare=0 with status=completed.
+        // Behavior preserved: shown as em-dash, not "Cancelled".
+        let row = RideHistoryRow.from(makeEntry(status: "completed", fare: 0))
+        #expect(row.fareLabel == "–")
+        #expect(row.isCancelled == false)
+    }
+
     @Test func counterpartyNamePreserved() {
         let row = RideHistoryRow.from(makeEntry(counterpartyName: "Eve"))
         #expect(row.counterpartyName == "Eve")

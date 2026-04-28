@@ -39,6 +39,17 @@ public final class RideCoordinator {
     public var destinationLocation: Location?
     public var lastError: String?
 
+    /// Snapshot of the most recently active ride's identity, captured while
+    /// the session still holds it (in `sessionDidChangeStage` and on session
+    /// restore). Used to record cancelled-ride history entries after the SDK
+    /// has reset state. Cleared on every terminal outcome.
+    private var lastActiveRideIdentity: ActiveRideIdentity?
+
+    private struct ActiveRideIdentity {
+        let confirmationEventId: String
+        let driverPubkey: String
+    }
+
     var driversRepository: FollowedDriversRepository { location.driversRepository }
     public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] { chat.chatMessages }
     public var activeRidePaymentMethods: [String] {
@@ -158,6 +169,14 @@ public final class RideCoordinator {
                 distanceMiles: saved.fareDistanceMiles ?? 0,
                 durationMinutes: saved.fareDurationMinutes ?? 0,
                 fareUSD: fareDecimal
+            )
+        }
+        if session.stage.isActiveRide,
+           let confirmationId = session.confirmationEventId,
+           let driverPubkey = session.driverPubkey {
+            lastActiveRideIdentity = ActiveRideIdentity(
+                confirmationEventId: confirmationId,
+                driverPubkey: driverPubkey
             )
         }
     }
@@ -331,27 +350,57 @@ public final class RideCoordinator {
         chat.reset()
     }
 
-    private func recordRideHistory() {
-        guard let driverPubkey = session.driverPubkey,
-              let confirmationId = session.confirmationEventId else {
-            return
+    /// Records a ride history entry from the current coordinator state.
+    ///
+    /// **Call ordering — load-bearing:** must be called BEFORE `clearCoordinatorUIState()`
+    /// at any terminal site. The function reads `pickupLocation`, `destinationLocation`,
+    /// and `currentFareEstimate` from coordinator instance state; `clearCoordinatorUIState`
+    /// zeroes those fields. Reordering would silently produce history entries with zeroed
+    /// coordinates and `fare = 0`. The cancel branches in `sessionDidReachTerminal` and
+    /// `forceEndRide()` both record-then-clear; if a future refactor extracts a shared
+    /// terminal helper, it must preserve this order.
+    ///
+    /// **Identity source:** prefers live `session.confirmationEventId`/`driverPubkey`
+    /// (set for `.completed` and `forceEndRide`, where the SDK has not reset the state
+    /// machine). Falls back to `lastActiveRideIdentity` (populated in `sessionDidChangeStage`
+    /// and `restoreRideState`) for `.cancelledByRider`/`.cancelledByDriver`, where the
+    /// SDK clears state machine context before firing the terminal callback. See
+    /// `decisions/0012-coordinator-ride-identity-cache.md`.
+    ///
+    /// Returns silently (no entry written) if neither live nor cached identity is
+    /// available — typically a pre-confirmation cancellation, which has no canonical
+    /// `confirmationEventId` to use as a ride ID.
+    private func recordRideHistory(status: RideHistoryEntry.Status = .completed) {
+        let confirmationId: String
+        let driverPubkey: String
+        if let live = session.confirmationEventId, let livePubkey = session.driverPubkey {
+            confirmationId = live
+            driverPubkey = livePubkey
+        } else if let cached = lastActiveRideIdentity {
+            confirmationId = cached.confirmationEventId
+            driverPubkey = cached.driverPubkey
+        } else {
+            return  // pre-confirmation cancellation or untracked state — drop silently
         }
 
         let pickup = pickupLocation ?? session.precisePickup ?? Location(latitude: 0, longitude: 0)
         let destination = destinationLocation ?? session.preciseDestination ?? Location(latitude: 0, longitude: 0)
+        let isCancelled = (status == .cancelled)
+
         let entry = RideHistoryEntry(
             id: confirmationId,
             date: .now,
+            status: status.rawValue,
             counterpartyPubkey: driverPubkey,
             counterpartyName: driversRepository.cachedDriverName(pubkey: driverPubkey),
             pickupGeohash: ProgressiveReveal.historyGeohash(for: pickup),
             dropoffGeohash: ProgressiveReveal.historyGeohash(for: destination),
             pickup: pickup,
             destination: destination,
-            fare: currentFareEstimate?.fareUSD ?? 0,
+            fare: isCancelled ? 0 : (currentFareEstimate?.fareUSD ?? 0),
             paymentMethod: session.paymentMethod ?? selectedPaymentMethod ?? PaymentMethod.cash.rawValue,
-            distance: currentFareEstimate?.distanceMiles,
-            duration: currentFareEstimate.map { Int($0.durationMinutes) }
+            distance: isCancelled ? nil : currentFareEstimate?.distanceMiles,
+            duration: isCancelled ? nil : currentFareEstimate.map { Int($0.durationMinutes) }
         )
         rideHistory.addRide(entry)
         backupRideHistory()
@@ -401,13 +450,20 @@ public final class RideCoordinator {
 
 extension RideCoordinator: RiderRideSessionDelegate {
     public func sessionDidReachTerminal(_ outcome: RideSessionTerminalOutcome) {
-        if case .completed = outcome {
+        switch outcome {
+        case .completed:
             recordRideHistory()
-        } else {
+        case .cancelledByRider, .cancelledByDriver:
+            recordRideHistory(status: .cancelled)
+            let message = terminalMessage(for: outcome)
+            clearCoordinatorUIState(clearError: message == nil)
+            lastError = message
+        case .expired, .bruteForcePin:
             let message = terminalMessage(for: outcome)
             clearCoordinatorUIState(clearError: message == nil)
             lastError = message
         }
+        lastActiveRideIdentity = nil
     }
 
     public func sessionDidEncounterError(_ error: Error) {
@@ -415,6 +471,14 @@ extension RideCoordinator: RiderRideSessionDelegate {
     }
 
     public func sessionDidChangeStage(from: RiderStage, to: RiderStage) {
+        if to.isActiveRide,
+           let confirmationId = session.confirmationEventId,
+           let driverPubkey = session.driverPubkey {
+            lastActiveRideIdentity = ActiveRideIdentity(
+                confirmationEventId: confirmationId,
+                driverPubkey: driverPubkey
+            )
+        }
         if !from.isActiveRide && to.isActiveRide,
            let driverPubkey = session.driverPubkey,
            let confirmationId = session.confirmationEventId {

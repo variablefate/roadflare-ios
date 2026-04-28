@@ -46,24 +46,36 @@ public struct RideHistoryRow: Equatable, Sendable, Identifiable {
 
     // MARK: - Status
 
-    /// Whether the ride completed successfully (vs. cancelled/failed).
-    public let isCompleted: Bool
+    /// Underlying status used to drive UI branches.
+    public let status: RideHistoryEntry.Status
+
+    /// True if `status == .completed`. Computed for backward compat with
+    /// existing callers (`HistoryTab`, presentation tests).
+    public var isCompleted: Bool { status == .completed }
+
+    /// True if `status == .cancelled`. Drives red "Cancelled" rendering.
+    public var isCancelled: Bool { status == .cancelled }
 
     // MARK: - Factory
 
     /// Project a `RideHistoryEntry` into a display-ready row.
     public static func from(_ entry: RideHistoryEntry) -> RideHistoryRow {
         let fareLabel: String
-        if entry.fare == 0 {
-            fareLabel = "–"
-        } else {
-            let formatter = NumberFormatter()
-            formatter.numberStyle = .currency
-            formatter.currencyCode = "USD"
-            formatter.locale = Locale(identifier: "en_US")
-            formatter.maximumFractionDigits = 2
-            formatter.minimumFractionDigits = 2
-            fareLabel = formatter.string(from: entry.fare as NSDecimalNumber) ?? "$\(entry.fare)"
+        switch entry.statusEnum {
+        case .cancelled:
+            fareLabel = "Cancelled"
+        case .completed:
+            if entry.fare == 0 {
+                fareLabel = "–"
+            } else {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .currency
+                formatter.currencyCode = "USD"
+                formatter.locale = Locale(identifier: "en_US")
+                formatter.maximumFractionDigits = 2
+                formatter.minimumFractionDigits = 2
+                fareLabel = formatter.string(from: entry.fare as NSDecimalNumber) ?? "$\(entry.fare)"
+            }
         }
 
         let distanceLabel = entry.distance.map { String(format: "%.1f mi", $0) }
@@ -79,7 +91,7 @@ public struct RideHistoryRow: Equatable, Sendable, Identifiable {
             distanceLabel: distanceLabel,
             durationLabel: durationLabel,
             paymentMethodLabel: PaymentMethod.displayName(for: entry.paymentMethod),
-            isCompleted: entry.status == "completed"
+            status: entry.statusEnum
         )
     }
 }

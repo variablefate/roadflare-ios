@@ -893,6 +893,185 @@ struct RideCoordinatorTests {
     }
 
     @MainActor
+    @Test func cancelByRiderPostConfirmationRecordsCancelledHistory() async throws {
+        let (coordinator, _, _, history, _) = try await makeCoordinator()
+        coordinator.session.restore(
+            stage: .rideConfirmed,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: rideCoordinatorConfirmationEventId,
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
+        coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98, address: "Central Park")
+        coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        // Production fires this when entering an active stage; mimicking it here.
+        coordinator.sessionDidChangeStage(from: .driverAccepted, to: .rideConfirmed)
+
+        coordinator.sessionDidReachTerminal(.cancelledByRider(reason: "Changed plans"))
+
+        #expect(history.rides.count == 1)
+        let entry = try #require(history.rides.first)
+        #expect(entry.id == rideCoordinatorConfirmationEventId)
+        #expect(entry.status == "cancelled")
+        #expect(entry.fare == 0)
+        #expect(entry.distance == nil)
+        #expect(entry.duration == nil)
+    }
+
+    @MainActor
+    @Test func cancelByRiderPreConfirmationRecordsNothing() async throws {
+        let (coordinator, _, _, history, _) = try await makeCoordinator()
+        // No confirmationEventId → no cache populate, even if stage-change fires
+        coordinator.session.restore(
+            stage: .waitingForAcceptance,
+            offerEventId: "offer",
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .idle, to: .waitingForAcceptance)
+
+        coordinator.sessionDidReachTerminal(.cancelledByRider(reason: "Changed plans"))
+
+        #expect(history.rides.isEmpty)
+    }
+
+    @MainActor
+    @Test func cancelByDriverPostConfirmationRecordsCancelledHistory() async throws {
+        let (coordinator, _, _, history, _) = try await makeCoordinator()
+        coordinator.session.restore(
+            stage: .rideConfirmed,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: rideCoordinatorConfirmationEventId,
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
+        coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98, address: "Central Park")
+        coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        coordinator.sessionDidChangeStage(from: .driverAccepted, to: .rideConfirmed)
+
+        coordinator.sessionDidReachTerminal(.cancelledByDriver(reason: "Driver unavailable"))
+
+        #expect(history.rides.count == 1)
+        let entry = try #require(history.rides.first)
+        #expect(entry.status == "cancelled")
+        #expect(entry.fare == 0)
+        // Driver-cancel surfaces a toast — verify that still works alongside the new persistence
+        #expect(coordinator.lastError == "Driver cancelled the ride: Driver unavailable")
+    }
+
+    @MainActor
+    @Test func forceEndRideRecordsCompletedWithEstimate() async throws {
+        let (coordinator, _, _, history, _) = try await makeCoordinator()
+        coordinator.session.restore(
+            stage: .inProgress,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: rideCoordinatorConfirmationEventId,
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.pickupLocation = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
+        coordinator.destinationLocation = Location(latitude: 40.76, longitude: -73.98, address: "Central Park")
+        coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+
+        await coordinator.forceEndRide()
+
+        #expect(history.rides.count == 1)
+        let entry = try #require(history.rides.first)
+        #expect(entry.status == "completed")
+        #expect(entry.fare == Decimal(12.5))
+        #expect(entry.distance == 5)
+        #expect(entry.duration == 15)
+    }
+
+    @MainActor
+    @Test func restoreRideStateInActiveStagePopulatesCacheForLaterCancel() async throws {
+        let (coordinator, _, _, history, persistence) = try await makeCoordinator(clearRidePersistence: false)
+        // Seed persistence with an active ride state.
+        let driverPubkey = String(repeating: "d", count: 64)
+        let saved = PersistedRideState(
+            stage: RiderStage.rideConfirmed.rawValue,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: rideCoordinatorConfirmationEventId,
+            driverPubkey: driverPubkey,
+            pin: "1234",
+            pinVerified: true,
+            paymentMethodRaw: "zelle",
+            fiatPaymentMethodsRaw: ["zelle"],
+            fareUSD: "12.50",
+            fareDistanceMiles: 5,
+            fareDurationMinutes: 15
+        )
+        persistence.saveRaw(saved)
+        coordinator.restoreRideState()
+
+        // Cache should now be populated. Fire a cancel terminal directly.
+        coordinator.sessionDidReachTerminal(.cancelledByRider(reason: "Changed plans"))
+
+        #expect(history.rides.count == 1)
+        #expect(history.rides.first?.status == "cancelled")
+        #expect(history.rides.first?.fare == 0)
+    }
+
+    @MainActor
+    @Test func lastActiveRideIdentityClearedAfterTerminal() async throws {
+        let (coordinator, _, _, history, _) = try await makeCoordinator()
+        // First ride: post-confirmation cancel → records.
+        coordinator.session.restore(
+            stage: .rideConfirmed,
+            offerEventId: "offer-1",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: rideCoordinatorConfirmationEventId,
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: "1234",
+            pinVerified: true,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .driverAccepted, to: .rideConfirmed)
+        coordinator.sessionDidReachTerminal(.cancelledByRider(reason: "First cancel"))
+        #expect(history.rides.count == 1)
+
+        // Second "ride": pre-confirmation cancel. Cache must NOT inherit from first ride.
+        coordinator.session.reset()
+        coordinator.session.restore(
+            stage: .waitingForAcceptance,
+            offerEventId: "offer-2",
+            acceptanceEventId: nil,
+            confirmationEventId: nil,
+            driverPubkey: String(repeating: "d", count: 64),
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .idle, to: .waitingForAcceptance)
+        coordinator.sessionDidReachTerminal(.cancelledByRider(reason: "Second cancel"))
+
+        // Still 1 — second ride did not produce an entry from stale cache.
+        #expect(history.rides.count == 1)
+    }
+
+    @MainActor
     @Test func sessionShouldPersistSavesActiveSessionAndClearsIdleOrCompleted() async throws {
         let (coordinator, _, _, _, persistence) = try await makeCoordinator()
         coordinator.session.restore(

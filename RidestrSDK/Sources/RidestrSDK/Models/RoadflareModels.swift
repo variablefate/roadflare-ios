@@ -536,6 +536,19 @@ public struct RideHistoryEntry: Codable, Identifiable, Sendable, Hashable {
     }
 }
 
+public extension RideHistoryEntry {
+    /// Type-safe projection of `status`. Two known cases; unrecognized
+    /// values fail-open to `.completed` so a future cross-platform status
+    /// addition (e.g. `"ended_early"`) doesn't redact fare data on old clients.
+    enum Status: String, Sendable {
+        case completed
+        case cancelled
+    }
+
+    /// Typed projection of the raw `status` string. Fails open to `.completed`.
+    var statusEnum: Status { Status(rawValue: status) ?? .completed }
+}
+
 // MARK: - Ride History Backup (Kind 30174)
 
 /// Content of a ride history backup event (Kind 30174, encrypted to self).

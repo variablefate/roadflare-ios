@@ -450,4 +450,43 @@ struct RoadflareModelsTests {
         let decoded = try JSONDecoder().decode(SavedLocation.self, from: data)
         #expect(decoded.displayName == "Test")
     }
+
+    // MARK: - RideHistoryEntry.Status
+
+    @Test func statusEnumProjectsCompleted() {
+        let entry = RideHistoryEntry(
+            id: "r1", date: Date(timeIntervalSince1970: 0), status: "completed",
+            counterpartyPubkey: String(repeating: "a", count: 64),
+            pickupGeohash: "g1", dropoffGeohash: "g2",
+            pickup: Location(latitude: 0, longitude: 0),
+            destination: Location(latitude: 0, longitude: 0),
+            fare: 10, paymentMethod: "cash"
+        )
+        #expect(entry.statusEnum == .completed)
+    }
+
+    @Test func statusEnumProjectsCancelled() {
+        let entry = RideHistoryEntry(
+            id: "r2", date: Date(timeIntervalSince1970: 0), status: "cancelled",
+            counterpartyPubkey: String(repeating: "a", count: 64),
+            pickupGeohash: "g1", dropoffGeohash: "g2",
+            pickup: Location(latitude: 0, longitude: 0),
+            destination: Location(latitude: 0, longitude: 0),
+            fare: 0, paymentMethod: "cash"
+        )
+        #expect(entry.statusEnum == .cancelled)
+    }
+
+    @Test func statusEnumFailsOpenForUnknownStatus() {
+        // Forward-compat: unrecognized statuses don't redact fare data
+        let entry = RideHistoryEntry(
+            id: "r3", date: Date(timeIntervalSince1970: 0), status: "ended_early_v3",
+            counterpartyPubkey: String(repeating: "a", count: 64),
+            pickupGeohash: "g1", dropoffGeohash: "g2",
+            pickup: Location(latitude: 0, longitude: 0),
+            destination: Location(latitude: 0, longitude: 0),
+            fare: 25, paymentMethod: "cash"
+        )
+        #expect(entry.statusEnum == .completed)
+    }
 }
