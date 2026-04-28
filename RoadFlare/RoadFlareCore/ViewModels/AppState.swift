@@ -670,6 +670,7 @@ public final class AppState {
         // 5. UI state
         requestRideDriverPubkey = nil
         selectedTab = 0
+        pendingDriverDeepLink = nil
         pingCooldowns = [:]
 
         // 6. Nil service refs

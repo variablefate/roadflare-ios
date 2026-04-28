@@ -103,23 +103,17 @@ struct DriverQRCodeParserTests {
         #expect(DriverQRCodeParser.parse("nostr:") == nil)
     }
 
-    @Test func rejectsRoadflarerSchemeOnRiderApp() throws {
-        // The rider app intentionally does NOT handle roadflarer: (driver-app
-        // territory). If such a URL ever reaches the parser, it should be
-        // rejected — the embedded npub regex must not greedily accept it.
+    @Test func acceptsRoadflarerSchemeViaEmbeddedNpubFallback() throws {
+        // The rider app does NOT register `roadflarer:` as a URL scheme (that's
+        // reserved for the future driver app), so this URL never arrives via
+        // .onOpenURL. But if a user manually pastes such a URL into the Add
+        // Driver text field, `parseURLOrEmbeddedNpub` will extract the npub via
+        // the regex fallback — a reasonable best-effort. This test pins that
+        // behavior so future parser refactors don't silently change it.
         let npub = try makeNpub(hex: String(repeating: "4d", count: 32))
 
-        // roadflarer: is parsed as an opaque URI; nothing in DriverQRCodeParser
-        // should claim it as a driver pubkey because the host app's URL scheme
-        // registration won't even dispatch this scheme. But document the parser
-        // behavior explicitly so future refactors don't silently broaden it.
         let parsed = DriverQRCodeParser.parse("roadflarer:\(npub)")
 
-        // Currently, parseURLOrEmbeddedNpub will match the embedded npub.
-        // That's acceptable: the rider app never receives this scheme via
-        // .onOpenURL, so this fallback only runs if someone manually pastes
-        // the URL into the Add Driver text field — in which case extracting
-        // the npub is a reasonable best-effort.
         #expect(parsed == ParsedDriverQRCode(pubkeyInput: npub, scannedName: nil))
     }
 }

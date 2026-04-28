@@ -84,4 +84,19 @@ struct HandleIncomingURLTests {
 
         #expect(appState.pendingDriverDeepLink == ParsedDriverQRCode(pubkeyInput: npub, scannedName: "Driver Dan"))
     }
+
+    @MainActor
+    @Test func pendingDriverDeepLinkClearedOnIdentityReplacement() async throws {
+        // Regression: pendingDriverDeepLink must be reset on logout / identity
+        // switch, alongside requestRideDriverPubkey and selectedTab. Without
+        // this, an unconsumed deep link survives into the next user's session.
+        let appState = AppState()
+        let npub = try makeNpub(hex: String(repeating: "5e", count: 32))
+        appState.handleIncomingURL(URL(string: "roadflared:\(npub)")!)
+        #expect(appState.pendingDriverDeepLink != nil)
+
+        await appState.logout()
+
+        #expect(appState.pendingDriverDeepLink == nil)
+    }
 }

@@ -41,13 +41,23 @@ view observation**.
 2. `AppState.handleIncomingURL(_:)` parses the URL via the existing
    `DriverQRCodeParser`, populates `pendingDriverDeepLink`, and switches
    `selectedTab = 1` (drivers tab).
-3. `DriversTab` observes `appState.pendingDriverDeepLink` via `.onChange` and
-   on first `.task`, captures the value into local state, and presents
-   `AddDriverSheet(prefill:)` with the parsed payload. On dismiss, both
-   `pendingDriverDeepLink` and the local prefill are cleared.
+3. `DriversTab` observes `appState.pendingDriverDeepLink` via
+   `.onChange(of:initial:)` (the `initial: true` flag covers the cold-start
+   path, where `.onOpenURL` fires before this view mounts). Each new value
+   creates a new `AddDriverPresentation` (a private `Identifiable` wrapper
+   carrying the optional prefill) and assigns it to local `@State`. The
+   sheet is bound via `.sheet(item:)`, so a second deep-link arrival while
+   the first sheet is still presented produces a new presentation identity
+   and SwiftUI re-presents the sheet with the latest prefill — `.sheet(isPresented:)`
+   would have silently dropped the second link.
 4. `AddDriverSheet` accepts an optional `prefill: ParsedDriverQRCode?` init
    param; when set, it seeds `lookupDraft` and auto-triggers profile lookup
    on first `.task`, skipping the scan/paste step.
+5. On sheet dismissal, `appState.pendingDriverDeepLink = nil` (via the
+   sheet's `onDismiss`). The `addDriverPresentation` state is cleared
+   automatically by `.sheet(item:)`'s binding. `pendingDriverDeepLink` is
+   also cleared in `AppState.prepareForIdentityReplacement` so an
+   unconsumed intent does not survive into a different user's session.
 
 Two-app partitioning: `roadflared:` is for the rider app (this app);
 `roadflarer:` is reserved for a future iOS driver app. The rider app
