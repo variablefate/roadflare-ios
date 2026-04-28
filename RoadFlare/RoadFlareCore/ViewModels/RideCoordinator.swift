@@ -350,6 +350,26 @@ public final class RideCoordinator {
         chat.reset()
     }
 
+    /// Records a ride history entry from the current coordinator state.
+    ///
+    /// **Call ordering — load-bearing:** must be called BEFORE `clearCoordinatorUIState()`
+    /// at any terminal site. The function reads `pickupLocation`, `destinationLocation`,
+    /// and `currentFareEstimate` from coordinator instance state; `clearCoordinatorUIState`
+    /// zeroes those fields. Reordering would silently produce history entries with zeroed
+    /// coordinates and `fare = 0`. The cancel branches in `sessionDidReachTerminal` and
+    /// `forceEndRide()` both record-then-clear; if a future refactor extracts a shared
+    /// terminal helper, it must preserve this order.
+    ///
+    /// **Identity source:** prefers live `session.confirmationEventId`/`driverPubkey`
+    /// (set for `.completed` and `forceEndRide`, where the SDK has not reset the state
+    /// machine). Falls back to `lastActiveRideIdentity` (populated in `sessionDidChangeStage`
+    /// and `restoreRideState`) for `.cancelledByRider`/`.cancelledByDriver`, where the
+    /// SDK clears state machine context before firing the terminal callback. See
+    /// `decisions/0012-coordinator-ride-identity-cache.md`.
+    ///
+    /// Returns silently (no entry written) if neither live nor cached identity is
+    /// available — typically a pre-confirmation cancellation, which has no canonical
+    /// `confirmationEventId` to use as a ride ID.
     private func recordRideHistory(status: RideHistoryEntry.Status = .completed) {
         let confirmationId: String
         let driverPubkey: String
