@@ -690,14 +690,20 @@ public final class AppState {
         rideStatePersistence.clear()
 
         // 5. UI state
-        requestRideDriverPubkey = nil
-        selectedTab = 0
-        // Only clear pending deep link on actual REPLACEMENT of a prior
-        // identity (logout, key import/regen with prior keypair). Preserve
-        // on first-time setup (keypair == nil) so a `roadflared:` URL tapped
-        // during cold-start onboarding survives until DriversTab mounts
-        // post-`.ready`. See ADR-0012.
+        // Navigation intents (`selectedTab`, `requestRideDriverPubkey`,
+        // `pendingDriverDeepLink`) are only cleared on actual REPLACEMENT
+        // of a prior identity (logout, key import/regen with a prior
+        // keypair). On first-time setup (`keypair == nil`), preserve them
+        // so cold-start state — e.g. a `roadflared:` URL tapped before
+        // onboarding sets `selectedTab = 1` and `pendingDriverDeepLink` —
+        // survives the user's first `generateNewKey` / `createWithPasskey`
+        // / `importKey` call (each of which routes through this function
+        // BEFORE establishing the new identity) and is consumed by
+        // `DriversTab` once the user reaches the main tab view post-`.ready`.
+        // See ADR-0012.
         if keypair != nil {
+            requestRideDriverPubkey = nil
+            selectedTab = 0
             pendingDriverDeepLink = nil
         }
         pingCooldowns = [:]

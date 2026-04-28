@@ -55,15 +55,20 @@ view observation**.
    on first `.task`, skipping the scan/paste step.
 5. On sheet dismissal, `appState.pendingDriverDeepLink = nil` (via the
    sheet's `onDismiss`). The `addDriverPresentation` state is cleared
-   automatically by `.sheet(item:)`'s binding. `pendingDriverDeepLink` is
-   also cleared in `AppState.prepareForIdentityReplacement` — but ONLY
-   when there is a prior `keypair` to replace. On first-time setup
-   (`keypair == nil`), the deep link is preserved so a `roadflared:` URL
-   tapped during cold-start onboarding survives the user's first
-   `generateNewKey` / `createWithPasskey` / `importKey` call (each of
-   which routes through `prepareForIdentityReplacement` before
-   establishing the new identity) and is consumed by `DriversTab` once
-   the user reaches the main tab view post-`.ready`.
+   automatically by `.sheet(item:)`'s binding.
+6. `AppState.prepareForIdentityReplacement` resets navigation-intent
+   state (`selectedTab`, `requestRideDriverPubkey`, `pendingDriverDeepLink`)
+   — but ONLY when there is a prior `keypair` to replace. On first-time
+   setup (`keypair == nil`), all three are preserved so cold-start state
+   set by `handleIncomingURL` (specifically `pendingDriverDeepLink` AND
+   `selectedTab = 1`) survives the user's first `generateNewKey` /
+   `createWithPasskey` / `importKey` call (each of which routes through
+   `prepareForIdentityReplacement` before establishing the new identity)
+   and is consumed by `DriversTab` once the user reaches the main tab
+   view post-`.ready`. Both pieces matter: without the `selectedTab`
+   preservation the user lands on the Ride tab post-onboarding and
+   `DriversTab` (where the sheet observer lives) only mounts when its
+   tab becomes active.
 
 ### Onboarding interaction (issue #70)
 

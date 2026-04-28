@@ -86,15 +86,16 @@ struct HandleIncomingURLTests {
     }
 
     @MainActor
-    @Test func pendingDriverDeepLinkSurvivesIdentityReplacementWhenNoKeypair() async throws {
+    @Test func navigationIntentSurvivesIdentityReplacementWhenNoKeypair() async throws {
         // Cold-start regression: when a `roadflared:` URL arrives before the
         // user has created an account (keypair is nil), the conditional in
-        // `prepareForIdentityReplacement` must preserve the deep link.
-        // Without this guard, a first-time user who tapped a share link
-        // before onboarding would lose the intent the moment they tap
-        // "Generate Key" / "Create with Passkey" — both of which call
-        // `prepareForIdentityReplacement` internally before establishing
-        // the new identity. See ADR-0012.
+        // `prepareForIdentityReplacement` must preserve ALL the navigation
+        // intent state set by `handleIncomingURL` — both `pendingDriverDeepLink`
+        // AND `selectedTab` (= 1, drivers tab). Without this guard, a
+        // first-time user who tapped a share link before onboarding would
+        // lose the intent the moment they tap "Generate Key" / "Create with
+        // Passkey" — both of which call `prepareForIdentityReplacement`
+        // internally before establishing the new identity. See ADR-0012.
         //
         // The keypair-SET branch (cross-user leak protection on logout)
         // cannot be unit-tested here: the RoadFlareTests target lacks
@@ -105,13 +106,17 @@ struct HandleIncomingURLTests {
         let npub = try makeNpub(hex: String(repeating: "5e", count: 32))
         appState.handleIncomingURL(URL(string: "roadflared:\(npub)")!)
         #expect(appState.pendingDriverDeepLink != nil)
+        #expect(appState.selectedTab == 1)
         #expect(appState.keypair == nil)
 
         // `logout()` exercises `prepareForIdentityReplacement` with the same
-        // keypair-conditional gate; with no prior keypair, the deep link
-        // must survive.
+        // keypair-conditional gate; with no prior keypair, ALL navigation
+        // intents must survive (otherwise post-onboarding the user lands on
+        // the wrong tab and never sees the AddDriverSheet for the deep-linked
+        // driver).
         await appState.logout()
 
         #expect(appState.pendingDriverDeepLink != nil, "Deep link must survive identity replacement when no prior keypair existed")
+        #expect(appState.selectedTab == 1, "Tab selection must survive identity replacement when no prior keypair existed")
     }
 }
