@@ -208,9 +208,12 @@ public final class AppState {
 
     /// Mark profile name as set, publish Kind 0 to Nostr, move to payment setup.
     /// Optimistic: advances `authState` immediately, publishes in the background.
-    /// `markDirty` persists the dirty flag synchronously, so a publish that fails
-    /// (or never completes before app termination) is retried by the sync
-    /// coordinator on next relay reconnect via `flushPendingSyncPublishes`.
+    /// `markDirty` persists the dirty flag synchronously. If publish fails,
+    /// `completePaymentSetup` republishes profile via `saveAndPublishSettings`,
+    /// and once the user reaches `.ready` any still-dirty domain is retried by
+    /// `SyncCoordinator.flushPendingSyncPublishes` on the next relay reconnect.
+    /// (Reconnect-flush is gated by `authState == .ready`, so it does not fire
+    /// during the `.paymentSetup` window.)
     public func completeProfileSetup(name: String) async {
         settings.setProfileName(name)
         syncCoordinator?.markDirty(.profile)
@@ -219,8 +222,9 @@ public final class AppState {
     }
 
     /// Mark payment setup as done, finish onboarding. Publishes profile +
-    /// settings backup in the background; same retry semantics as
-    /// `completeProfileSetup`.
+    /// settings backup in the background. Once `authState == .ready`, any
+    /// domain still dirty is retried on the next relay reconnect via
+    /// `SyncCoordinator.flushPendingSyncPublishes`.
     public func completePaymentSetup() async {
         settings.setProfileCompleted(true)
         syncCoordinator?.markDirty(.profileBackup)
