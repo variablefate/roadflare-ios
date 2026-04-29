@@ -389,11 +389,18 @@ private struct WaitingContentView: View {
         }
     }
 
+    /// Label text for the chat button. Personalized with the driver's name when
+    /// available; falls back to the generic "Chat with Driver" when nil/blank.
+    static func chatButtonLabelText(driverName: String?) -> String {
+        let trimmed = driverName?.trimmingCharacters(in: .whitespaces) ?? ""
+        return trimmed.isEmpty ? "Chat with Driver" : "Chat with \(trimmed)"
+    }
+
     @ViewBuilder
     private var chatButton: some View {
         if let onChat {
             Button { onChat() } label: {
-                Label("Chat with Driver", systemImage: "message")
+                Label(Self.chatButtonLabelText(driverName: driverName), systemImage: "message")
                     .font(theme.title(16))
                     .foregroundColor(theme.accentColor)
                     .frame(maxWidth: .infinity)

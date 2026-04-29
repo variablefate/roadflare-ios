@@ -108,4 +108,16 @@ struct RideStatusCardTests {
         #expect(view.displayMode == .card)
         #expect(view.paymentMethods.count == 3)
     }
+
+    @Test("Chat button label uses driver name when present")
+    func chatLabelWithDriverName() {
+        #expect(RideStatusCard.chatButtonLabelText(driverName: "Alice") == "Chat with Alice")
+    }
+
+    @Test("Chat button label falls back to generic when driver name missing")
+    func chatLabelFallback() {
+        #expect(RideStatusCard.chatButtonLabelText(driverName: nil) == "Chat with Driver")
+        #expect(RideStatusCard.chatButtonLabelText(driverName: "") == "Chat with Driver")
+        #expect(RideStatusCard.chatButtonLabelText(driverName: "   ") == "Chat with Driver")
+    }
 }

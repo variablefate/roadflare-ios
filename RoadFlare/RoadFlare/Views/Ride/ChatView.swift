@@ -1,4 +1,5 @@
 import SwiftUI
+import RidestrSDK
 import RoadFlareCore
 
 struct WiredChatView: View {
@@ -7,6 +8,15 @@ struct WiredChatView: View {
     @State private var messageText = ""
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
+
+    private var chatTitle: String {
+        guard let pubkey = coordinator?.session.driverPubkey,
+              let name = appState.driverDisplayName(pubkey: pubkey)?
+                .trimmingCharacters(in: .whitespaces),
+              !name.isEmpty
+        else { return "Chat" }
+        return "Chat with \(name)"
+    }
 
     var body: some View {
         ZStack {
@@ -78,7 +88,7 @@ struct WiredChatView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                 }
-                .navigationTitle("Chat")
+                .navigationTitle(chatTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(Color.rfSurface, for: .navigationBar)
                 .toolbarColorScheme(.dark, for: .navigationBar)
