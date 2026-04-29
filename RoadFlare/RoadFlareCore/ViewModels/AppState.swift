@@ -18,6 +18,42 @@ public enum AccountDeletionError: Error, Equatable {
     case activeRideInProgress
 }
 
+/// Outcome of a user-initiated key refresh request.
+///
+/// `requestKeyRefresh(pubkey:)` enforces a per-driver cooldown so a frustrated
+/// rider tapping the button repeatedly doesn't spam the driver with stale
+/// acks; `.rateLimited` carries the next-eligible timestamp so callers can
+/// surface a precise countdown. `.publishFailed` distinguishes a relay
+/// publish failure (e.g. all relays disconnected) so the caller can show
+/// an actionable error rather than a misleading "sent" toast — and AppState
+/// rolls back the cooldown slot in that case so the rider can retry.
+public enum KeyRefreshOutcome: Sendable, Equatable {
+    case sent
+    case rateLimited(retryAt: Date)
+    case publishFailed
+}
+
+/// Outcome of `restoreKeyFromBackup(driverPubkey:)`.
+///
+/// Distinguishes "no key was in the backup" from "couldn't reach the relay
+/// or decode it" so the caller can react differently — important on the
+/// add-driver re-handshake path, where falling through to the new-follow
+/// branch on a transient relay failure would re-trigger the issue #72
+/// Bug 3 over-rotation symptom.
+public enum RestoreKeyFromBackupOutcome: Sendable, Equatable {
+    /// Backup was reachable, the driver was in it, and a key was applied to
+    /// the local repo.
+    case restored
+    /// Backup was reachable but the driver entry has no key (e.g. driver
+    /// was followed before any Kind 3186 was received). Treat as a genuine
+    /// new follow — Kind 3187 + Kind 3188 are appropriate.
+    case notInBackup
+    /// Couldn't fetch the backup, snapshot was missing, or the latest
+    /// remote event was undecodable. The caller cannot tell from the
+    /// signal alone whether this is a re-add or a new follow.
+    case backupUnavailable
+}
+
 /// Central app state coordinator. Owns SDK services and manages auth lifecycle.
 ///
 /// Views access this via `@Environment(AppState.self)`. All sync orchestration
@@ -217,19 +253,28 @@ public final class AppState {
 
     // MARK: - Driver Key Management
 
-    /// Try to restore a specific driver's key from our Kind 30011 backup on the relay.
-    public func restoreKeyFromBackup(driverPubkey: String) async {
+    /// Try to restore a specific driver's key from our Kind 30011 backup on
+    /// the relay.
+    ///
+    /// The returned outcome lets callers distinguish "the backup said this
+    /// driver has no key" from "we couldn't reach or decode the backup" —
+    /// critical on the add-driver re-handshake path where a transient
+    /// failure should NOT silently fall through to Kind 3187, since Kind
+    /// 3187 triggers driver-side key rotation for all followers (issue #72
+    /// Bug 3).
+    @discardableResult
+    public func restoreKeyFromBackup(driverPubkey: String) async -> RestoreKeyFromBackupOutcome {
         guard let service = roadflareDomainService,
-              let repo = driversRepository else { return }
+              let repo = driversRepository else { return .backupUnavailable }
         let remote = await service.fetchLatestFollowedDriversState()
-        guard let snapshot = remote.snapshot else { return }
+        guard let snapshot = remote.snapshot else { return .backupUnavailable }
 
         if let latestSeenCreatedAt = remote.latestSeenCreatedAt,
            snapshot.createdAt != latestSeenCreatedAt {
             AppLogger.auth.warning(
                 "Skipping key restore for \(driverPubkey.prefix(8)) because the latest followed-drivers backup is not decodable"
             )
-            return
+            return .backupUnavailable
         }
 
         if let entry = snapshot.value.drivers.first(where: { $0.pubkey == driverPubkey }),
@@ -241,7 +286,20 @@ public final class AppState {
             )
             rideCoordinator?.startLocationSubscriptions()
             AppLogger.auth.info("Restored key for \(driverPubkey.prefix(8)) from Kind 30011 backup")
+            return .restored
         }
+
+        return .notInBackup
+    }
+
+    /// Restart the key-share subscription. Surfaced so the add-driver
+    /// re-handshake can preserve the side effect from `sendFollowNotification`
+    /// (PR #54) when the new flow skips the Kind 3187 publish: a fresh
+    /// subscription forces relay re-delivery of any subsequent Kind 3186
+    /// rotations within the 12-hour window, even if the long-lived
+    /// subscription from app launch dropped events.
+    public func restartKeyShareSubscription() {
+        rideCoordinator?.startKeyShareSubscription()
     }
 
     /// Send Kind 3187 follow notification to a driver (real-time nudge).
@@ -276,6 +334,20 @@ public final class AppState {
     /// Intentionally not persisted — resets on app restart to avoid stale state.
     private var pingCooldowns: [String: Date] = [:]
     private static let pingCooldownSeconds: TimeInterval = 600  // 10 minutes
+
+    /// Per-driver last user-initiated key-refresh timestamps. Cleared on
+    /// identity replacement alongside `pingCooldowns`. Mirrors Android's
+    /// `keyRefreshRequests` map (rider-app/.../RoadflareTab.kt) — a 60s window
+    /// is enough that a tap-spam rider still gets actionable feedback ("wait
+    /// 30s before requesting again") rather than queueing a flood of stale acks.
+    private var keyRefreshCooldowns: [String: Date] = [:]
+    static let keyRefreshCooldownSeconds: TimeInterval = 60  // matches Android rider
+
+    #if DEBUG
+    /// Test-only override for the SDK call inside `requestKeyRefresh(pubkey:)`.
+    /// Set via `setKeyRefreshSDKHookForTesting(_:)`. See that method's docs.
+    var keyRefreshSDKHookForTesting: ((String) async throws -> Void)?
+    #endif
 
     /// Returns `true` when `driver` is a valid ping target.
     ///
@@ -707,6 +779,7 @@ public final class AppState {
             pendingDriverDeepLink = nil
         }
         pingCooldowns = [:]
+        keyRefreshCooldowns = [:]
 
         // 6. Nil service refs
         rideCoordinator = nil
@@ -826,9 +899,91 @@ extension AppState {
         await rideCoordinator?.publishFollowedDriversList()
     }
 
-    /// Request a fresh share key from a driver.
+    /// Request a fresh share key from a driver. Internal flows (e.g. add-driver
+    /// re-handshake) — does not enforce the user-facing rate limit. Best-effort:
+    /// publish failures are swallowed because internal callers have no UI to
+    /// surface them and the periodic `checkForStaleKeys` sweep will retry.
     public func requestDriverKeyRefresh(driverPubkey: String) async {
-        await rideCoordinator?.requestKeyRefresh(driverPubkey: driverPubkey)
+        try? await rideCoordinator?.requestKeyRefresh(driverPubkey: driverPubkey)
+    }
+
+    /// User-initiated key refresh for a driver whose key is flagged stale.
+    ///
+    /// Enforces a per-pubkey cooldown (`keyRefreshCooldownSeconds`) so that a
+    /// rider hammering the button doesn't spam the driver. Returns
+    /// `.rateLimited(retryAt:)` when the cooldown is still active so the
+    /// caller can show a precise wait time. Returns `.publishFailed` if no
+    /// coordinator is wired (logout/identity-replacement window — the
+    /// cooldown is never claimed) or the SDK publish throws (the cooldown
+    /// is rolled back); either way the rider can retry immediately.
+    /// Otherwise returns `.sent` after the publish lands.
+    @discardableResult
+    public func requestKeyRefresh(pubkey: String) async -> KeyRefreshOutcome {
+        if let last = keyRefreshCooldowns[pubkey] {
+            let retryAt = last.addingTimeInterval(Self.keyRefreshCooldownSeconds)
+            if Date.now < retryAt {
+                return .rateLimited(retryAt: retryAt)
+            }
+        }
+        // Resolve the dispatch closure: in production it's the SDK call, in
+        // tests it can be overridden via `keyRefreshSDKHookForTesting` so we
+        // can drive both `.sent` and `.publishFailed` paths without standing
+        // up a full RideCoordinator. Returns nil when no coordinator is wired
+        // (logout/identity-replacement window) — bail before claiming the
+        // cooldown slot so the rider can retry immediately rather than burn
+        // 60s on a publish that never happened. The optional-chain
+        // `try await rideCoordinator?...` would otherwise silently return nil,
+        // the catch wouldn't fire, and `.sent` would be returned with the
+        // slot claimed.
+        guard let dispatch = keyRefreshDispatch() else { return .publishFailed }
+        // Claim the slot before awaiting — `sendDriverPing` follows the same
+        // eager-claim-then-rollback pattern. Without the eager claim, two
+        // rapid taps both pass the cooldown check because the await is a
+        // suspension point. Without the rollback, a publish failure would
+        // burn 60s with nothing actually sent.
+        keyRefreshCooldowns[pubkey] = Date.now
+        do {
+            try await dispatch(pubkey)
+            return .sent
+        } catch {
+            keyRefreshCooldowns[pubkey] = nil
+            AppLogger.auth.info("requestKeyRefresh failed for \(pubkey.prefix(8)): \(error.localizedDescription)")
+            return .publishFailed
+        }
+    }
+
+    private func keyRefreshDispatch() -> ((String) async throws -> Void)? {
+        #if DEBUG
+        if let hook = keyRefreshSDKHookForTesting { return hook }
+        #endif
+        guard let coordinator = rideCoordinator else { return nil }
+        return { pubkey in try await coordinator.requestKeyRefresh(driverPubkey: pubkey) }
+    }
+
+    /// Pubkeys of all followed drivers whose key is currently flagged stale,
+    /// returned in deterministic (lexicographic) order. Empty when no
+    /// repository has been installed.
+    ///
+    /// Sorting matters because callers and tests compare arrays directly;
+    /// `Set.Iterator` does not guarantee a stable order across reads.
+    public var staleKeyDriverPubkeys: [String] {
+        guard let repo = driversRepository else { return [] }
+        return repo.staleKeyPubkeys.sorted()
+    }
+
+    /// Fan-out user-initiated key refresh for every stale-key driver.
+    /// Each pubkey goes through the same cooldown as `requestKeyRefresh(pubkey:)`,
+    /// so a banner-tap spammer still hits the per-pubkey limit. Returns the
+    /// number of `.sent` outcomes for caller-side toast feedback.
+    @discardableResult
+    public func refreshAllStaleDriverKeys() async -> Int {
+        var sentCount = 0
+        for pubkey in staleKeyDriverPubkeys {
+            if case .sent = await requestKeyRefresh(pubkey: pubkey) {
+                sentCount += 1
+            }
+        }
+        return sentCount
     }
 
     /// Check all followed drivers for stale keys and request refreshes.
@@ -948,6 +1103,19 @@ extension AppState {
 
     func primePingCooldownForTesting(driverPubkey: String, lastPing: Date) {
         pingCooldowns[driverPubkey] = lastPing
+    }
+
+    func primeKeyRefreshCooldownForTesting(pubkey: String, lastRequest: Date) {
+        keyRefreshCooldowns[pubkey] = lastRequest
+    }
+
+    /// Test-only override for the SDK call inside `requestKeyRefresh(pubkey:)`.
+    /// When set, this closure is invoked with the target pubkey instead of
+    /// `rideCoordinator?.requestKeyRefresh(...)`. Lets tests drive the
+    /// `.sent` path (closure returns) and the `.publishFailed` path (closure
+    /// throws) without wiring a full RideCoordinator.
+    func setKeyRefreshSDKHookForTesting(_ hook: ((String) async throws -> Void)?) {
+        keyRefreshSDKHookForTesting = hook
     }
 
     /// Replace the persistence-backed `rideHistory` / `savedLocations` repos so

@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import RidestrSDK
 import RoadFlareCore
 
@@ -326,19 +327,48 @@ struct AddDriverSheet: View {
         )
         appState.addDriver(driver, profile: resolvedProfile, name: name)
 
-        // Publish Kind 30011 (source of truth) + Kind 3187 (real-time nudge to driver).
-        // On re-add, try to restore the key from Kind 30011 on the relay first.
-        // If still no key, send a stale ack to request one from the driver.
+        // Publish Kind 30011 (source of truth), then attempt to restore the
+        // driver's key from our own Kind 30011 backup before sending Kind 3187.
+        //
+        // Order matters here (issue #72, Bug 3): the driver-side Android client
+        // treats Kind 3187 as a fresh-follow signal and may rotate keys for all
+        // followers in response, marking *every other* rider's stored key as
+        // stale on their next `checkForStaleKeys` pass. When this is a re-add
+        // (rider previously followed the driver), our Kind 30011 backup
+        // already carries the existing key — restore it locally and skip the
+        // notification entirely. The follow-notification path only fires for
+        // genuinely new follows (no key in backup, no key locally) or when
+        // the backup is unreachable (graceful degradation; logged).
         Task {
             await appState.publishDriversList()
-            await appState.sendFollowNotification(driverPubkey: hexPubkey)
 
-            // If no key locally, try restoring from our Kind 30011 backup on the relay
-            if !appState.hasKeyForDriver(pubkey: hexPubkey) {
-                await appState.restoreKeyFromBackup(driverPubkey: hexPubkey)
+            // Already have a key locally (rare — driver may have re-published
+            // before this Task ran). Refresh the key-share subscription so we
+            // catch any subsequent rotation event (preserves the PR #54 side
+            // effect that the new flow would otherwise skip on re-add).
+            if appState.hasKeyForDriver(pubkey: hexPubkey) {
+                appState.restartKeyShareSubscription()
+                return
             }
-            // If still no key after restore attempt, request from driver
-            if !appState.hasKeyForDriver(pubkey: hexPubkey) {
+
+            switch await appState.restoreKeyFromBackup(driverPubkey: hexPubkey) {
+            case .restored:
+                // Re-add: backup carried the key. Refresh the subscription
+                // (PR #54) but skip Kind 3187 to avoid Bug 3.
+                appState.restartKeyShareSubscription()
+            case .backupUnavailable:
+                // Couldn't tell whether this is a re-add or a new follow.
+                // Fall through to the new-follow handshake; on a re-add this
+                // re-introduces the Bug 3 over-rotation transiently, but the
+                // rider's local state still ends up correct after the next
+                // `checkForStaleKeys` sweep. Logged so the failure is visible
+                // when investigating user reports.
+                AppLogger.auth.warning(
+                    "Backup unreachable for \(hexPubkey.prefix(8)) on add; proceeding with new-follow handshake"
+                )
+                fallthrough
+            case .notInBackup:
+                await appState.sendFollowNotification(driverPubkey: hexPubkey)
                 await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
             }
         }

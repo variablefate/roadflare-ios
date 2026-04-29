@@ -175,8 +175,8 @@ final class LocationCoordinator {
         await locationSync.checkForStaleKeys()
     }
 
-    func requestKeyRefresh(driverPubkey: String) async {
-        await locationSync.requestKeyRefresh(driverPubkey: driverPubkey)
+    func requestKeyRefresh(driverPubkey: String) async throws {
+        try await locationSync.requestKeyRefresh(driverPubkey: driverPubkey)
     }
 
     // MARK: - Cleanup

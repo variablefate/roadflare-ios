@@ -322,13 +322,28 @@ struct LocationSyncCoordinatorTests {
         // makeKit() does not pre-load a driver key, so this also covers the
         // keyless-driver (version 0) path.
 
-        await kit.coordinator.requestKeyRefresh(driverPubkey: kit.driverKeypair.publicKeyHex)
+        try await kit.coordinator.requestKeyRefresh(driverPubkey: kit.driverKeypair.publicKeyHex)
 
         #expect(kit.relay.publishedEvents.count == 1)
         let ack = kit.relay.publishedEvents[0]
         #expect(ack.kind == EventKind.keyAcknowledgement.rawValue)
         let driverPTag = ack.tags.first { $0.count >= 2 && $0[0] == "p" }
         #expect(driverPTag?[1] == kit.driverKeypair.publicKeyHex)
+    }
+
+    // Pins the contract that the SDK now surfaces publish failures to the
+    // caller (issue #72 follow-up): the AppState rate-limit wrapper relies
+    // on this so it can roll back the cooldown slot when nothing was
+    // actually sent. A best-effort caller (e.g. `checkForStaleKeys`) wraps
+    // with `try?` to preserve the previous best-effort behavior.
+    @Test func requestKeyRefreshThrowsWhenRelayPublishFails() async throws {
+        let kit = try await makeKit()
+        kit.relay.shouldFailPublish = true
+
+        await #expect(throws: (any Error).self) {
+            try await kit.coordinator.requestKeyRefresh(driverPubkey: kit.driverKeypair.publicKeyHex)
+        }
+        #expect(kit.relay.publishedEvents.isEmpty)
     }
 
     // MARK: - publishFollowedDriversList

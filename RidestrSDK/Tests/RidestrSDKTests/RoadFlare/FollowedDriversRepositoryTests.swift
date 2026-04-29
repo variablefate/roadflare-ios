@@ -147,6 +147,30 @@ struct FollowedDriversRepositoryTests {
         #expect(repo.getDriver(pubkey: "d1")?.roadflareKey == current)
     }
 
+    // Regression for issue #72, Bug 3: writing one driver's key during a
+    // backup-restore must not flip another driver's stale flag. The iOS-side
+    // restore path (`AppState.restoreKeyFromBackup`) routes exclusively
+    // through `updateDriverKey` for the target pubkey, so the only way the
+    // user-reported "restoring one driver makes others outdated" symptom
+    // could originate on the rider side is through a cross-driver write
+    // here. This test pins that contract.
+    @Test func updateDriverKeyDoesNotAffectOtherDriversStaleFlags() {
+        let repo = makeRepo()
+        let key1 = RoadflareKey(privateKeyHex: "p1", publicKeyHex: "q1", version: 1, keyUpdatedAt: 100)
+        let key2 = RoadflareKey(privateKeyHex: "p2", publicKeyHex: "q2", version: 1, keyUpdatedAt: 100)
+        repo.addDriver(FollowedDriver(pubkey: "d1", roadflareKey: key1))
+        repo.addDriver(FollowedDriver(pubkey: "d2", roadflareKey: key2))
+        repo.markKeyStale(pubkey: "d2")
+
+        // Restore-style key write for d1.
+        let restoredKey = RoadflareKey(privateKeyHex: "p1b", publicKeyHex: "q1b", version: 2, keyUpdatedAt: 200)
+        let outcome = repo.updateDriverKey(driverPubkey: "d1", roadflareKey: restoredKey, source: .sync)
+        #expect(outcome == .appliedNewer)
+
+        // d2's stale state must be untouched.
+        #expect(repo.staleKeyPubkeys == ["d2"])
+    }
+
     @Test func updateDriverNote() {
         let repo = makeRepo()
         repo.addDriver(FollowedDriver(pubkey: "d1"))

@@ -47,6 +47,10 @@ public struct DriverDetailViewState: Equatable, Sendable, Identifiable {
     /// The key's version number, if a key is present.
     public let keyVersion: Int?
 
+    /// Whether the driver's key has been flagged stale and needs a refresh.
+    /// `false` when no key is present.
+    public let isKeyStale: Bool
+
     // MARK: - Last Known Location section
 
     /// Raw status string from the last location broadcast (e.g. "online"), or nil if no location.
@@ -119,6 +123,7 @@ public struct DriverDetailViewState: Equatable, Sendable, Identifiable {
             canPing: canPing,
             hasKey: driver.hasKey,
             keyVersion: driver.roadflareKey?.version,
+            isKeyStale: isKeyStale,
             lastLocationStatus: isKeyStale ? nil : location?.status,
             lastLocationTimestampLabel: lastLocationTimestampLabel,
             note: driver.note ?? ""
