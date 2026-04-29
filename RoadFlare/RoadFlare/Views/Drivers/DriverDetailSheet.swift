@@ -7,6 +7,9 @@ struct DriverDetailSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var note: String = ""
+    @State private var keyRefreshToastMessage: String?
+    @State private var keyRefreshToastIsError: Bool = false
+    @State private var isRequestingKeyRefresh: Bool = false
 
     var body: some View {
         // Capture the presentation state once per body invocation. Each access
@@ -37,8 +40,19 @@ struct DriverDetailSheet: View {
                 if let version = state?.keyVersion {
                     Section("RoadFlare Key") {
                         LabeledContent("Version", value: "\(version)")
-                        LabeledContent("Key Status", value: "Active")
-                            .foregroundStyle(.green)
+                        if state?.isKeyStale == true {
+                            LabeledContent("Key Status", value: "Outdated")
+                                .foregroundStyle(.red)
+                            Button {
+                                requestKeyRefresh()
+                            } label: {
+                                Label("Request Fresh Key", systemImage: "arrow.clockwise")
+                            }
+                            .disabled(isRequestingKeyRefresh)
+                        } else {
+                            LabeledContent("Key Status", value: "Active")
+                                .foregroundStyle(.green)
+                        }
                     }
                 } else if state?.hasKey == false {
                     Section("RoadFlare Key") {
@@ -96,6 +110,24 @@ struct DriverDetailSheet: View {
                 // appear after the initial body render settled and `state` could
                 // still be nil if the driver is no longer in the repo.
                 note = appState.driverDetailViewState(pubkey: pubkey)?.note ?? ""
+            }
+            .toast($keyRefreshToastMessage, isError: keyRefreshToastIsError)
+        }
+    }
+
+    private func requestKeyRefresh() {
+        isRequestingKeyRefresh = true
+        Task {
+            let outcome = await appState.requestKeyRefresh(pubkey: pubkey)
+            isRequestingKeyRefresh = false
+            switch outcome {
+            case .sent:
+                keyRefreshToastMessage = "Refresh requested. Waiting for the driver to respond."
+                keyRefreshToastIsError = false
+            case .rateLimited(let retryAt):
+                let seconds = max(1, Int(retryAt.timeIntervalSinceNow.rounded(.up)))
+                keyRefreshToastMessage = "Just sent — wait \(seconds)s before requesting again."
+                keyRefreshToastIsError = true
             }
         }
     }

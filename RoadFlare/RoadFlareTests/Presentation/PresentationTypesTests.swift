@@ -216,11 +216,24 @@ struct DriverDetailViewStateTests {
                                                isKeyStale: true, canPing: false)
         #expect(state.statusLabel == "Key outdated")
         #expect(state.canRequestRide == false)
+        #expect(state.isKeyStale == true)
         // Both last-location fields must be nil when the key is stale — the
         // raw "online" status and the "3 min ago" timestamp were both derived
         // from a broadcast decrypted with the pre-rotation key.
         #expect(state.lastLocationStatus == nil)
         #expect(state.lastLocationTimestampLabel == nil)
+    }
+
+    // Pins the contract that DriverDetailSheet's "Key Status" branch reads
+    // from: a non-stale active key must surface as `isKeyStale == false` so the
+    // sheet can render the green "Active" label. Without this field, the
+    // sheet hardcoded "Active" even for stale keys (issue #72 / Bug 1).
+    @Test func isKeyStaleFalseForActiveKey() {
+        let driver = makeDriver()
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: makeLocation(status: "online"),
+                                               profile: nil, isKeyStale: false, canPing: false)
+        #expect(state.isKeyStale == false)
     }
 
     // Mirrors the DriverListItem precedence test: stale wins over any location

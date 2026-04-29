@@ -18,6 +18,9 @@ struct RideRequestView: View {
     @State private var mapKit = MapKitServices()
     @State private var locationManager = RiderLocationManager()
     @State private var isLocating = false
+    @State private var staleRefreshToastMessage: String?
+    @State private var staleRefreshToastIsError: Bool = false
+    @State private var isRefreshingStaleKeys: Bool = false
 
     private var coordinator: RideCoordinator? { appState.rideCoordinator }
     private var stage: RiderStage { coordinator?.session.stage ?? .idle }
@@ -29,6 +32,7 @@ struct RideRequestView: View {
         // rebuilds the filtered `RideRequestDriverOption` list from the repo.
         let onlineOptions = appState.onlineDriverOptions()
         let onlinePubkeys = onlineOptions.map(\.pubkey)
+        let staleKeyDriverCount = appState.staleKeyDriverPubkeys.count
         let favorites = appState.favoriteLocationRows
         let recents = appState.recentLocationRows
         let addressSearchItems = makeAddressSearchItems(favorites: favorites, recents: recents)
@@ -78,6 +82,14 @@ struct RideRequestView: View {
                                 }
                                 .buttonStyle(RFPrimaryButtonStyle())
                                 .padding(.horizontal, 48)
+                            }
+                            if staleKeyDriverCount > 0 {
+                                StaleKeyRefreshBanner(
+                                    count: staleKeyDriverCount,
+                                    isRefreshing: isRefreshingStaleKeys,
+                                    onRefresh: refreshStaleKeys
+                                )
+                                .padding(.horizontal, 16)
                             }
                         }
                 } else {
@@ -309,6 +321,24 @@ struct RideRequestView: View {
                 fareError = nil
             }
         }
+        .toast($staleRefreshToastMessage, isError: staleRefreshToastIsError)
+    }
+
+    private func refreshStaleKeys() {
+        guard !isRefreshingStaleKeys else { return }
+        isRefreshingStaleKeys = true
+        Task {
+            let sentCount = await appState.refreshAllStaleDriverKeys()
+            isRefreshingStaleKeys = false
+            if sentCount == 0 {
+                staleRefreshToastMessage = "Just sent — try again in a minute."
+                staleRefreshToastIsError = true
+            } else {
+                let plural = sentCount == 1 ? "driver" : "drivers"
+                staleRefreshToastMessage = "Refresh requested for \(sentCount) \(plural)."
+                staleRefreshToastIsError = false
+            }
+        }
     }
 
     // MARK: - Actions
@@ -476,5 +506,51 @@ struct RideRequestView: View {
         if !appliedExplicitSelection {
             self.selectedDriverPubkey = onlineOptions.first?.pubkey
         }
+    }
+}
+
+// MARK: - Stale Key Refresh Banner
+
+/// Empty-state CTA shown when the rider has no eligible online drivers but at
+/// least one followed driver has a stale key. Without this, the rider sees an
+/// empty list with no explanation — the SDK already supports the refresh
+/// request (Kind 3188 "stale" ack), but riders had no surface to fire it.
+struct StaleKeyRefreshBanner: View {
+    let count: Int
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "key.slash")
+                    .foregroundColor(Color.rfError)
+                Text(headline)
+                    .font(RFFont.title(15))
+                    .foregroundColor(Color.rfOnSurface)
+            }
+            Text("Their keys rotated and need to be re-shared before you can request a ride.")
+                .font(RFFont.body(13))
+                .foregroundColor(Color.rfOnSurfaceVariant)
+            Button(action: onRefresh) {
+                HStack(spacing: 8) {
+                    if isRefreshing {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    Text("Request Fresh Keys")
+                }
+            }
+            .buttonStyle(RFPrimaryButtonStyle())
+            .disabled(isRefreshing)
+        }
+        .rfCard(.high)
+    }
+
+    private var headline: String {
+        count == 1
+            ? "1 driver has an outdated key"
+            : "\(count) drivers have outdated keys"
     }
 }

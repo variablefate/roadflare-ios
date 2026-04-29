@@ -326,21 +326,30 @@ struct AddDriverSheet: View {
         )
         appState.addDriver(driver, profile: resolvedProfile, name: name)
 
-        // Publish Kind 30011 (source of truth) + Kind 3187 (real-time nudge to driver).
-        // On re-add, try to restore the key from Kind 30011 on the relay first.
-        // If still no key, send a stale ack to request one from the driver.
+        // Publish Kind 30011 (source of truth), then attempt to restore the
+        // driver's key from our own Kind 30011 backup before sending Kind 3187.
+        //
+        // Order matters here (issue #72, Bug 3): the driver-side Android client
+        // treats Kind 3187 as a fresh-follow signal and may rotate keys for all
+        // followers in response, marking *every other* rider's stored key as
+        // stale on their next `checkForStaleKeys` pass. When this is a re-add
+        // (rider previously followed the driver), our Kind 30011 backup
+        // already carries the existing key — restore it locally and skip the
+        // notification entirely. The follow-notification path only fires for
+        // genuinely new follows (no key in backup, no key locally).
         Task {
             await appState.publishDriversList()
-            await appState.sendFollowNotification(driverPubkey: hexPubkey)
 
-            // If no key locally, try restoring from our Kind 30011 backup on the relay
             if !appState.hasKeyForDriver(pubkey: hexPubkey) {
                 await appState.restoreKeyFromBackup(driverPubkey: hexPubkey)
             }
-            // If still no key after restore attempt, request from driver
-            if !appState.hasKeyForDriver(pubkey: hexPubkey) {
-                await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
+
+            if appState.hasKeyForDriver(pubkey: hexPubkey) {
+                return
             }
+
+            await appState.sendFollowNotification(driverPubkey: hexPubkey)
+            await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
         }
 
         dismiss()

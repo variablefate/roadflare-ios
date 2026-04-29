@@ -18,6 +18,17 @@ public enum AccountDeletionError: Error, Equatable {
     case activeRideInProgress
 }
 
+/// Outcome of a user-initiated key refresh request.
+///
+/// `requestKeyRefresh(pubkey:)` enforces a per-driver cooldown so a frustrated
+/// rider tapping the button repeatedly doesn't spam the driver with stale
+/// acks; `.rateLimited` carries the next-eligible timestamp so callers can
+/// surface a precise countdown.
+public enum KeyRefreshOutcome: Sendable, Equatable {
+    case sent
+    case rateLimited(retryAt: Date)
+}
+
 /// Central app state coordinator. Owns SDK services and manages auth lifecycle.
 ///
 /// Views access this via `@Environment(AppState.self)`. All sync orchestration
@@ -276,6 +287,14 @@ public final class AppState {
     /// Intentionally not persisted — resets on app restart to avoid stale state.
     private var pingCooldowns: [String: Date] = [:]
     private static let pingCooldownSeconds: TimeInterval = 600  // 10 minutes
+
+    /// Per-driver last user-initiated key-refresh timestamps. Cleared on
+    /// identity replacement alongside `pingCooldowns`. Mirrors Android's
+    /// `keyRefreshRequests` map (rider-app/.../RoadflareTab.kt) — a 60s window
+    /// is enough that a tap-spam rider still gets actionable feedback ("wait
+    /// 30s before requesting again") rather than queueing a flood of stale acks.
+    private var keyRefreshCooldowns: [String: Date] = [:]
+    static let keyRefreshCooldownSeconds: TimeInterval = 60  // matches Android rider
 
     /// Returns `true` when `driver` is a valid ping target.
     ///
@@ -707,6 +726,7 @@ public final class AppState {
             pendingDriverDeepLink = nil
         }
         pingCooldowns = [:]
+        keyRefreshCooldowns = [:]
 
         // 6. Nil service refs
         rideCoordinator = nil
@@ -826,9 +846,55 @@ extension AppState {
         await rideCoordinator?.publishFollowedDriversList()
     }
 
-    /// Request a fresh share key from a driver.
+    /// Request a fresh share key from a driver. Internal flows (e.g. add-driver
+    /// re-handshake) — does not enforce the user-facing rate limit.
     public func requestDriverKeyRefresh(driverPubkey: String) async {
         await rideCoordinator?.requestKeyRefresh(driverPubkey: driverPubkey)
+    }
+
+    /// User-initiated key refresh for a driver whose key is flagged stale.
+    ///
+    /// Enforces a per-pubkey cooldown (`keyRefreshCooldownSeconds`) so that a
+    /// rider hammering the button doesn't spam the driver. Returns
+    /// `.rateLimited(retryAt:)` when the cooldown is still active so the
+    /// caller can show a precise wait time. Otherwise returns `.sent` after
+    /// dispatching the SDK request.
+    @discardableResult
+    public func requestKeyRefresh(pubkey: String) async -> KeyRefreshOutcome {
+        if let last = keyRefreshCooldowns[pubkey] {
+            let retryAt = last.addingTimeInterval(Self.keyRefreshCooldownSeconds)
+            if Date.now < retryAt {
+                return .rateLimited(retryAt: retryAt)
+            }
+        }
+        // Claim the slot before awaiting — sendDriverPing follows the same
+        // pattern; without it, two rapid taps both pass the cooldown check
+        // because the await is a suspension point.
+        keyRefreshCooldowns[pubkey] = Date.now
+        await rideCoordinator?.requestKeyRefresh(driverPubkey: pubkey)
+        return .sent
+    }
+
+    /// Pubkeys of all followed drivers whose key is currently flagged stale.
+    /// Empty when no repository has been installed.
+    public var staleKeyDriverPubkeys: [String] {
+        guard let repo = driversRepository else { return [] }
+        return Array(repo.staleKeyPubkeys)
+    }
+
+    /// Fan-out user-initiated key refresh for every stale-key driver.
+    /// Each pubkey goes through the same cooldown as `requestKeyRefresh(pubkey:)`,
+    /// so a banner-tap spammer still hits the per-pubkey limit. Returns the
+    /// number of `.sent` outcomes for caller-side toast feedback.
+    @discardableResult
+    public func refreshAllStaleDriverKeys() async -> Int {
+        var sentCount = 0
+        for pubkey in staleKeyDriverPubkeys {
+            if case .sent = await requestKeyRefresh(pubkey: pubkey) {
+                sentCount += 1
+            }
+        }
+        return sentCount
     }
 
     /// Check all followed drivers for stale keys and request refreshes.
@@ -948,6 +1014,10 @@ extension AppState {
 
     func primePingCooldownForTesting(driverPubkey: String, lastPing: Date) {
         pingCooldowns[driverPubkey] = lastPing
+    }
+
+    func primeKeyRefreshCooldownForTesting(pubkey: String, lastRequest: Date) {
+        keyRefreshCooldowns[pubkey] = lastRequest
     }
 
     /// Replace the persistence-backed `rideHistory` / `savedLocations` repos so
