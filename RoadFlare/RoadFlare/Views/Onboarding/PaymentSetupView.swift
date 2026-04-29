@@ -9,29 +9,30 @@ struct PaymentSetupView: View {
         ZStack {
             Color.rfSurface.ignoresSafeArea()
 
-            VStack(spacing: 24) {
-                Spacer().frame(height: 40)
+            ScrollView {
+                VStack(spacing: 24) {
+                    Image(systemName: "creditcard")
+                        .font(.system(size: 50))
+                        .foregroundColor(Color.rfPrimary)
 
-                Image(systemName: "creditcard")
-                    .font(.system(size: 50))
-                    .foregroundColor(Color.rfPrimary)
+                    VStack(spacing: 8) {
+                        Text("Payment Methods")
+                            .font(RFFont.headline(24))
+                            .foregroundColor(Color.rfOnSurface)
+                        Text("Select the payment methods you can use.\nYour driver will see these when you request a ride.")
+                            .font(RFFont.body(14))
+                            .foregroundColor(Color.rfOnSurfaceVariant)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 16)
+                    }
 
-                VStack(spacing: 8) {
-                    Text("Payment Methods")
-                        .font(RFFont.headline(24))
-                        .foregroundColor(Color.rfOnSurface)
-                    Text("Select the payment methods you can use.\nYour driver will see these when you request a ride.")
-                        .font(RFFont.body(14))
-                        .foregroundColor(Color.rfOnSurfaceVariant)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
+                    PaymentMethodPicker(settings: appState.settings)
+                        .padding(.horizontal, 24)
                 }
-
-                PaymentMethodPicker(settings: appState.settings)
-                    .padding(.horizontal, 24)
-
-                Spacer()
-
+                .padding(.top, 40)
+                .padding(.bottom, 16)
+            }
+            .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
                     if appState.settings.roadflarePaymentMethods.isEmpty {
                         Text("Select at least one payment method to continue")
@@ -48,10 +49,12 @@ struct PaymentSetupView: View {
                         Text("Continue")
                     }
                     .buttonStyle(RFPrimaryButtonStyle())
-                    .padding(.horizontal, 24)
                 }
-
-                Spacer().frame(height: 20)
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity)
+                .background(Color.rfSurface)
             }
         }
     }
