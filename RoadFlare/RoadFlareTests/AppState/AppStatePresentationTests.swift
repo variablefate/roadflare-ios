@@ -134,6 +134,24 @@ struct AppStateDriverDetailViewStateTests {
         #expect(state?.statusLabel == "Available")
         #expect(state?.canRequestRide == true)
     }
+
+    /// Regression for #62: when a driver is removed out-of-band (background
+    /// Kind 30011 sync, logout from another session, etc.), the lookup must
+    /// transition from non-nil to nil. `DriverDetailSheet` watches this
+    /// transition via `.onChange` and auto-dismisses, replacing the previous
+    /// behavior of rendering every field blank.
+    @Test func returnsNilAfterDriverRemoved() {
+        let driver = FollowedDriver(pubkey: fakePubkeyA, name: "Dave", roadflareKey: fakeKey)
+        let repo = makeRepo(drivers: [driver])
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        #expect(appState.driverDetailViewState(pubkey: fakePubkeyA) != nil)
+
+        repo.removeDriver(pubkey: fakePubkeyA)
+
+        #expect(appState.driverDetailViewState(pubkey: fakePubkeyA) == nil)
+    }
 }
 
 // MARK: - AppState.onlineDriverOptions()

@@ -111,6 +111,13 @@ struct DriverDetailSheet: View {
                 // still be nil if the driver is no longer in the repo.
                 note = appState.driverDetailViewState(pubkey: pubkey)?.note ?? ""
             }
+            // Auto-dismiss when the backing driver disappears from the repo (e.g.
+            // background Kind 30011 sync drops them, or another session logs out).
+            // Without this, every `state?.foo` short-circuits and the sheet renders
+            // blank with no explanation.
+            .onChange(of: state == nil) { _, isMissing in
+                if isMissing { dismiss() }
+            }
             .toast($keyRefreshToastMessage, isError: keyRefreshToastIsError)
         }
     }
