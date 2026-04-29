@@ -913,10 +913,10 @@ extension AppState {
     /// rider hammering the button doesn't spam the driver. Returns
     /// `.rateLimited(retryAt:)` when the cooldown is still active so the
     /// caller can show a precise wait time. Returns `.publishFailed` if no
-    /// coordinator is wired (logout/identity-replacement window) or the SDK
-    /// publish throws — the cooldown is *not* claimed in either case so the
-    /// rider can retry immediately. Otherwise returns `.sent` after the
-    /// publish lands.
+    /// coordinator is wired (logout/identity-replacement window — the
+    /// cooldown is never claimed) or the SDK publish throws (the cooldown
+    /// is rolled back); either way the rider can retry immediately.
+    /// Otherwise returns `.sent` after the publish lands.
     @discardableResult
     public func requestKeyRefresh(pubkey: String) async -> KeyRefreshOutcome {
         if let last = keyRefreshCooldowns[pubkey] {
@@ -936,9 +936,9 @@ extension AppState {
         // the catch wouldn't fire, and `.sent` would be returned with the
         // slot claimed.
         guard let dispatch = keyRefreshDispatch() else { return .publishFailed }
-        // Claim the slot before awaiting — `sendDriverPing` (line 376) follows
-        // the same eager-claim-then-rollback pattern. Without the eager claim,
-        // two rapid taps both pass the cooldown check because the await is a
+        // Claim the slot before awaiting — `sendDriverPing` follows the same
+        // eager-claim-then-rollback pattern. Without the eager claim, two
+        // rapid taps both pass the cooldown check because the await is a
         // suspension point. Without the rollback, a publish failure would
         // burn 60s with nothing actually sent.
         keyRefreshCooldowns[pubkey] = Date.now

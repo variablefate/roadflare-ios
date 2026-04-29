@@ -16,7 +16,7 @@ The Android rider app implements an equivalent flow (`rider-app/.../RoadflareTab
 
 Wire the user-initiated key-refresh flow through a new app-layer rate-limiter and surface it on two views:
 
-1. **`AppState.requestKeyRefresh(pubkey:) async -> KeyRefreshOutcome`** — public, rate-limited entry point. Outcomes: `.sent`, `.rateLimited(retryAt:)`, `.publishFailed`. The cooldown slot is claimed eagerly (before the SDK await, mirroring the `sendDriverPing` race-protection pattern at `AppState.swift:376`) and rolled back on `.publishFailed` so the rider can retry immediately rather than wait out 60 seconds for nothing. This required making `LocationSyncCoordinator.requestKeyRefresh` `throws` so the publish failure surfaces to the caller (previously it caught everything internally as "best effort").
+1. **`AppState.requestKeyRefresh(pubkey:) async -> KeyRefreshOutcome`** — public, rate-limited entry point. Outcomes: `.sent`, `.rateLimited(retryAt:)`, `.publishFailed`. The cooldown slot is claimed eagerly (before the SDK await, mirroring the `sendDriverPing` race-protection pattern in the same file) and rolled back on `.publishFailed` so the rider can retry immediately rather than wait out 60 seconds for nothing. This required making `LocationSyncCoordinator.requestKeyRefresh` `throws` so the publish failure surfaces to the caller (previously it caught everything internally as "best effort").
 
 2. **Per-pubkey cooldown of 60 seconds**, stored in `keyRefreshCooldowns: [String: Date]` on `AppState`, cleared in `prepareForIdentityReplacement` alongside `pingCooldowns`. 60s matches Android.
 
