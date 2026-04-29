@@ -16,6 +16,7 @@ struct RideStatusCardTests {
             fareEstimate: fare,
             paymentMethods: ["venmo", "zelle"],
             driverName: "Alice",
+            vehicleDescription: "Black Tesla Model S",
             pickupAddress: "123 Main St",
             destinationAddress: "456 Market St",
             waitingTimeoutSeconds: 180,
@@ -28,6 +29,7 @@ struct RideStatusCardTests {
         #expect(card.fareEstimate != nil)
         #expect(card.paymentMethods.count == 2)
         #expect(card.driverName == "Alice")
+        #expect(card.vehicleDescription == "Black Tesla Model S")
         #expect(card.pickupAddress == "123 Main St")
         #expect(card.destinationAddress == "456 Market St")
         #expect(card.waitingTimeoutSeconds == 180)
@@ -41,6 +43,7 @@ struct RideStatusCardTests {
         #expect(card.fareEstimate == nil)
         #expect(card.paymentMethods.isEmpty)
         #expect(card.driverName == nil)
+        #expect(card.vehicleDescription == nil)
         #expect(card.pickupAddress == nil)
         #expect(card.destinationAddress == nil)
         #expect(card.waitingTimeoutSeconds == 120)
@@ -107,5 +110,17 @@ struct RideStatusCardTests {
         )
         #expect(view.displayMode == .card)
         #expect(view.paymentMethods.count == 3)
+    }
+
+    @Test("Chat button label uses driver name when present")
+    func chatLabelWithDriverName() {
+        #expect(RideStatusCard.chatButtonLabelText(driverName: "Alice") == "Chat with Alice")
+    }
+
+    @Test("Chat button label falls back to generic when driver name missing")
+    func chatLabelFallback() {
+        #expect(RideStatusCard.chatButtonLabelText(driverName: nil) == "Chat with Driver")
+        #expect(RideStatusCard.chatButtonLabelText(driverName: "") == "Chat with Driver")
+        #expect(RideStatusCard.chatButtonLabelText(driverName: "   ") == "Chat with Driver")
     }
 }

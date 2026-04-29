@@ -23,6 +23,9 @@ struct ActiveRideView: View {
             driverName: coordinator?.session.driverPubkey.flatMap {
                 appState.driverDisplayName(pubkey: $0)
             },
+            vehicleDescription: coordinator?.session.driverPubkey.flatMap {
+                appState.driverProfile(pubkey: $0)?.vehicleDescription
+            },
             pickupAddress: coordinator?.pickupLocation?.address,
             destinationAddress: coordinator?.destinationLocation?.address,
             unreadChatCount: coordinator?.chat.unreadCount ?? 0,
