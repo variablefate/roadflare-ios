@@ -25,6 +25,7 @@ public struct RideStatusCard: View {
     public let fareEstimate: FareEstimate?
     public let paymentMethods: [String]
     public let driverName: String?
+    public let vehicleDescription: String?
     public let pickupAddress: String?
     public let destinationAddress: String?
     public let waitingTimeoutSeconds: Int
@@ -40,6 +41,7 @@ public struct RideStatusCard: View {
         fareEstimate: FareEstimate? = nil,
         paymentMethods: [String] = [],
         driverName: String? = nil,
+        vehicleDescription: String? = nil,
         pickupAddress: String? = nil,
         destinationAddress: String? = nil,
         waitingTimeoutSeconds: Int = 120,
@@ -53,6 +55,7 @@ public struct RideStatusCard: View {
         self.fareEstimate = fareEstimate
         self.paymentMethods = paymentMethods
         self.driverName = driverName
+        self.vehicleDescription = vehicleDescription
         self.pickupAddress = pickupAddress
         self.destinationAddress = destinationAddress
         self.waitingTimeoutSeconds = waitingTimeoutSeconds
@@ -203,6 +206,8 @@ private struct WaitingContentView: View {
                     .foregroundColor(theme.onSurfaceColor)
             }
 
+            vehicleDescriptionLabel
+
             rideSummaryCard
 
             if let pin, stage == .rideConfirmed || stage == .enRoute {
@@ -238,6 +243,7 @@ private struct WaitingContentView: View {
                     .font(theme.headline(24))
                     .foregroundColor(theme.onSurfaceColor)
             }
+            vehicleDescriptionLabel
             if let pin {
                 Text("Show this PIN to your driver:")
                     .font(theme.body(14))
@@ -329,6 +335,19 @@ private struct WaitingContentView: View {
                 .padding(.horizontal, 24)
             }
             Spacer().frame(height: 40)
+        }
+    }
+
+    // MARK: - Vehicle Description
+
+    @ViewBuilder
+    private var vehicleDescriptionLabel: some View {
+        if let trimmed = vehicleDescription?
+            .trimmingCharacters(in: .whitespaces),
+           !trimmed.isEmpty {
+            Text(trimmed)
+                .font(theme.body(15))
+                .foregroundColor(theme.onSurfaceSecondaryColor)
         }
     }
 

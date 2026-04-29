@@ -16,6 +16,7 @@ struct RideStatusCardTests {
             fareEstimate: fare,
             paymentMethods: ["venmo", "zelle"],
             driverName: "Alice",
+            vehicleDescription: "Black Tesla Model S",
             pickupAddress: "123 Main St",
             destinationAddress: "456 Market St",
             waitingTimeoutSeconds: 180,
@@ -28,6 +29,7 @@ struct RideStatusCardTests {
         #expect(card.fareEstimate != nil)
         #expect(card.paymentMethods.count == 2)
         #expect(card.driverName == "Alice")
+        #expect(card.vehicleDescription == "Black Tesla Model S")
         #expect(card.pickupAddress == "123 Main St")
         #expect(card.destinationAddress == "456 Market St")
         #expect(card.waitingTimeoutSeconds == 180)
@@ -41,6 +43,7 @@ struct RideStatusCardTests {
         #expect(card.fareEstimate == nil)
         #expect(card.paymentMethods.isEmpty)
         #expect(card.driverName == nil)
+        #expect(card.vehicleDescription == nil)
         #expect(card.pickupAddress == nil)
         #expect(card.destinationAddress == nil)
         #expect(card.waitingTimeoutSeconds == 120)
