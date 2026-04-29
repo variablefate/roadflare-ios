@@ -343,6 +343,12 @@ public final class AppState {
     private var keyRefreshCooldowns: [String: Date] = [:]
     static let keyRefreshCooldownSeconds: TimeInterval = 60  // matches Android rider
 
+    #if DEBUG
+    /// Test-only override for the SDK call inside `requestKeyRefresh(pubkey:)`.
+    /// Set via `setKeyRefreshSDKHookForTesting(_:)`. See that method's docs.
+    var keyRefreshSDKHookForTesting: ((String) async throws -> Void)?
+    #endif
+
     /// Returns `true` when `driver` is a valid ping target.
     ///
     /// Checks: has a current RoadFlare key, key is not stale, driver is not online,
@@ -906,9 +912,11 @@ extension AppState {
     /// Enforces a per-pubkey cooldown (`keyRefreshCooldownSeconds`) so that a
     /// rider hammering the button doesn't spam the driver. Returns
     /// `.rateLimited(retryAt:)` when the cooldown is still active so the
-    /// caller can show a precise wait time. Returns `.publishFailed` if the
-    /// SDK publish throws — the cooldown is rolled back so the rider can
-    /// retry immediately. Otherwise returns `.sent` after the publish lands.
+    /// caller can show a precise wait time. Returns `.publishFailed` if no
+    /// coordinator is wired (logout/identity-replacement window) or the SDK
+    /// publish throws — the cooldown is *not* claimed in either case so the
+    /// rider can retry immediately. Otherwise returns `.sent` after the
+    /// publish lands.
     @discardableResult
     public func requestKeyRefresh(pubkey: String) async -> KeyRefreshOutcome {
         if let last = keyRefreshCooldowns[pubkey] {
@@ -917,6 +925,17 @@ extension AppState {
                 return .rateLimited(retryAt: retryAt)
             }
         }
+        // Resolve the dispatch closure: in production it's the SDK call, in
+        // tests it can be overridden via `keyRefreshSDKHookForTesting` so we
+        // can drive both `.sent` and `.publishFailed` paths without standing
+        // up a full RideCoordinator. Returns nil when no coordinator is wired
+        // (logout/identity-replacement window) — bail before claiming the
+        // cooldown slot so the rider can retry immediately rather than burn
+        // 60s on a publish that never happened. The optional-chain
+        // `try await rideCoordinator?...` would otherwise silently return nil,
+        // the catch wouldn't fire, and `.sent` would be returned with the
+        // slot claimed.
+        guard let dispatch = keyRefreshDispatch() else { return .publishFailed }
         // Claim the slot before awaiting — `sendDriverPing` (line 376) follows
         // the same eager-claim-then-rollback pattern. Without the eager claim,
         // two rapid taps both pass the cooldown check because the await is a
@@ -924,13 +943,21 @@ extension AppState {
         // burn 60s with nothing actually sent.
         keyRefreshCooldowns[pubkey] = Date.now
         do {
-            try await rideCoordinator?.requestKeyRefresh(driverPubkey: pubkey)
+            try await dispatch(pubkey)
             return .sent
         } catch {
             keyRefreshCooldowns[pubkey] = nil
             AppLogger.auth.info("requestKeyRefresh failed for \(pubkey.prefix(8)): \(error.localizedDescription)")
             return .publishFailed
         }
+    }
+
+    private func keyRefreshDispatch() -> ((String) async throws -> Void)? {
+        #if DEBUG
+        if let hook = keyRefreshSDKHookForTesting { return hook }
+        #endif
+        guard let coordinator = rideCoordinator else { return nil }
+        return { pubkey in try await coordinator.requestKeyRefresh(driverPubkey: pubkey) }
     }
 
     /// Pubkeys of all followed drivers whose key is currently flagged stale,
@@ -1080,6 +1107,15 @@ extension AppState {
 
     func primeKeyRefreshCooldownForTesting(pubkey: String, lastRequest: Date) {
         keyRefreshCooldowns[pubkey] = lastRequest
+    }
+
+    /// Test-only override for the SDK call inside `requestKeyRefresh(pubkey:)`.
+    /// When set, this closure is invoked with the target pubkey instead of
+    /// `rideCoordinator?.requestKeyRefresh(...)`. Lets tests drive the
+    /// `.sent` path (closure returns) and the `.publishFailed` path (closure
+    /// throws) without wiring a full RideCoordinator.
+    func setKeyRefreshSDKHookForTesting(_ hook: ((String) async throws -> Void)?) {
+        keyRefreshSDKHookForTesting = hook
     }
 
     /// Replace the persistence-backed `rideHistory` / `savedLocations` repos so

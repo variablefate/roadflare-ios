@@ -3,12 +3,19 @@ import Foundation
 @testable import RoadFlareCore
 @testable import RidestrSDK
 
-// Pure AppState behavior tests for the user-initiated key-refresh path. The SDK
-// network call is bypassed because `rideCoordinator` stays nil — the test seam
-// `installDriverPingTestContext` only wires the repository. That's deliberate:
-// these tests pin the rate-limit + outcome contract without depending on relay
-// machinery. The underlying `LocationSyncCoordinator.requestKeyRefresh` is
-// covered separately in the SDK suite.
+// Pure AppState behavior tests for the user-initiated key-refresh path.
+//
+// `rideCoordinator` stays nil in tests because constructing a real one is
+// heavy. The production path treats a nil coordinator as a publish failure
+// (so a tap during the brief logout / identity-replacement window doesn't
+// burn a 60s cooldown for a publish that never happened); for tests that
+// need to drive `.sent` or simulate an SDK throw, install
+// `setKeyRefreshSDKHookForTesting(_:)` with a stub closure.
+//
+// The underlying `LocationSyncCoordinator.requestKeyRefresh` `throws`
+// contract is covered separately in the SDK suite.
+
+private struct StubError: Error {}
 
 private let pubkeyA = String(repeating: "a", count: 64)
 private let pubkeyB = String(repeating: "b", count: 64)
@@ -33,6 +40,7 @@ struct AppStateRequestKeyRefreshTests {
         let repo = makeRepo(drivers: [driver])
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         let outcome = await appState.requestKeyRefresh(pubkey: pubkeyA)
         #expect(outcome == .sent)
@@ -43,6 +51,7 @@ struct AppStateRequestKeyRefreshTests {
         let repo = makeRepo(drivers: [driver])
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         _ = await appState.requestKeyRefresh(pubkey: pubkeyA)
         let outcome = await appState.requestKeyRefresh(pubkey: pubkeyA)
@@ -52,7 +61,6 @@ struct AppStateRequestKeyRefreshTests {
             return
         }
         #expect(retryAt > Date.now)
-        // Retry should land within ~60s of now (allowing a generous margin for slow CI).
         #expect(retryAt.timeIntervalSinceNow <= 60)
     }
 
@@ -62,6 +70,7 @@ struct AppStateRequestKeyRefreshTests {
         let repo = makeRepo(drivers: [driverA, driverB])
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         _ = await appState.requestKeyRefresh(pubkey: pubkeyA)
         // Driver B has its own cooldown slot — same-instant request must succeed.
@@ -74,6 +83,7 @@ struct AppStateRequestKeyRefreshTests {
         let repo = makeRepo(drivers: [driver])
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         // Prime cooldown to a timestamp safely past the 60s window.
         let pastDate = Date.now.addingTimeInterval(-(AppState.keyRefreshCooldownSeconds + 5))
@@ -81,6 +91,48 @@ struct AppStateRequestKeyRefreshTests {
 
         let outcome = await appState.requestKeyRefresh(pubkey: pubkeyA)
         #expect(outcome == .sent)
+    }
+
+    // Pins the contract that an SDK throw rolls back the cooldown so the
+    // rider can retry immediately. Without rollback, the user would see a
+    // misleading "sent" toast and be locked out for 60s.
+    @Test func publishFailureRollsBackCooldown() async {
+        let driver = FollowedDriver(pubkey: pubkeyA, name: "Alice", roadflareKey: testKey)
+        let repo = makeRepo(drivers: [driver])
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in throw StubError() }
+
+        let outcome = await appState.requestKeyRefresh(pubkey: pubkeyA)
+        #expect(outcome == .publishFailed)
+
+        // Slot was rolled back — a retry the very next instant must reach the
+        // SDK call again rather than getting `.rateLimited`. We swap in a
+        // succeeding hook to verify that the second call actually progresses
+        // past the cooldown check.
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
+        let retry = await appState.requestKeyRefresh(pubkey: pubkeyA)
+        #expect(retry == .sent)
+    }
+
+    // Pins the no-coordinator + no-hook path: `.publishFailed` is returned
+    // and the cooldown is NOT claimed. Reachable during the brief logout /
+    // identity-replacement window.
+    @Test func noDispatchAvailableReturnsPublishFailedWithoutClaimingSlot() async {
+        let driver = FollowedDriver(pubkey: pubkeyA, name: "Alice", roadflareKey: testKey)
+        let repo = makeRepo(drivers: [driver])
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+        // No hook installed → keyRefreshDispatch() returns nil.
+
+        let outcome = await appState.requestKeyRefresh(pubkey: pubkeyA)
+        #expect(outcome == .publishFailed)
+
+        // Slot must not have been claimed; the next call must still reach the
+        // dispatch resolution (returns `.publishFailed` again, not
+        // `.rateLimited`).
+        let retry = await appState.requestKeyRefresh(pubkey: pubkeyA)
+        #expect(retry == .publishFailed)
     }
 }
 
@@ -106,6 +158,7 @@ struct AppStateRefreshAllStaleDriverKeysTests {
         repo.markKeyStale(pubkey: pubkeyB)
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         let sent = await appState.refreshAllStaleDriverKeys()
         #expect(sent == 2)
@@ -118,6 +171,7 @@ struct AppStateRefreshAllStaleDriverKeysTests {
         repo.markKeyStale(pubkey: pubkeyA)
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         let sent = await appState.refreshAllStaleDriverKeys()
         #expect(sent == 1)
@@ -132,6 +186,7 @@ struct AppStateRefreshAllStaleDriverKeysTests {
         repo.markKeyStale(pubkey: pubkeyA)
         let appState = AppState()
         appState.installDriverPingTestContext(driversRepository: repo)
+        appState.setKeyRefreshSDKHookForTesting { _ in /* succeed */ }
 
         _ = await appState.refreshAllStaleDriverKeys()
         let secondSent = await appState.refreshAllStaleDriverKeys()
