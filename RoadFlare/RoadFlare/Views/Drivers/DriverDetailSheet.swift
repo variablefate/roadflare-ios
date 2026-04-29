@@ -128,6 +128,9 @@ struct DriverDetailSheet: View {
                 let seconds = max(1, Int(retryAt.timeIntervalSinceNow.rounded(.up)))
                 keyRefreshToastMessage = "Just sent — wait \(seconds)s before requesting again."
                 keyRefreshToastIsError = true
+            case .publishFailed:
+                keyRefreshToastMessage = "Couldn't reach the relay. Check your connection and try again."
+                keyRefreshToastIsError = true
             }
         }
     }

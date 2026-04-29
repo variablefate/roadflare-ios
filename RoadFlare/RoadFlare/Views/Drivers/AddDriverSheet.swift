@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import RidestrSDK
 import RoadFlareCore
 
@@ -336,20 +337,40 @@ struct AddDriverSheet: View {
         // (rider previously followed the driver), our Kind 30011 backup
         // already carries the existing key — restore it locally and skip the
         // notification entirely. The follow-notification path only fires for
-        // genuinely new follows (no key in backup, no key locally).
+        // genuinely new follows (no key in backup, no key locally) or when
+        // the backup is unreachable (graceful degradation; logged).
         Task {
             await appState.publishDriversList()
 
-            if !appState.hasKeyForDriver(pubkey: hexPubkey) {
-                await appState.restoreKeyFromBackup(driverPubkey: hexPubkey)
-            }
-
+            // Already have a key locally (rare — driver may have re-published
+            // before this Task ran). Refresh the key-share subscription so we
+            // catch any subsequent rotation event (preserves the PR #54 side
+            // effect that the new flow would otherwise skip on re-add).
             if appState.hasKeyForDriver(pubkey: hexPubkey) {
+                appState.restartKeyShareSubscription()
                 return
             }
 
-            await appState.sendFollowNotification(driverPubkey: hexPubkey)
-            await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
+            switch await appState.restoreKeyFromBackup(driverPubkey: hexPubkey) {
+            case .restored:
+                // Re-add: backup carried the key. Refresh the subscription
+                // (PR #54) but skip Kind 3187 to avoid Bug 3.
+                appState.restartKeyShareSubscription()
+            case .backupUnavailable:
+                // Couldn't tell whether this is a re-add or a new follow.
+                // Fall through to the new-follow handshake; on a re-add this
+                // re-introduces the Bug 3 over-rotation transiently, but the
+                // rider's local state still ends up correct after the next
+                // `checkForStaleKeys` sweep. Logged so the failure is visible
+                // when investigating user reports.
+                AppLogger.auth.warning(
+                    "Backup unreachable for \(hexPubkey.prefix(8)) on add; proceeding with new-follow handshake"
+                )
+                fallthrough
+            case .notInBackup:
+                await appState.sendFollowNotification(driverPubkey: hexPubkey)
+                await appState.requestDriverKeyRefresh(driverPubkey: hexPubkey)
+            }
         }
 
         dismiss()

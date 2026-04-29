@@ -110,8 +110,10 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
     public func checkForStaleKeys() async {
         for driver in driversRepository.drivers {
             guard driver.hasKey else {
-                // No key at all — request one
-                await requestKeyRefresh(driverPubkey: driver.pubkey)
+                // No key at all — request one. Best-effort: a per-driver
+                // publish failure shouldn't abort the sweep across remaining
+                // drivers.
+                try? await requestKeyRefresh(driverPubkey: driver.pubkey)
                 continue
             }
             let localKeyUpdatedAt = driver.roadflareKey?.keyUpdatedAt ?? 0
@@ -124,7 +126,7 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
                 if remoteTimestamp > localKeyUpdatedAt {
                     RidestrLogger.info("[LocationSyncCoordinator] Stale key for \(driver.pubkey.prefix(8)): local=\(localKeyUpdatedAt), remote=\(remoteTimestamp)")
                     driversRepository.markKeyStale(pubkey: driver.pubkey)
-                    await requestKeyRefresh(driverPubkey: driver.pubkey)
+                    try? await requestKeyRefresh(driverPubkey: driver.pubkey)
                 } else {
                     driversRepository.clearKeyStale(pubkey: driver.pubkey)
                 }
@@ -138,21 +140,24 @@ public final class LocationSyncCoordinator: @unchecked Sendable {
 
     /// Send a "stale" key ack to a driver, requesting they re-send Kind 3186.
     /// Used when: rider has no key for this driver, or driver rotated keys.
-    public func requestKeyRefresh(driverPubkey: String) async {
+    ///
+    /// Throws on event-building or relay-publish failure so user-facing
+    /// callers can distinguish "dispatched" from "silently dropped" — the
+    /// latter would otherwise burn a per-pubkey rate-limit slot in the app
+    /// layer with nothing actually sent. Best-effort callers (e.g. the
+    /// background `checkForStaleKeys` sweep) wrap with `try?` so a single
+    /// driver's failure doesn't abort the loop.
+    public func requestKeyRefresh(driverPubkey: String) async throws {
         let localKey = driversRepository.getRoadflareKey(driverPubkey: driverPubkey)
-        do {
-            let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
-                driverPubkey: driverPubkey,
-                keyVersion: localKey?.version ?? 0,
-                keyUpdatedAt: localKey?.keyUpdatedAt ?? 0,
-                status: "stale",
-                keypair: keypair
-            )
-            _ = try await relayManager.publish(ackEvent)
-            RidestrLogger.info("[LocationSyncCoordinator] Sent stale key ack to \(driverPubkey.prefix(8))")
-        } catch {
-            // Best effort
-        }
+        let ackEvent = try await RideshareEventBuilder.keyAcknowledgement(
+            driverPubkey: driverPubkey,
+            keyVersion: localKey?.version ?? 0,
+            keyUpdatedAt: localKey?.keyUpdatedAt ?? 0,
+            status: "stale",
+            keypair: keypair
+        )
+        _ = try await relayManager.publish(ackEvent)
+        RidestrLogger.info("[LocationSyncCoordinator] Sent stale key ack to \(driverPubkey.prefix(8))")
     }
 
     // MARK: - Publish Followed Drivers (Kind 30011)

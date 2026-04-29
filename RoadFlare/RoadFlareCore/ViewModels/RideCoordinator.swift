@@ -113,7 +113,7 @@ public final class RideCoordinator {
     public func startLocationSubscriptions() { location.startLocationSubscriptions() }
     func startKeyShareSubscription() { location.startKeyShareSubscription() }
     public func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
-    public func requestKeyRefresh(driverPubkey: String) async { await location.requestKeyRefresh(driverPubkey: driverPubkey) }
+    public func requestKeyRefresh(driverPubkey: String) async throws { try await location.requestKeyRefresh(driverPubkey: driverPubkey) }
     public func checkForStaleKeys() async { await location.checkForStaleKeys() }
 
     func restoreRideState() {

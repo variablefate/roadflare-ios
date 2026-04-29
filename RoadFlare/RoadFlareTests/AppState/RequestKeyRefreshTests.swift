@@ -164,4 +164,23 @@ struct AppStateStaleKeyDriverPubkeysTests {
         appState.installDriverPingTestContext(driversRepository: repo)
         #expect(appState.staleKeyDriverPubkeys == [pubkeyA])
     }
+
+    // Pins the deterministic ordering contract: the property converts
+    // `Set<String>` to `[String]`, and `Set.Iterator` does not guarantee a
+    // stable order across reads. Without the explicit sort, this test
+    // would flake non-deterministically (and so would any future caller
+    // that compares the array directly).
+    @Test func sortedAcrossMultipleStaleDrivers() {
+        let driverA = FollowedDriver(pubkey: pubkeyA, name: "Alice", roadflareKey: testKey)
+        let driverB = FollowedDriver(pubkey: pubkeyB, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(drivers: [driverA, driverB])
+        // Mark in reverse-lexicographic order to defeat any insertion-order
+        // coincidence: ['b...' first, then 'a...'].
+        repo.markKeyStale(pubkey: pubkeyB)
+        repo.markKeyStale(pubkey: pubkeyA)
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+        // pubkeyA = "a...", pubkeyB = "b...", so sorted order is [A, B].
+        #expect(appState.staleKeyDriverPubkeys == [pubkeyA, pubkeyB])
+    }
 }
