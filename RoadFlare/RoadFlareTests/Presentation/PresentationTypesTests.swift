@@ -127,6 +127,49 @@ struct DriverListItemTests {
         #expect(item.vehicleDescription == "Black Tesla Model 3")
     }
 
+    // Issue #91: live Kind 30173 cache wins over the Kind 0 profile so a
+    // multi-vehicle driver who swaps active vehicles is reflected immediately.
+    @Test func vehicleDescriptionPrefersLiveCacheOverProfile() {
+        let driver = makeDriver()
+        let profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
+        let live = VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        let item = DriverListItem.from(driver, displayName: nil, location: nil,
+                                       profile: profile, vehicle: live,
+                                       isKeyStale: false, canPing: false)
+        #expect(item.vehicleDescription == "Silver Toyota Camry")
+    }
+
+    // Fallback: when the driver hasn't published Kind 30173 (or the rider's
+    // subscription hasn't picked one up yet), the Kind 0 profile is the safety net.
+    @Test func vehicleDescriptionFallsBackToProfileWhenNoLiveCache() {
+        let driver = makeDriver()
+        let profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
+        let item = DriverListItem.from(driver, displayName: nil, location: nil,
+                                       profile: profile, vehicle: nil,
+                                       isKeyStale: false, canPing: false)
+        #expect(item.vehicleDescription == "Black Tesla Model 3")
+    }
+
+    // Empty-state case: neither source has vehicle info — the rider sees nothing
+    // rather than an inferred default.
+    @Test func vehicleDescriptionNilWhenNeitherSourceHasInfo() {
+        let driver = makeDriver()
+        let item = DriverListItem.from(driver, displayName: nil, location: nil,
+                                       profile: nil, vehicle: nil,
+                                       isKeyStale: false, canPing: false)
+        #expect(item.vehicleDescription == nil)
+    }
+
+    // Live cache supplies a vehicle even when no Kind 0 profile has been fetched.
+    @Test func vehicleDescriptionFromLiveCacheAloneWhenNoProfile() {
+        let driver = makeDriver()
+        let live = VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        let item = DriverListItem.from(driver, displayName: nil, location: nil,
+                                       profile: nil, vehicle: live,
+                                       isKeyStale: false, canPing: false)
+        #expect(item.vehicleDescription == "Silver Toyota Camry")
+    }
+
     @Test func canPingPropagated() {
         let driver = makeDriver()
         let item = DriverListItem.from(driver, displayName: nil, location: nil,
@@ -335,6 +378,35 @@ struct DriverDetailViewStateTests {
                                                location: nil, profile: nil,
                                                isKeyStale: false, canPing: false)
         #expect(state.note == "Great driver!")
+    }
+
+    // Issue #91: live Kind 30173 cache wins over the Kind 0 profile so a
+    // multi-vehicle driver's swap shows up in the driver-detail sheet immediately.
+    @Test func vehicleDescriptionPrefersLiveCacheOverProfile() {
+        let driver = makeDriver()
+        let profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
+        let live = VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: nil, profile: profile, vehicle: live,
+                                               isKeyStale: false, canPing: false)
+        #expect(state.vehicleDescription == "Silver Toyota Camry")
+    }
+
+    @Test func vehicleDescriptionFallsBackToProfileWhenNoLiveCache() {
+        let driver = makeDriver()
+        let profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: nil, profile: profile, vehicle: nil,
+                                               isKeyStale: false, canPing: false)
+        #expect(state.vehicleDescription == "Black Tesla Model 3")
+    }
+
+    @Test func vehicleDescriptionNilWhenNeitherSourceHasInfo() {
+        let driver = makeDriver()
+        let state = DriverDetailViewState.from(driver, displayName: nil,
+                                               location: nil, profile: nil, vehicle: nil,
+                                               isKeyStale: false, canPing: false)
+        #expect(state.vehicleDescription == nil)
     }
 }
 

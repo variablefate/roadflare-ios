@@ -23,9 +23,15 @@ struct ActiveRideView: View {
             driverName: coordinator?.session.driverPubkey.flatMap {
                 appState.driverDisplayName(pubkey: $0)
             },
-            vehicleDescription: coordinator?.session.driverPubkey.flatMap {
-                appState.driverProfile(pubkey: $0)?.vehicleDescription
-            },
+            // Prefer the Kind 30173 snapshot taken at acceptance — locks the active
+            // ride to the agreed vehicle even if the driver swaps mid-trip. Fall
+            // back to the Kind 0 profile when no snapshot is available (driver
+            // never published Kind 30173, or app cold-started mid-ride before the
+            // first availability event arrived). See issue #91.
+            vehicleDescription: coordinator?.activeRideVehicle?.description
+                ?? coordinator?.session.driverPubkey.flatMap {
+                    appState.driverProfile(pubkey: $0)?.vehicleDescription
+                },
             pickupAddress: coordinator?.pickupLocation?.address,
             destinationAddress: coordinator?.destinationLocation?.address,
             unreadChatCount: coordinator?.chat.unreadCount ?? 0,

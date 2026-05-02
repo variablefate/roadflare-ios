@@ -19,6 +19,7 @@ extension AppState {
                 displayName: repo.cachedDriverName(pubkey: driver.pubkey),
                 location: repo.driverLocations[driver.pubkey],
                 profile: repo.driverProfiles[driver.pubkey],
+                vehicle: repo.driverVehicles[driver.pubkey],
                 isKeyStale: repo.staleKeyPubkeys.contains(driver.pubkey),
                 canPing: repo.canPingDriver(driver)
             )
@@ -35,6 +36,7 @@ extension AppState {
             displayName: repo.cachedDriverName(pubkey: pubkey),
             location: repo.driverLocations[pubkey],
             profile: repo.driverProfiles[pubkey],
+            vehicle: repo.driverVehicles[pubkey],
             isKeyStale: repo.staleKeyPubkeys.contains(pubkey),
             canPing: repo.canPingDriver(driver)
         )

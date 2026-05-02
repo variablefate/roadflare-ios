@@ -21,6 +21,13 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// In-memory driver profile cache (from Kind 0 fetches). Not persisted.
     public private(set) var driverProfiles: [String: UserProfileContent] = [:]
 
+    /// In-memory active-vehicle cache (from Kind 30173 driver-availability events).
+    /// Not persisted. Treated as authoritative for *active* vehicle info; the rider's
+    /// driver-detail / list views fall back to the Kind 0 profile only when this is nil.
+    /// Retained across availability flips (online → offline) so the rider can still see
+    /// the last vehicle the driver drove. Cleared only on `removeDriver` / `clearAll`.
+    public private(set) var driverVehicles: [String: VehicleInfo] = [:]
+
     /// Drivers with stale keys (detected via Kind 30012 comparison). In-memory only.
     public private(set) var staleKeyPubkeys: Set<String> = []
 
@@ -70,6 +77,7 @@ public final class FollowedDriversRepository: @unchecked Sendable {
             driverNames.removeValue(forKey: pubkey)
             driverLocations.removeValue(forKey: pubkey)
             driverProfiles.removeValue(forKey: pubkey)
+            driverVehicles.removeValue(forKey: pubkey)
             staleKeyPubkeys.remove(pubkey)
             driversSnapshot = drivers
             namesSnapshot = driverNames
@@ -210,6 +218,30 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         }
     }
 
+    // MARK: - Driver Vehicles (in-memory only)
+
+    /// Replace the cached active vehicle for `driverPubkey` with `vehicle`.
+    ///
+    /// **Overwrite semantics — never merge.** A Kind 30173 update is a complete
+    /// snapshot of the driver's currently active vehicle: when the driver swaps
+    /// from a Camry to a Tesla, the Tesla event may legitimately omit `car_color`,
+    /// and the rider must see that omission rather than the Camry's silver. The
+    /// signed `VehicleInfo` always replaces the prior entry verbatim.
+    ///
+    /// No-op when `driverPubkey` is not in the followed-drivers list — protects
+    /// against late events arriving after a driver was unfollowed.
+    public func updateDriverVehicle(pubkey: String, vehicle: VehicleInfo) {
+        lock.withLock {
+            guard drivers.contains(where: { $0.pubkey == pubkey }) else { return }
+            driverVehicles[pubkey] = vehicle
+        }
+    }
+
+    /// Latest cached active vehicle for `pubkey`, or nil if no Kind 30173 has arrived.
+    public func cachedDriverVehicle(pubkey: String) -> VehicleInfo? {
+        lock.withLock { driverVehicles[pubkey] }
+    }
+
     /// Cache a driver's full profile from their Kind 0 event.
     public func cacheDriverProfile(pubkey: String, profile: UserProfileContent) {
         var snapshot: [String: String]?
@@ -342,6 +374,7 @@ public final class FollowedDriversRepository: @unchecked Sendable {
             driverNames = [:]
             driverLocations = [:]
             driverProfiles = [:]
+            driverVehicles = [:]
             staleKeyPubkeys = []
             driversSnapshot = drivers
             namesSnapshot = driverNames
@@ -426,6 +459,7 @@ public final class FollowedDriversRepository: @unchecked Sendable {
             driverNames.removeValue(forKey: pubkey)
             driverLocations.removeValue(forKey: pubkey)
             driverProfiles.removeValue(forKey: pubkey)
+            driverVehicles.removeValue(forKey: pubkey)
             staleKeyPubkeys.remove(pubkey)
         }
     }

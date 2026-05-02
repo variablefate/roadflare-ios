@@ -754,6 +754,96 @@ struct RideCoordinatorTests {
         await coordinator.stopAll()
     }
 
+    // MARK: - Vehicle snapshot (issue #91)
+
+    @MainActor
+    @Test func vehicleSnapshotCapturedOnTransitionToDriverAccepted() async throws {
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
+        let driverPubkey = String(repeating: "d", count: 64)
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: driverPubkey))
+        coordinator.driversRepository.updateDriverVehicle(
+            pubkey: driverPubkey,
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+        // Simulate the session reaching driverAccepted with this driverPubkey.
+        coordinator.session.restore(
+            stage: .driverAccepted,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .waitingForAcceptance, to: .driverAccepted)
+        #expect(coordinator.activeRideVehicle?.description == "Silver Toyota Camry")
+        await coordinator.stopAll()
+    }
+
+    /// Regression for issue #91: once the driver accepts, the rider committed to
+    /// *that* car. Subsequent Kind 30173 events from the driver swapping to
+    /// another vehicle must NOT update the snapshot, even though the live cache
+    /// reflects the swap for the drivers-list/detail-sheet surfaces.
+    @MainActor
+    @Test func vehicleSnapshotDoesNotUpdateAfterAcceptance() async throws {
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
+        let driverPubkey = String(repeating: "d", count: 64)
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: driverPubkey))
+        coordinator.driversRepository.updateDriverVehicle(
+            pubkey: driverPubkey,
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+        coordinator.session.restore(
+            stage: .driverAccepted,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .waitingForAcceptance, to: .driverAccepted)
+
+        // Driver swaps active vehicle mid-ride.
+        coordinator.driversRepository.updateDriverVehicle(
+            pubkey: driverPubkey,
+            vehicle: VehicleInfo(make: "Tesla", model: "Model 3", color: nil)
+        )
+
+        #expect(
+            coordinator.activeRideVehicle?.description == "Silver Toyota Camry",
+            "Active-ride snapshot must remain on the originally-agreed Camry."
+        )
+        await coordinator.stopAll()
+    }
+
+    /// When acceptance fires before any Kind 30173 has been cached for the driver,
+    /// the snapshot stays nil so the view falls back to the Kind 0 profile.
+    @MainActor
+    @Test func vehicleSnapshotNilWhenCacheEmptyAtAcceptance() async throws {
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
+        let driverPubkey = String(repeating: "d", count: 64)
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: driverPubkey))
+        coordinator.session.restore(
+            stage: .driverAccepted,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .waitingForAcceptance, to: .driverAccepted)
+        #expect(coordinator.activeRideVehicle == nil)
+        await coordinator.stopAll()
+    }
+
     @MainActor
     @Test func sessionDidReachTerminalCompletedRecordsHistoryAndKeepsUI() async throws {
         let (coordinator, _, _, history, _) = try await makeCoordinator()

@@ -213,6 +213,18 @@ extension NostrFilter {
             .dTags(["roadflare-location"])
     }
 
+    /// Filter for Kind 30173 driver availability events from specific drivers.
+    ///
+    /// The author filter restricts the subscription to the rider's followed drivers —
+    /// without it the rider would receive every public Kind 30173 broadcast on the
+    /// network, which is a privacy/bandwidth disaster. Mirrors `roadflareLocations`.
+    public static func driverAvailability(driverPubkeys: [String]) -> NostrFilter {
+        NostrFilter()
+            .kinds([.driverAvailability])
+            .authors(driverPubkeys)
+            .dTags(["rideshare-availability"])
+    }
+
     /// Filter for RoadFlare key shares addressed to this user (Kind 3186).
     public static func keyShares(myPubkey: String) -> NostrFilter {
         NostrFilter()

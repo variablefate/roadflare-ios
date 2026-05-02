@@ -603,4 +603,77 @@ struct RideshareEventParserTests {
         )
         #expect(decrypted == "1234")
     }
+
+    // MARK: - Driver Availability (Kind 30173)
+
+    @Test func parseDriverAvailabilityFullVehicle() {
+        let event = NostrEvent(
+            id: "avail1", pubkey: "driver1", createdAt: 1_700_000_000,
+            kind: EventKind.driverAvailability.rawValue,
+            tags: [["d", "rideshare-availability"]],
+            content: #"{"status":"available","car_make":"Toyota","car_model":"Camry","car_color":"Silver"}"#,
+            sig: "sig"
+        )
+        let parsed = RideshareEventParser.parseDriverAvailability(event: event)
+        #expect(parsed?.driverPubkey == "driver1")
+        #expect(parsed?.status == "available")
+        #expect(parsed?.vehicle.make == "Toyota")
+        #expect(parsed?.vehicle.model == "Camry")
+        #expect(parsed?.vehicle.color == "Silver")
+        #expect(parsed?.vehicle.description == "Silver Toyota Camry")
+    }
+
+    @Test func parseDriverAvailabilityPartialVehicleClearsOmittedFields() {
+        // Repro of issue #91: Drivestr is multi-vehicle. When the driver's *current*
+        // event omits a field (e.g. they swapped to a vehicle without a recorded
+        // color), the parsed VehicleInfo must reflect the omission, not silently
+        // inherit from a previous vehicle. The cache layer enforces no-merge; this
+        // test pins parser-side behaviour that absent JSON keys decode to nil.
+        let event = NostrEvent(
+            id: "avail2", pubkey: "driver1", createdAt: 1_700_000_001,
+            kind: EventKind.driverAvailability.rawValue,
+            tags: [["d", "rideshare-availability"]],
+            content: #"{"status":"available","car_make":"Tesla","car_model":"Model 3"}"#,
+            sig: "sig"
+        )
+        let parsed = RideshareEventParser.parseDriverAvailability(event: event)
+        #expect(parsed?.vehicle.make == "Tesla")
+        #expect(parsed?.vehicle.model == "Model 3")
+        #expect(parsed?.vehicle.color == nil)
+        #expect(parsed?.vehicle.description == "Tesla Model 3")
+    }
+
+    @Test func parseDriverAvailabilityOfflineWithNoVehicle() {
+        let event = NostrEvent(
+            id: "avail3", pubkey: "driver1", createdAt: 1_700_000_002,
+            kind: EventKind.driverAvailability.rawValue,
+            tags: [["d", "rideshare-availability"]],
+            content: #"{"status":"offline"}"#,
+            sig: "sig"
+        )
+        let parsed = RideshareEventParser.parseDriverAvailability(event: event)
+        #expect(parsed?.status == "offline")
+        #expect(parsed?.vehicle.make == nil)
+        #expect(parsed?.vehicle.model == nil)
+        #expect(parsed?.vehicle.color == nil)
+        #expect(parsed?.vehicle.description == nil)
+    }
+
+    @Test func parseDriverAvailabilityWrongKindReturnsNil() {
+        let event = NostrEvent(
+            id: "avail4", pubkey: "driver1", createdAt: 1_700_000_003,
+            kind: EventKind.metadata.rawValue, // wrong kind
+            tags: [], content: #"{"car_make":"Tesla"}"#, sig: "sig"
+        )
+        #expect(RideshareEventParser.parseDriverAvailability(event: event) == nil)
+    }
+
+    @Test func parseDriverAvailabilityMalformedJSONReturnsNil() {
+        let event = NostrEvent(
+            id: "avail5", pubkey: "driver1", createdAt: 1_700_000_004,
+            kind: EventKind.driverAvailability.rawValue,
+            tags: [], content: "not json", sig: "sig"
+        )
+        #expect(RideshareEventParser.parseDriverAvailability(event: event) == nil)
+    }
 }

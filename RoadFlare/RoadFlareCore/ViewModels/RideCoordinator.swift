@@ -39,6 +39,18 @@ public final class RideCoordinator {
     public var destinationLocation: Location?
     public var lastError: String?
 
+    /// Snapshot of the driver's active vehicle, captured at the moment the driver
+    /// accepted the ride. Read by `ActiveRideView` so the rider continues to see
+    /// the vehicle they agreed to even if the driver re-publishes Kind 30173 with
+    /// a different vehicle mid-ride.
+    ///
+    /// In-memory only. On cold-start mid-ride, the snapshot is re-derived from the
+    /// live cache during `restoreRideState()`; if the driver swapped vehicles in the
+    /// meantime, the rebuilt snapshot reflects the *current* cache, not the original
+    /// agreement. Persisting through `PersistedRideState` would require a
+    /// cross-platform schema change and is intentionally deferred. See issue #91.
+    public private(set) var activeRideVehicle: VehicleInfo?
+
     /// Snapshot of the most recently active ride's identity, captured while
     /// the session still holds it (in `sessionDidChangeStage` and on session
     /// restore). Used to record cancelled-ride history entries after the SDK
@@ -112,6 +124,7 @@ public final class RideCoordinator {
 
     public func startLocationSubscriptions() { location.startLocationSubscriptions() }
     func startKeyShareSubscription() { location.startKeyShareSubscription() }
+    func startDriverAvailabilitySubscription() { location.startDriverAvailabilitySubscription() }
     public func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
     public func requestKeyRefresh(driverPubkey: String) async throws { try await location.requestKeyRefresh(driverPubkey: driverPubkey) }
     public func checkForStaleKeys() async { await location.checkForStaleKeys() }
@@ -179,6 +192,14 @@ public final class RideCoordinator {
                 driverPubkey: driverPubkey
             )
         }
+        // Cold-start mid-ride: re-derive the vehicle snapshot from the live cache.
+        // If the driver swapped vehicles between original acceptance and this
+        // restore, the rebuilt snapshot reflects the current cache rather than the
+        // original agreement — a known limitation called out in `activeRideVehicle`.
+        if (session.stage.isActiveRide || session.stage == .driverAccepted),
+           let driverPubkey = session.driverPubkey {
+            activeRideVehicle = driversRepository.cachedDriverVehicle(pubkey: driverPubkey)
+        }
     }
 
     func persistRideState() {
@@ -222,6 +243,7 @@ public final class RideCoordinator {
         await chat.cleanup()
         location.startLocationSubscriptions()
         location.startKeyShareSubscription()
+        location.startDriverAvailabilitySubscription()
         async let staleKeyRefresh: Void = driversRepository.hasDrivers ? location.checkForStaleKeys() : ()
 
         let stageBefore = session.stage
@@ -344,6 +366,7 @@ public final class RideCoordinator {
         selectedPaymentMethod = nil
         pickupLocation = nil
         destinationLocation = nil
+        activeRideVehicle = nil
         if clearError {
             lastError = nil
         }
@@ -483,6 +506,14 @@ extension RideCoordinator: RiderRideSessionDelegate {
            let driverPubkey = session.driverPubkey,
            let confirmationId = session.confirmationEventId {
             chat.subscribeToChat(driverPubkey: driverPubkey, confirmationEventId: confirmationId)
+        }
+        // Snapshot the driver's active vehicle at the moment they accept the ride
+        // — the rider agreed to ride in *this* car. Subsequent Kind 30173 events
+        // from the driver swapping to another vehicle no longer affect the active
+        // ride view. See issue #91.
+        if from == .waitingForAcceptance && to == .driverAccepted,
+           let driverPubkey = session.driverPubkey {
+            activeRideVehicle = driversRepository.cachedDriverVehicle(pubkey: driverPubkey)
         }
         if to == .idle || to == .completed {
             chat.cleanupAsync()

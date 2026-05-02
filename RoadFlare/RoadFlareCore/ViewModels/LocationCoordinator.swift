@@ -24,6 +24,7 @@ final class LocationCoordinator {
 
     private var activeLocationSubscription: ManagedSubscription?
     private var activeKeyShareSubscription: ManagedSubscription?
+    private var activeDriverAvailabilitySubscription: ManagedSubscription?
 
     var lastError: String?
 
@@ -114,6 +115,71 @@ final class LocationCoordinator {
         }
     }
 
+    // MARK: - Driver Availability Subscription (Kind 30173)
+
+    /// Subscribe to Kind 30173 driver-availability events from followed drivers, so the
+    /// rider sees the driver's currently active vehicle. Mirrors `startLocationSubscriptions`:
+    /// the author filter is restricted to followed drivers, and the subscription must be
+    /// restarted whenever the followed-drivers list changes.
+    ///
+    /// Without this, the rider only ever sees Kind 0 vehicle data, which Drivestr does not
+    /// reliably re-publish when a multi-vehicle driver swaps active vehicles. See issue #91.
+    func startDriverAvailabilitySubscription() {
+        let pubkeys = driversRepository.allPubkeys
+        let previous = takeDriverAvailabilitySubscription()
+
+        guard !pubkeys.isEmpty else {
+            if let previous {
+                Task {
+                    previous.task.cancel()
+                    await relayManager.unsubscribe(previous.id)
+                }
+            }
+            return
+        }
+
+        let subId = SubscriptionID("driver-availability")
+        let generation = UUID()
+
+        let task = Task {
+            previous?.task.cancel()
+            if let oldId = previous?.id {
+                await relayManager.unsubscribe(oldId)
+            }
+            guard !Task.isCancelled,
+                  activeDriverAvailabilitySubscription?.generation == generation else { return }
+
+            do {
+                let filter = NostrFilter.driverAvailability(driverPubkeys: pubkeys)
+                let stream = try await relayManager.subscribe(filter: filter, id: subId)
+                guard !Task.isCancelled,
+                      activeDriverAvailabilitySubscription?.generation == generation else { return }
+
+                for await event in stream {
+                    guard !Task.isCancelled,
+                          activeDriverAvailabilitySubscription?.generation == generation else { break }
+                    handleDriverAvailabilityEvent(event)
+                }
+            } catch {
+                guard activeDriverAvailabilitySubscription?.generation == generation else { return }
+                lastError = "Driver availability subscription failed: \(error.localizedDescription)"
+            }
+        }
+        activeDriverAvailabilitySubscription = ManagedSubscription(id: subId, generation: generation, task: task)
+    }
+
+    func handleDriverAvailabilityEvent(_ event: NostrEvent) {
+        guard let parsed = RideshareEventParser.parseDriverAvailability(event: event) else {
+            AppLogger.location.debug("Driver availability event ignored — unparseable from \(event.pubkey.prefix(8))")
+            return
+        }
+        // Overwrite-only: the cache always replaces the prior entry, even when fields are
+        // nil — Kind 30173 is a parameterized replaceable event, so the latest payload is
+        // the driver's current active vehicle in full. Merging field-by-field would let
+        // stale values leak across vehicle swaps. See issue #91.
+        driversRepository.updateDriverVehicle(pubkey: parsed.driverPubkey, vehicle: parsed.vehicle)
+    }
+
     // MARK: - Key Share Subscription (Kind 3186)
 
     func startKeyShareSubscription() {
@@ -184,10 +250,13 @@ final class LocationCoordinator {
     func stopAll() async {
         let location = takeLocationSubscription()
         let keyShare = takeKeyShareSubscription()
+        let availability = takeDriverAvailabilitySubscription()
         location?.task.cancel()
         keyShare?.task.cancel()
+        availability?.task.cancel()
         if let id = location?.id { await relayManager.unsubscribe(id) }
         if let id = keyShare?.id { await relayManager.unsubscribe(id) }
+        if let id = availability?.id { await relayManager.unsubscribe(id) }
     }
 
     private func takeLocationSubscription() -> ManagedSubscription? {
@@ -199,6 +268,12 @@ final class LocationCoordinator {
     private func takeKeyShareSubscription() -> ManagedSubscription? {
         let previous = activeKeyShareSubscription
         activeKeyShareSubscription = nil
+        return previous
+    }
+
+    private func takeDriverAvailabilitySubscription() -> ManagedSubscription? {
+        let previous = activeDriverAvailabilitySubscription
+        activeDriverAvailabilitySubscription = nil
         return previous
     }
 }

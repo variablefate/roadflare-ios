@@ -61,6 +61,9 @@ public struct DriverListItem: Equatable, Sendable, Identifiable {
     ///   - displayName: Display name from the repository if known; the factory falls back to driver.name then a short pubkey prefix.
     ///   - location: The driver's latest cached location broadcast, if any.
     ///   - profile: The driver's cached Kind 0 profile, if available.
+    ///   - vehicle: The driver's currently active vehicle from Kind 30173, if known.
+    ///     Authoritative when present; the Kind 0 profile fallback only matters
+    ///     for drivers whose Drivestr session never published Kind 30173. See issue #91.
     ///   - isKeyStale: Whether this driver's key has been flagged as stale.
     ///   - canPing: Whether the ping action is currently available.
     public static func from(
@@ -68,6 +71,7 @@ public struct DriverListItem: Equatable, Sendable, Identifiable {
         displayName: String?,
         location: CachedDriverLocation?,
         profile: UserProfileContent?,
+        vehicle: VehicleInfo? = nil,
         isKeyStale: Bool,
         canPing: Bool
     ) -> DriverListItem {
@@ -84,7 +88,7 @@ public struct DriverListItem: Equatable, Sendable, Identifiable {
             displayName: resolvedName,
             status: status,
             pictureURL: profile?.picture,
-            vehicleDescription: profile?.vehicleDescription,
+            vehicleDescription: vehicle?.description ?? profile?.vehicleDescription,
             canPing: canPing
         )
     }

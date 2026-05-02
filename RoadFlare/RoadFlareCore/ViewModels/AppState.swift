@@ -312,6 +312,13 @@ public final class AppState {
         rideCoordinator?.startKeyShareSubscription()
     }
 
+    /// Restart the Kind 30173 driver-availability subscription. Sibling of
+    /// `restartKeyShareSubscription`; called whenever the followed-drivers list
+    /// changes so the author filter is rebuilt against the new set. See issue #91.
+    public func restartDriverAvailabilitySubscription() {
+        rideCoordinator?.startDriverAvailabilitySubscription()
+    }
+
     /// Send Kind 3187 follow notification to a driver (real-time nudge).
     public func sendFollowNotification(driverPubkey: String) async {
         guard let kp = keypair, let rm = relayManager,
@@ -333,6 +340,9 @@ public final class AppState {
         // subscription forces re-delivery of both historical (12-hour window) and
         // future key share events. See issue #54.
         rideCoordinator?.startKeyShareSubscription()
+        // Same reasoning for Kind 30173: rebuild the author filter to include the
+        // newly added driver so the rider sees their active vehicle. See issue #91.
+        rideCoordinator?.startDriverAvailabilitySubscription()
     }
 
     // MARK: - Driver Ping
@@ -879,6 +889,7 @@ extension AppState {
         Task {
             await rideCoordinator?.publishFollowedDriversList()
             rideCoordinator?.startLocationSubscriptions()
+            rideCoordinator?.startDriverAvailabilitySubscription()
         }
     }
 
@@ -891,9 +902,12 @@ extension AppState {
     }
 
     /// Clear all cached driver locations and restart location subscriptions.
+    /// Also restarts the Kind 30173 availability subscription so the rider's
+    /// pull-to-refresh re-pulls active vehicles, not just locations.
     public func refreshDriverLocations() {
         driversRepository?.clearDriverLocations()
         rideCoordinator?.startLocationSubscriptions()
+        rideCoordinator?.startDriverAvailabilitySubscription()
     }
 
     /// Fetch a driver's Kind 0 profile from Nostr. Returns nil if the service
