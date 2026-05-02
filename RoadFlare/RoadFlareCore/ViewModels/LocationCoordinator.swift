@@ -31,6 +31,17 @@ final class LocationCoordinator {
     /// vehicle as the active-ride snapshot when it would otherwise stay nil
     /// (cold-start mid-ride, or fresh acceptance whose cache was empty at the
     /// transition). See issue #91 / `RideCoordinator.adoptVehicleIfNeeded`.
+    ///
+    /// Not `@Sendable` (unlike sibling SDK callbacks `onProfileChanged` /
+    /// `onDriversChanged`): `LocationCoordinator` is `@MainActor`, so the
+    /// callsite always runs on the main actor and the closure cannot escape.
+    ///
+    /// Fires even when `driversRepository.updateDriverVehicle(...)` was a no-op
+    /// (e.g. driver unfollowed before this event arrived). This is intentional:
+    /// the active-ride snapshot represents "the vehicle the rider agreed to,"
+    /// which is meaningful for an in-flight ride even if the rider unfollowed
+    /// the driver mid-trip. `adoptVehicleIfNeeded` independently gates on the
+    /// active session driverPubkey.
     var onDriverVehicleUpdate: ((String, VehicleInfo) -> Void)?
 
     var lastError: String?
