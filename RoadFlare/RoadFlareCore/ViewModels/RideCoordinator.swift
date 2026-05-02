@@ -44,11 +44,23 @@ public final class RideCoordinator {
     /// the vehicle they agreed to even if the driver re-publishes Kind 30173 with
     /// a different vehicle mid-ride.
     ///
-    /// In-memory only. On cold-start mid-ride, the snapshot is re-derived from the
-    /// live cache during `restoreRideState()`; if the driver swapped vehicles in the
-    /// meantime, the rebuilt snapshot reflects the *current* cache, not the original
-    /// agreement. Persisting through `PersistedRideState` would require a
-    /// cross-platform schema change and is intentionally deferred. See issue #91.
+    /// **In-memory only.** Populated in two ways:
+    ///   1. **Fresh acceptance** — `sessionDidChangeStage(.waitingForAcceptance →
+    ///      .driverAccepted)` reads the current `driverVehicles` cache. If the cache
+    ///      already has an entry for this driver, the snapshot locks immediately.
+    ///   2. **Cold-start mid-ride / cache empty at acceptance** — `restoreRideState()`
+    ///      reads the cache during `init`, but the Kind 30173 subscription only starts
+    ///      later in `restoreLiveSubscriptions()`, so the cache is always empty at
+    ///      restore time. To recover, `adoptVehicleIfNeeded(driverPubkey:vehicle:)` is
+    ///      called from `LocationCoordinator` on every Kind 30173 event; the *first*
+    ///      event observed for the active driver becomes the snapshot, which then
+    ///      locks for the rest of the ride.
+    ///
+    /// Trade-off: a driver who swaps vehicles between original acceptance and the
+    /// rider's cold-start will have the rider lock to the *new* vehicle on adopt,
+    /// not the original agreement. Persisting through `PersistedRideState` would
+    /// require a cross-platform schema change and is intentionally deferred.
+    /// See issue #91.
     public private(set) var activeRideVehicle: VehicleInfo?
 
     /// Snapshot of the most recently active ride's identity, captured while
@@ -119,12 +131,31 @@ public final class RideCoordinator {
         )
         self.session.delegate = self
 
+        // Wire the Kind 30173 hook so a restored or cache-empty active ride can adopt
+        // the first observed vehicle as the snapshot. See issue #91.
+        self.location.onDriverVehicleUpdate = { [weak self] pubkey, vehicle in
+            self?.adoptVehicleIfNeeded(driverPubkey: pubkey, vehicle: vehicle)
+        }
+
         restoreRideState()
     }
 
     public func startLocationSubscriptions() { location.startLocationSubscriptions() }
     func startKeyShareSubscription() { location.startKeyShareSubscription() }
     func startDriverAvailabilitySubscription() { location.startDriverAvailabilitySubscription() }
+
+    /// Called by `LocationCoordinator` for every Kind 30173 event so a restored or
+    /// fresh-but-empty-cache active ride can lock its snapshot to the first observed
+    /// vehicle. No-op once `activeRideVehicle` is set, so the snapshot remains stable
+    /// for the rest of the ride. See `activeRideVehicle` doc comment for the full
+    /// timing rationale (issue #91).
+    func adoptVehicleIfNeeded(driverPubkey: String, vehicle: VehicleInfo) {
+        guard activeRideVehicle == nil,
+              session.driverPubkey == driverPubkey,
+              session.stage == .driverAccepted || session.stage.isActiveRide
+        else { return }
+        activeRideVehicle = vehicle
+    }
     public func publishFollowedDriversList() async { await location.publishFollowedDriversList() }
     public func requestKeyRefresh(driverPubkey: String) async throws { try await location.requestKeyRefresh(driverPubkey: driverPubkey) }
     public func checkForStaleKeys() async { await location.checkForStaleKeys() }

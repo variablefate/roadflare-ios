@@ -26,6 +26,13 @@ final class LocationCoordinator {
     private var activeKeyShareSubscription: ManagedSubscription?
     private var activeDriverAvailabilitySubscription: ManagedSubscription?
 
+    /// Hook fired after every successfully parsed Kind 30173 event, so an outer
+    /// coordinator (currently `RideCoordinator`) can opportunistically adopt the
+    /// vehicle as the active-ride snapshot when it would otherwise stay nil
+    /// (cold-start mid-ride, or fresh acceptance whose cache was empty at the
+    /// transition). See issue #91 / `RideCoordinator.adoptVehicleIfNeeded`.
+    var onDriverVehicleUpdate: ((String, VehicleInfo) -> Void)?
+
     var lastError: String?
 
     init(relayManager: any RelayManagerProtocol, keypair: NostrKeypair,
@@ -178,6 +185,7 @@ final class LocationCoordinator {
         // the driver's current active vehicle in full. Merging field-by-field would let
         // stale values leak across vehicle swaps. See issue #91.
         driversRepository.updateDriverVehicle(pubkey: parsed.driverPubkey, vehicle: parsed.vehicle)
+        onDriverVehicleUpdate?(parsed.driverPubkey, parsed.vehicle)
     }
 
     // MARK: - Key Share Subscription (Kind 3186)

@@ -770,7 +770,10 @@ public final class AppState {
         syncCoordinator?.teardown(clearPersistedState: clearPersistedSyncState)
         syncCoordinator = nil
 
-        // 4. Repository data (callbacks already nil'd by teardown)
+        // 4. Repository data (callbacks already nil'd by teardown).
+        //    `clearAll()` zeroes drivers, names, locations, profiles, vehicles
+        //    (Kind 30173 cache), and the stale-key set — see
+        //    FollowedDriversRepository.clearAll().
         driversRepository?.clearAll()
         if driversRepository == nil {
             driversPersistence.saveDrivers([])

@@ -844,6 +844,86 @@ struct RideCoordinatorTests {
         await coordinator.stopAll()
     }
 
+    /// The cold-start mid-ride / cache-empty-at-acceptance recovery: when no snapshot
+    /// has been captured yet, the FIRST Kind 30173 event observed for the active
+    /// driver is adopted as the snapshot. After that, further events are ignored.
+    @MainActor
+    @Test func vehicleSnapshotAdoptsFirstObservedEventWhenNilAndLocksAfter() async throws {
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
+        let driverPubkey = String(repeating: "d", count: 64)
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: driverPubkey))
+        // Acceptance with empty cache — snapshot stays nil.
+        coordinator.session.restore(
+            stage: .driverAccepted,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: nil,
+            driverPubkey: driverPubkey,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .waitingForAcceptance, to: .driverAccepted)
+        #expect(coordinator.activeRideVehicle == nil)
+
+        // Simulate the first Kind 30173 event arriving via LocationCoordinator's hook.
+        coordinator.adoptVehicleIfNeeded(
+            driverPubkey: driverPubkey,
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+        #expect(coordinator.activeRideVehicle?.description == "Silver Toyota Camry")
+
+        // A second event (driver swapped) must NOT mutate the locked snapshot.
+        coordinator.adoptVehicleIfNeeded(
+            driverPubkey: driverPubkey,
+            vehicle: VehicleInfo(make: "Tesla", model: "Model 3", color: nil)
+        )
+        #expect(
+            coordinator.activeRideVehicle?.description == "Silver Toyota Camry",
+            "snapshot must lock after first adoption"
+        )
+        await coordinator.stopAll()
+    }
+
+    /// Adoption ignores events for non-active drivers and events outside an active ride.
+    @MainActor
+    @Test func vehicleSnapshotAdoptionIgnoresUnrelatedEvents() async throws {
+        let (coordinator, _, _, _, _) = try await makeCoordinator()
+        let activeDriver = String(repeating: "d", count: 64)
+        let otherDriver = String(repeating: "e", count: 64)
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: activeDriver))
+        coordinator.driversRepository.addDriver(FollowedDriver(pubkey: otherDriver))
+
+        // Idle stage — adoption should be a no-op even for any driver.
+        coordinator.adoptVehicleIfNeeded(
+            driverPubkey: activeDriver,
+            vehicle: VehicleInfo(make: "Toyota")
+        )
+        #expect(coordinator.activeRideVehicle == nil, "no adoption when not in an active ride")
+
+        coordinator.session.restore(
+            stage: .driverAccepted,
+            offerEventId: "offer",
+            acceptanceEventId: rideCoordinatorAcceptanceEventId,
+            confirmationEventId: nil,
+            driverPubkey: activeDriver,
+            pin: nil,
+            pinVerified: false,
+            paymentMethod: "zelle",
+            fiatPaymentMethods: ["zelle"]
+        )
+        coordinator.sessionDidChangeStage(from: .waitingForAcceptance, to: .driverAccepted)
+
+        // Event for a different driver while in active ride — must not adopt.
+        coordinator.adoptVehicleIfNeeded(
+            driverPubkey: otherDriver,
+            vehicle: VehicleInfo(make: "Tesla")
+        )
+        #expect(coordinator.activeRideVehicle == nil, "no adoption from unrelated driver")
+        await coordinator.stopAll()
+    }
+
     @MainActor
     @Test func sessionDidReachTerminalCompletedRecordsHistoryAndKeepsUI() async throws {
         let (coordinator, _, _, history, _) = try await makeCoordinator()
