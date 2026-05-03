@@ -6,6 +6,22 @@ struct RootView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
+        VStack(spacing: 0) {
+            if case .failed(let domain) = appState.onboardingPublishStatus {
+                OnboardingPublishFailureBanner(domain: domain) {
+                    appState.retryOnboardingPublish()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
+            authStateContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .animation(.easeInOut(duration: 0.2), value: appState.onboardingPublishStatus)
+    }
+
+    @ViewBuilder
+    private var authStateContent: some View {
         switch appState.authState {
         case .loading:
             LaunchLoadingView()
