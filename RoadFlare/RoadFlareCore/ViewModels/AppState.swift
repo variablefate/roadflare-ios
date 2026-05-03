@@ -305,6 +305,11 @@ public final class AppState {
     }
 
     private func runOnboardingPublishImpl(domain: OnboardingPublishDomain) async {
+        // Early-bail when a retry/chain cancel landed before this Task was
+        // scheduled. Once the SDK publish below has been awaited, the relay
+        // round-trip completes regardless — `publishProfileAndMark` doesn't
+        // observe cooperative cancellation.
+        guard !Task.isCancelled else { return }
         #if DEBUG
         if let hook = onboardingPublishHookForTesting {
             await hook(domain)
@@ -543,9 +548,14 @@ public final class AppState {
     private var onboardingPublishWatchdogTask: Task<Void, Never>?
 
     /// In-flight publish Task spawned alongside the watchdog. Tracked so a
-    /// retry / chained Continue can cancel both halves; otherwise a stale
-    /// publish from the prior attempt could race the new one and burn an
-    /// extra Kind 0 round-trip on a slow relay.
+    /// retry / chained Continue can mark it cancelled before the publish
+    /// switch runs (`runOnboardingPublishImpl` early-bails on
+    /// `Task.isCancelled`). Note: the underlying SDK call
+    /// (`publishProfileAndMark`) doesn't check cancellation itself, so a
+    /// publish whose `await publishProfile()` has already started completes
+    /// regardless. Cancellation only avoids the duplicate when the cancel
+    /// lands before the spawned Task is scheduled — which is the common
+    /// case for back-to-back Continue taps and rapid retries.
     private var onboardingPublishTask: Task<Void, Never>?
 
     /// Returns `true` when `driver` is a valid ping target.

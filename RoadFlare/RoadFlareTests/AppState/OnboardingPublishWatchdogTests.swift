@@ -140,7 +140,15 @@ struct OnboardingPublishWatchdogTests {
         #expect(surfaced)
     }
 
-    @Test func retryCancelsExistingFailureAndStartsFreshPublish() async {
+    /// Verifies retry kicks off a fresh publish + watchdog cycle after a
+    /// failure has surfaced. Note: this asserts the new cycle runs and
+    /// reaches `.idle` after success — it does NOT prove the prior
+    /// publish Task was actually cancelled before its relay write
+    /// (cancellation in our impl is cooperative; the SDK publish path
+    /// doesn't observe `Task.isCancelled` once started). The early-bail
+    /// in `runOnboardingPublishImpl` is what prevents a duplicate publish
+    /// when the cancel lands before the impl Task is scheduled.
+    @Test func retryStartsFreshPublishAfterFailure() async {
         let appState = AppState()
         var publishCalls = 0
         var clearOnNextPublish = false
