@@ -33,8 +33,20 @@ final class LocationCoordinator {
     /// transition). See issue #91 / `RideCoordinator.adoptVehicleIfNeeded`.
     ///
     /// Not `@Sendable` (unlike sibling SDK callbacks `onProfileChanged` /
-    /// `onDriversChanged`): `LocationCoordinator` is `@MainActor`, so the
-    /// callsite always runs on the main actor and the closure cannot escape.
+    /// `onDriversChanged`). Safety relies on TWO conditions, both of which
+    /// are load-bearing:
+    ///   1. `LocationCoordinator` is `@MainActor`.
+    ///   2. The single call site (`handleDriverAvailabilityEvent`) is invoked
+    ///      from an unstructured `Task { ... }` inside `@MainActor` code, which
+    ///      inherits actor isolation — so the callback always fires on the main
+    ///      actor.
+    /// Note that "stored optional closure" is by definition `@escaping`; the
+    /// safety here is purely actor-isolation, not non-escaping. Refactoring the
+    /// `Task { ... }` in `startDriverAvailabilitySubscription` to `Task.detached`
+    /// would silently break condition (2) and produce a data race with
+    /// `RideCoordinator.activeRideVehicle`. If detached execution is ever needed,
+    /// mark this `@Sendable` and audit `adoptVehicleIfNeeded` for cross-actor
+    /// access.
     ///
     /// Fires even when `driversRepository.updateDriverVehicle(...)` was a no-op
     /// (e.g. driver unfollowed before this event arrived). This is intentional:

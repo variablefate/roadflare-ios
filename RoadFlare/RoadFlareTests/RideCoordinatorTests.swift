@@ -808,11 +808,20 @@ struct RideCoordinatorTests {
         )
         coordinator.sessionDidChangeStage(from: .waitingForAcceptance, to: .driverAccepted)
 
-        // Driver swaps active vehicle mid-ride.
+        // Driver swaps active vehicle mid-ride. Mirror the production code path
+        // exactly: LocationCoordinator.handleDriverAvailabilityEvent first writes
+        // the new vehicle to the repo cache, THEN fires onDriverVehicleUpdate ->
+        // adoptVehicleIfNeeded. The snapshot must remain on the originally-agreed
+        // Camry through both stages — a regression that removed the
+        // `guard activeRideVehicle == nil` from adoptVehicleIfNeeded would only be
+        // caught by exercising adoptVehicleIfNeeded here, not by the cache mutation
+        // alone.
+        let swapped = VehicleInfo(make: "Tesla", model: "Model 3", color: nil)
         coordinator.driversRepository.updateDriverVehicle(
             pubkey: driverPubkey,
-            vehicle: VehicleInfo(make: "Tesla", model: "Model 3", color: nil)
+            vehicle: swapped
         )
+        coordinator.adoptVehicleIfNeeded(driverPubkey: driverPubkey, vehicle: swapped)
 
         #expect(
             coordinator.activeRideVehicle?.description == "Silver Toyota Camry",
