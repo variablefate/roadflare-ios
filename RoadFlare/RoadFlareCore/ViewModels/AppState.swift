@@ -47,10 +47,14 @@ public enum OnboardingPublishDomain: Sendable, Equatable {
 /// transition is gated on relay connectivity: a publish that stays dirty
 /// for 60s while the user is reachable surfaces as failed; a publish that
 /// stays dirty while the user is offline does not (offline ≠ relay
-/// failure). The banner stays up until either retry succeeds (publish
-/// succeeds → dirty flag clears → status returns to `.idle`) or the
-/// user reaches `.ready` and `SyncCoordinator.flushPendingSyncPublishes`
-/// republishes on reconnect.
+/// failure). The banner clears (status returns to `.idle`) on:
+///   - retry success — `retryOnboardingPublish` re-spawns the publish, the
+///     watchdog finds the dirty flag cleared, no failure is re-raised;
+///   - background reconnect success — `reconnectAndRestoreSession` calls
+///     `flushPendingSyncPublishes` and clears the banner if the dirty flag
+///     is now clean (see `clearOnboardingPublishStatusIfDomainsClean`);
+///   - identity replacement — `prepareForIdentityReplacement` cancels the
+///     watchdog and resets status alongside other per-identity state.
 public enum OnboardingPublishStatus: Sendable, Equatable {
     case idle
     case failed(domain: OnboardingPublishDomain)
@@ -282,8 +286,11 @@ public final class AppState {
     /// only signal we need to cancel-and-restart.
     private func startOnboardingPublish(domain: OnboardingPublishDomain) {
         onboardingPublishWatchdogTask?.cancel()
+        onboardingPublishTask?.cancel()
         onboardingPublishStatus = .idle
-        Task { await self.runOnboardingPublishImpl(domain: domain) }
+        onboardingPublishTask = Task {
+            await self.runOnboardingPublishImpl(domain: domain)
+        }
         onboardingPublishWatchdogTask = Task {
             await self.runOnboardingPublishWatchdog(domain: domain)
         }
@@ -331,6 +338,10 @@ public final class AppState {
         guard !Task.isCancelled else { return }
         if !isOnboardingDomainDirty(domain) { return }   // publish succeeded
         let online = await isOnboardingPublishOnline()
+        // Re-check cancellation after the connectivity await so a retry that
+        // landed during the await doesn't get clobbered by a stale `.failed`
+        // write here.
+        guard !Task.isCancelled else { return }
         if online {
             onboardingPublishStatus = .failed(domain: domain)
             return
@@ -531,6 +542,12 @@ public final class AppState {
     /// PaymentSetup after Continue on ProfileSetup).
     private var onboardingPublishWatchdogTask: Task<Void, Never>?
 
+    /// In-flight publish Task spawned alongside the watchdog. Tracked so a
+    /// retry / chained Continue can cancel both halves; otherwise a stale
+    /// publish from the prior attempt could race the new one and burn an
+    /// extra Kind 0 round-trip on a slow relay.
+    private var onboardingPublishTask: Task<Void, Never>?
+
     /// Returns `true` when `driver` is a valid ping target.
     ///
     /// Checks: has a current RoadFlare key, key is not stale, driver is not online,
@@ -645,7 +662,24 @@ public final class AppState {
         await rm.reconnectIfNeeded()
         guard await rm.isConnected else { return }
         await syncCoordinator?.flushPendingSyncPublishes(rideCoordinator: rideCoordinator)
+        clearOnboardingPublishStatusIfDomainsClean()
         await rideCoordinator?.restoreLiveSubscriptions()
+    }
+
+    /// If the failure banner was up but the post-flush dirty flags are now
+    /// clear (background reconnect-flush succeeded), dismiss the banner.
+    /// Without this, a user who had the banner up could fix connectivity,
+    /// have their publish silently succeed via the sync-coordinator's
+    /// retry path, and still see the banner until they tapped Retry.
+    private func clearOnboardingPublishStatusIfDomainsClean() {
+        guard case .failed(let domain) = onboardingPublishStatus else { return }
+        if !isOnboardingDomainDirty(domain) {
+            onboardingPublishWatchdogTask?.cancel()
+            onboardingPublishWatchdogTask = nil
+            onboardingPublishTask?.cancel()
+            onboardingPublishTask = nil
+            onboardingPublishStatus = .idle
+        }
     }
 
     // MARK: - Auth Helpers
@@ -964,6 +998,8 @@ public final class AppState {
         keyRefreshCooldowns = [:]
         onboardingPublishWatchdogTask?.cancel()
         onboardingPublishWatchdogTask = nil
+        onboardingPublishTask?.cancel()
+        onboardingPublishTask = nil
         onboardingPublishStatus = .idle
 
         // 6. Nil service refs
@@ -1321,6 +1357,13 @@ extension AppState {
         onboardingPublishIsDirtyHookForTesting = isDirty
         onboardingPublishTimeoutOverrideForTesting = timeout
         onboardingPublishRearmOverrideForTesting = rearmInterval
+    }
+
+    /// Test seam exposing the post-flush banner-dismissal logic so unit
+    /// tests can exercise it without standing up a full RelayManager +
+    /// SyncCoordinator.
+    func clearOnboardingPublishStatusIfDomainsCleanForTesting() {
+        clearOnboardingPublishStatusIfDomainsClean()
     }
 
     /// Replace the persistence-backed `rideHistory` / `savedLocations` repos so

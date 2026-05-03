@@ -19,6 +19,7 @@ struct OnboardingPublishFailureBanner: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundColor(Color.rfError)
                 .font(.system(size: 18))
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Couldn't reach the relay")
@@ -29,6 +30,8 @@ struct OnboardingPublishFailureBanner: View {
                     .foregroundColor(Color.rfOnSurfaceVariant)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Couldn't reach the relay. \(detailText)")
 
             Spacer(minLength: 8)
 
@@ -42,12 +45,11 @@ struct OnboardingPublishFailureBanner: View {
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Retry publish")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(Color.rfSurfaceContainer)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Tap retry to publish again")
     }
 
     private var detailText: String {

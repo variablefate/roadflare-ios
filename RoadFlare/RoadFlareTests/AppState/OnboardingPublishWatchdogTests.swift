@@ -54,14 +54,11 @@ struct OnboardingPublishWatchdogTests {
 
         await appState.completeProfileSetup(name: "Alice")
 
-        // Wait past the watchdog timeout. Status must remain .idle because
-        // the dirty hook now reports clean.
-        let stayedIdle = await waitFor(timeout: 0.3) {
-            appState.onboardingPublishStatus == .idle
-        }
-        try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms past timeout
+        // Sleep well past `timeout + rearm` so the watchdog has run its full
+        // cycle. Status must remain `.idle` because by the time the watchdog
+        // checks `isDirty`, the publish hook has already flipped it false.
+        try? await Task.sleep(nanoseconds: 250_000_000)  // 250ms = 5x timeout
         #expect(appState.onboardingPublishStatus == .idle)
-        _ = stayedIdle
     }
 
     @Test func surfacesFailureWhenStillDirtyAtTimeoutAndOnline() async {
@@ -187,6 +184,33 @@ struct OnboardingPublishWatchdogTests {
 
         // Retry without a prior failure → no-op.
         appState.retryOnboardingPublish()
+        #expect(appState.onboardingPublishStatus == .idle)
+    }
+
+    @Test func reconnectAndRestoreSessionClearsBannerWhenDomainsClean() async {
+        let appState = AppState()
+        var isDirty = true
+        appState.setOnboardingPublishHooksForTesting(
+            publish: { _ in /* doesn't clear dirty itself */ },
+            connectivity: { true },
+            isDirty: { _ in isDirty },
+            timeout: 0.05,
+            rearmInterval: 0.05
+        )
+
+        // Drive into .failed state.
+        await appState.completeProfileSetup(name: "Alice")
+        let surfaced = await waitFor(timeout: 1.0) {
+            appState.onboardingPublishStatus == .failed(domain: .profile)
+        }
+        #expect(surfaced)
+
+        // Background flush succeeds (sync coordinator clears the dirty flag).
+        // `reconnectAndRestoreSession` short-circuits because relayManager is
+        // nil in this test context — exercise the helper directly to confirm
+        // the dismissal logic runs once domains are clean.
+        isDirty = false
+        appState.clearOnboardingPublishStatusIfDomainsCleanForTesting()
         #expect(appState.onboardingPublishStatus == .idle)
     }
 
