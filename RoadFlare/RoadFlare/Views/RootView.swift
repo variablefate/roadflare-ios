@@ -17,6 +17,15 @@ struct RootView: View {
             authStateContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // Each `authStateContent` view paints its own `Color.rfSurface
+        // .ignoresSafeArea()` background, but that only extends adjacent to
+        // its own frame — when the banner is showing, the strip above the
+        // banner (status bar / Dynamic Island zone) is no longer adjacent
+        // to the auth-state content, so the system default would bleed
+        // through. Painting `rfSurface` behind the whole VStack keeps the
+        // status-bar zone on-brand in both banner-visible and banner-
+        // hidden states.
+        .background(Color.rfSurface.ignoresSafeArea())
         .animation(.easeInOut(duration: 0.2), value: appState.onboardingPublishStatus)
     }
 
