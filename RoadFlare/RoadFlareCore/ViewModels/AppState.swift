@@ -97,7 +97,7 @@ public final class AppState {
     // MARK: - Onboarding Publish Surface
 
     /// Current state of the onboarding-publish failure banner. See
-    /// `OnboardingPublishStatus` and ADR-0014.
+    /// `OnboardingPublishStatus` and ADR-0015.
     public var onboardingPublishStatus: OnboardingPublishStatus = .idle
 
     /// Time the user must be online with the publish still dirty before the
