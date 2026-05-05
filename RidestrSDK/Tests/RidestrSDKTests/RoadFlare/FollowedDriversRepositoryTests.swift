@@ -358,9 +358,88 @@ struct FollowedDriversRepositoryTests {
         repo.addDriver(FollowedDriver(pubkey: "d1"))
         repo.cacheDriverName(pubkey: "d1", name: "Alice")
         repo.updateDriverLocation(pubkey: "d1", latitude: 40.0, longitude: -74.0, status: "online", timestamp: 100, keyVersion: 1)
+        repo.updateDriverVehicle(pubkey: "d1", vehicle: VehicleInfo(make: "Toyota"))
         repo.clearAll()
         #expect(repo.drivers.isEmpty)
         #expect(repo.driverNames.isEmpty)
         #expect(repo.driverLocations.isEmpty)
+        #expect(repo.driverVehicles.isEmpty)
+    }
+
+    // MARK: - Driver Vehicles (Kind 30173 cache)
+
+    /// Single-vehicle baseline: matches current behaviour for a driver that only
+    /// ever publishes one vehicle. The cache should reflect exactly what was sent.
+    @Test func updateDriverVehicleSingleVehicleBaseline() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1"))
+        repo.updateDriverVehicle(
+            pubkey: "d1",
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+        #expect(repo.driverVehicles["d1"] == VehicleInfo(make: "Toyota", model: "Camry", color: "Silver"))
+        #expect(repo.cachedDriverVehicle(pubkey: "d1")?.description == "Silver Toyota Camry")
+    }
+
+    /// The bug from issue #91: driver swaps from a Camry to a Tesla. Riders must see
+    /// the Tesla after the swap — even when the Tesla event omits car_color, which
+    /// MUST clear the previously-cached Silver rather than silently merge it forward.
+    @Test func updateDriverVehicleOverwriteSemanticsClearOmittedFields() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1"))
+        repo.updateDriverVehicle(
+            pubkey: "d1",
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+        repo.updateDriverVehicle(
+            pubkey: "d1",
+            vehicle: VehicleInfo(make: "Tesla", model: "Model 3", color: nil)
+        )
+        let after = repo.driverVehicles["d1"]
+        #expect(after?.make == "Tesla")
+        #expect(after?.model == "Model 3")
+        #expect(after?.color == nil, "color must be cleared, not merged from prior Camry entry")
+        #expect(after?.description == "Tesla Model 3")
+    }
+
+    /// Each followed driver's vehicle must be tracked independently.
+    @Test func updateDriverVehicleIndependentPerDriver() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1"))
+        repo.addDriver(FollowedDriver(pubkey: "d2"))
+        repo.updateDriverVehicle(pubkey: "d1", vehicle: VehicleInfo(make: "Toyota"))
+        repo.updateDriverVehicle(pubkey: "d2", vehicle: VehicleInfo(make: "Tesla"))
+        #expect(repo.driverVehicles["d1"]?.make == "Toyota")
+        #expect(repo.driverVehicles["d2"]?.make == "Tesla")
+    }
+
+    /// Late events for an unfollowed driver should not poison the cache. Mirrors
+    /// the existing protection on cacheDriverProfile / cacheDriverName.
+    @Test func updateDriverVehicleIgnoresUnfollowedDriver() {
+        let repo = makeRepo()
+        repo.updateDriverVehicle(pubkey: "ghost", vehicle: VehicleInfo(make: "Tesla"))
+        #expect(repo.driverVehicles["ghost"] == nil)
+    }
+
+    @Test func removeDriverClearsVehicleCache() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1"))
+        repo.updateDriverVehicle(pubkey: "d1", vehicle: VehicleInfo(make: "Toyota"))
+        repo.removeDriver(pubkey: "d1")
+        #expect(repo.driverVehicles["d1"] == nil)
+    }
+
+    @Test func replaceAllReconcilesVehicleCacheForRemovedDrivers() {
+        let repo = makeRepo()
+        repo.addDriver(FollowedDriver(pubkey: "d1"))
+        repo.addDriver(FollowedDriver(pubkey: "d2"))
+        repo.updateDriverVehicle(pubkey: "d1", vehicle: VehicleInfo(make: "Toyota"))
+        repo.updateDriverVehicle(pubkey: "d2", vehicle: VehicleInfo(make: "Tesla"))
+
+        // Remote sync now lists only d1 — d2 was unfollowed elsewhere.
+        repo.replaceAll(drivers: [FollowedDriver(pubkey: "d1")])
+
+        #expect(repo.driverVehicles["d1"]?.make == "Toyota", "kept driver retains cache")
+        #expect(repo.driverVehicles["d2"] == nil, "removed driver's vehicle is reconciled away")
     }
 }

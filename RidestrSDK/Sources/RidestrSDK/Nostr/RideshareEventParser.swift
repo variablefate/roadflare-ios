@@ -360,6 +360,33 @@ public enum RideshareEventParser {
         )
     }
 
+    // MARK: - Driver Availability (Kind 30173)
+
+    /// Parse a Kind 30173 driver availability event (plaintext JSON content).
+    ///
+    /// Returns nil when the event is the wrong kind or when the JSON envelope cannot be
+    /// decoded — vehicle fields are individually optional so a driver going offline with
+    /// no vehicle attached still produces a `DriverAvailabilityEventData` (with an empty
+    /// `VehicleInfo`). Cross-platform shape with Drivestr's `DriverAvailabilityEvent.kt`.
+    public static func parseDriverAvailability(event: NostrEvent) -> DriverAvailabilityEventData? {
+        guard event.kind == EventKind.driverAvailability.rawValue else { return nil }
+        guard let data = event.content.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+
+        return DriverAvailabilityEventData(
+            eventId: event.id,
+            driverPubkey: event.pubkey,
+            createdAt: event.createdAt,
+            status: json["status"] as? String,
+            vehicle: VehicleInfo(
+                make: json["car_make"] as? String,
+                model: json["car_model"] as? String,
+                color: json["car_color"] as? String
+            )
+        )
+    }
+
     // MARK: - Followed Drivers List (Kind 30011)
 
     /// Parse and decrypt the followed drivers list (own backup).

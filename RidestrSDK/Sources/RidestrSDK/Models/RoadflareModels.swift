@@ -69,6 +69,63 @@ public struct RoadflareLocationEvent: Sendable {
     public let createdAt: Int
 }
 
+// MARK: - Driver Availability (Kind 30173)
+
+/// The driver's currently active vehicle, parsed from a Kind 30173 event.
+///
+/// Treat as a single overwrite-only unit: a Kind 30173 update replaces the entire
+/// `VehicleInfo`, never merges field-by-field. Drivestr is a multi-vehicle app and
+/// `car_color` (or any field) being absent on a fresh event is a genuine signal of
+/// the driver's current vehicle, not an invitation to keep stale data from the
+/// previous vehicle. See issue #91.
+public struct VehicleInfo: Sendable, Equatable {
+    public let make: String?
+    public let model: String?
+    public let color: String?
+
+    public init(make: String? = nil, model: String? = nil, color: String? = nil) {
+        self.make = make
+        self.model = model
+        self.color = color
+    }
+
+    /// Display string built from color + make + model. Nil when no fields are set.
+    /// Mirrors `UserProfileContent.vehicleDescription` so swapping the source
+    /// (Kind 30173 vs Kind 0 fallback) does not change the rendered text shape.
+    public var description: String? {
+        let parts = [color, make, model].compactMap { $0?.nilIfEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+}
+
+/// Parsed content of a driver availability event (Kind 30173).
+///
+/// Cross-platform shape with Drivestr's `DriverAvailabilityEvent.kt`. Vehicle fields
+/// are optional because a driver may publish availability without a vehicle attached
+/// (e.g. going offline). The `status` mirrors the on-wire `"available"` / `"offline"`
+/// strings — we keep the raw form so future status values don't require an SDK bump.
+public struct DriverAvailabilityEventData: Sendable, Equatable {
+    public let eventId: String
+    public let driverPubkey: String
+    public let createdAt: Int
+    public let status: String?
+    public let vehicle: VehicleInfo
+
+    public init(
+        eventId: String,
+        driverPubkey: String,
+        createdAt: Int,
+        status: String?,
+        vehicle: VehicleInfo
+    ) {
+        self.eventId = eventId
+        self.driverPubkey = driverPubkey
+        self.createdAt = createdAt
+        self.status = status
+        self.vehicle = vehicle
+    }
+}
+
 // MARK: - Followed Driver
 
 /// A driver in the rider's trusted network.

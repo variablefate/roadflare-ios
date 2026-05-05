@@ -348,6 +348,9 @@ struct AddDriverSheet: View {
             // effect that the new flow would otherwise skip on re-add).
             if appState.hasKeyForDriver(pubkey: hexPubkey) {
                 appState.restartKeyShareSubscription()
+                // Rebuild the Kind 30173 author filter to include the re-added driver
+                // so their currently-active vehicle shows up immediately. See issue #91.
+                appState.restartDriverAvailabilitySubscription()
                 return
             }
 
@@ -356,6 +359,7 @@ struct AddDriverSheet: View {
                 // Re-add: backup carried the key. Refresh the subscription
                 // (PR #54) but skip Kind 3187 to avoid Bug 3.
                 appState.restartKeyShareSubscription()
+                appState.restartDriverAvailabilitySubscription()
             case .backupUnavailable:
                 // Couldn't tell whether this is a re-add or a new follow.
                 // Fall through to the new-follow handshake; on a re-add this
