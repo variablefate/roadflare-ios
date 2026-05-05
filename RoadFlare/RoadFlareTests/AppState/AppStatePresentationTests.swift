@@ -86,6 +86,32 @@ struct AppStateDriverListItemsTests {
         #expect(items[0].status == .keyStale)
         #expect(items[0].canRequestRide == false)
     }
+
+    /// Issue #91 wiring regression: `driverListItems()` must thread the live Kind
+    /// 30173 cache (`repo.driverVehicles[pubkey]`) into `DriverListItem.from(...,
+    /// vehicle:)`. Because the factory's `vehicle:` parameter has a `nil` default,
+    /// dropping the argument from the call site silently falls back to the Kind 0
+    /// profile — exactly the bug #91 fixed. This test exercises the full API
+    /// surface so a future refactor that loses the `vehicle:` argument is caught.
+    @Test func threadsLiveVehicleCacheIntoListItems() {
+        let driver = FollowedDriver(pubkey: fakePubkeyA, name: "Eve", roadflareKey: fakeKey)
+        let repo = makeRepo(drivers: [driver])
+        let kind0Profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
+        repo.cacheDriverProfile(pubkey: fakePubkeyA, profile: kind0Profile)
+        repo.updateDriverVehicle(
+            pubkey: fakePubkeyA,
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        let items = appState.driverListItems()
+        #expect(items.count == 1)
+        // Live cache must win; if AppState+Presentation forgot to pass
+        // `vehicle:`, the factory would silently fall back to "Black Tesla Model 3".
+        #expect(items[0].vehicleDescription == "Silver Toyota Camry")
+    }
 }
 
 // MARK: - AppState.driverDetailViewState(pubkey:)
@@ -133,6 +159,26 @@ struct AppStateDriverDetailViewStateTests {
         let state = appState.driverDetailViewState(pubkey: fakePubkeyA)
         #expect(state?.statusLabel == "Available")
         #expect(state?.canRequestRide == true)
+    }
+
+    /// Issue #91 wiring regression: same as `threadsLiveVehicleCacheIntoListItems`
+    /// but for the detail-sheet API. Catches a future refactor that drops
+    /// `vehicle:` from the `DriverDetailViewState.from(...)` call.
+    @Test func threadsLiveVehicleCacheIntoDetailViewState() {
+        let driver = FollowedDriver(pubkey: fakePubkeyA, name: "Frank", roadflareKey: fakeKey)
+        let repo = makeRepo(drivers: [driver])
+        let kind0Profile = UserProfileContent(carMake: "Tesla", carModel: "Model 3", carColor: "Black")
+        repo.cacheDriverProfile(pubkey: fakePubkeyA, profile: kind0Profile)
+        repo.updateDriverVehicle(
+            pubkey: fakePubkeyA,
+            vehicle: VehicleInfo(make: "Toyota", model: "Camry", color: "Silver")
+        )
+
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+
+        let state = appState.driverDetailViewState(pubkey: fakePubkeyA)
+        #expect(state?.vehicleDescription == "Silver Toyota Camry")
     }
 
     /// Regression for #62: when a driver is removed out-of-band (background
