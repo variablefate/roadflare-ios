@@ -33,6 +33,33 @@ public enum KeyRefreshOutcome: Sendable, Equatable {
     case publishFailed
 }
 
+/// Which onboarding publish a `OnboardingPublishStatus.failed` refers to.
+public enum OnboardingPublishDomain: Sendable, Equatable {
+    /// Profile-only publish kicked off by `completeProfileSetup`.
+    case profile
+    /// Profile + settings backup kicked off by `completePaymentSetup`.
+    case settingsBackup
+}
+
+/// State of the onboarding-publish failure surface.
+///
+/// `.idle` is the default. `.failed` triggers the in-app banner. The
+/// transition is gated on relay connectivity: a publish that stays dirty
+/// for 60s while the user is reachable surfaces as failed; a publish that
+/// stays dirty while the user is offline does not (offline ≠ relay
+/// failure). The banner clears (status returns to `.idle`) on:
+///   - retry success — `retryOnboardingPublish` re-spawns the publish, the
+///     watchdog finds the dirty flag cleared, no failure is re-raised;
+///   - background reconnect success — `reconnectAndRestoreSession` calls
+///     `flushPendingSyncPublishes` and clears the banner if the dirty flag
+///     is now clean (see `clearOnboardingPublishStatusIfDomainsClean`);
+///   - identity replacement — `prepareForIdentityReplacement` cancels the
+///     watchdog and resets status alongside other per-identity state.
+public enum OnboardingPublishStatus: Sendable, Equatable {
+    case idle
+    case failed(domain: OnboardingPublishDomain)
+}
+
 /// Outcome of `restoreKeyFromBackup(driverPubkey:)`.
 ///
 /// Distinguishes "no key was in the backup" from "couldn't reach the relay
@@ -66,6 +93,24 @@ public final class AppState {
     // MARK: - Auth
 
     public var authState: AuthState = .loading
+
+    // MARK: - Onboarding Publish Surface
+
+    /// Current state of the onboarding-publish failure banner. See
+    /// `OnboardingPublishStatus` and ADR-0015.
+    public var onboardingPublishStatus: OnboardingPublishStatus = .idle
+
+    /// Time the user must be online with the publish still dirty before the
+    /// failure surface fires. 60s matches the App Store push deadline UX bar
+    /// — long enough to absorb a slow first-time relay handshake, short
+    /// enough that a user stranded in a relay-broken state finds out before
+    /// they've moved on to using the app for real.
+    static let onboardingPublishTimeoutSeconds: TimeInterval = 60
+
+    /// Poll interval used while the watchdog is parked waiting for
+    /// connectivity (the user was offline at the timeout). Re-checks online
+    /// + dirty every 10s; once online, surfaces failure or returns to idle.
+    static let onboardingPublishRearmIntervalSeconds: TimeInterval = 10
 
     // MARK: - Navigation
 
@@ -218,7 +263,7 @@ public final class AppState {
         settings.setProfileName(name)
         syncCoordinator?.markDirty(.profile)
         authState = .paymentSetup
-        Task { await self.publishProfile() }
+        startOnboardingPublish(domain: .profile)
     }
 
     /// Mark payment setup as done, finish onboarding. Publishes profile +
@@ -229,7 +274,137 @@ public final class AppState {
         settings.setProfileCompleted(true)
         syncCoordinator?.markDirty(.profileBackup)
         authState = .ready
-        Task { await self.saveAndPublishSettings() }
+        startOnboardingPublish(domain: .settingsBackup)
+    }
+
+    /// Spawn the publish + watchdog for an onboarding domain. Cancels any
+    /// in-flight watchdog and clears prior failure state, so a fast user
+    /// chaining ProfileSetup → PaymentSetup doesn't surface a stale
+    /// `.failed` from the first publish while the second is still in
+    /// flight. The publish itself is unsupervised (matches pre-watchdog
+    /// optimistic-transition contract from ADR-0014); the watchdog is the
+    /// only signal we need to cancel-and-restart.
+    private func startOnboardingPublish(domain: OnboardingPublishDomain) {
+        onboardingPublishWatchdogTask?.cancel()
+        onboardingPublishTask?.cancel()
+        onboardingPublishStatus = .idle
+        onboardingPublishTask = Task {
+            await self.runOnboardingPublishImpl(domain: domain)
+        }
+        onboardingPublishWatchdogTask = Task {
+            await self.runOnboardingPublishWatchdog(domain: domain)
+        }
+    }
+
+    /// Re-invoke the publish that previously failed and re-arm the watchdog.
+    /// No-op if `onboardingPublishStatus` isn't `.failed` (banner already
+    /// dismissed, or nothing has been started).
+    public func retryOnboardingPublish() {
+        guard case .failed(let domain) = onboardingPublishStatus else { return }
+        startOnboardingPublish(domain: domain)
+    }
+
+    private func runOnboardingPublishImpl(domain: OnboardingPublishDomain) async {
+        // Early-bail when a retry/chain cancel landed before this Task was
+        // scheduled. Once the SDK publish below has been awaited, the relay
+        // round-trip completes regardless — `publishProfileAndMark` doesn't
+        // observe cooperative cancellation.
+        guard !Task.isCancelled else { return }
+        #if DEBUG
+        if let hook = onboardingPublishHookForTesting {
+            await hook(domain)
+            return
+        }
+        #endif
+        switch domain {
+        case .profile:
+            await publishProfile()
+        case .settingsBackup:
+            await saveAndPublishSettings()
+        }
+    }
+
+    /// Sleep for the timeout window. If the publish hasn't cleared the
+    /// dirty flag AND the relay is reachable, surface the failure banner.
+    /// If the user is offline at the timeout, park (poll the rearm
+    /// interval) until either the publish clears or connectivity returns.
+    private func runOnboardingPublishWatchdog(domain: OnboardingPublishDomain) async {
+        let timeout = onboardingPublishTimeoutSeconds()
+        do {
+            try await Task.sleep(for: .seconds(timeout))
+        } catch {
+            return  // cancelled (retry, identity replacement, etc.)
+        }
+        guard !Task.isCancelled else { return }
+        await checkOnboardingPublishOutcome(domain: domain)
+    }
+
+    private func checkOnboardingPublishOutcome(domain: OnboardingPublishDomain) async {
+        guard !Task.isCancelled else { return }
+        if !isOnboardingDomainDirty(domain) { return }   // publish succeeded
+        let online = await isOnboardingPublishOnline()
+        // Re-check cancellation after the connectivity await so a retry that
+        // landed during the await doesn't get clobbered by a stale `.failed`
+        // write here.
+        guard !Task.isCancelled else { return }
+        if online {
+            onboardingPublishStatus = .failed(domain: domain)
+            return
+        }
+        // Offline: park and re-check after the rearm interval.
+        let rearm = onboardingPublishRearmIntervalSeconds()
+        do {
+            try await Task.sleep(for: .seconds(rearm))
+        } catch {
+            return
+        }
+        await checkOnboardingPublishOutcome(domain: domain)
+    }
+
+    private func onboardingPublishTimeoutSeconds() -> TimeInterval {
+        #if DEBUG
+        if let override = onboardingPublishTimeoutOverrideForTesting {
+            return override
+        }
+        #endif
+        return Self.onboardingPublishTimeoutSeconds
+    }
+
+    private func onboardingPublishRearmIntervalSeconds() -> TimeInterval {
+        #if DEBUG
+        if let override = onboardingPublishRearmOverrideForTesting {
+            return override
+        }
+        #endif
+        return Self.onboardingPublishRearmIntervalSeconds
+    }
+
+    private func isOnboardingDomainDirty(_ domain: OnboardingPublishDomain) -> Bool {
+        #if DEBUG
+        if let hook = onboardingPublishIsDirtyHookForTesting {
+            return hook(domain)
+        }
+        #endif
+        guard let store = syncCoordinator?.roadflareSyncStore else { return false }
+        switch domain {
+        case .profile:
+            return store.metadata(for: .profile).isDirty
+        case .settingsBackup:
+            // The settings-backup window covers BOTH the Kind 0 profile
+            // republish and the Kind 30177 backup publish — surface failure
+            // if either is still dirty after the window.
+            return store.metadata(for: .profile).isDirty
+                || store.metadata(for: .profileBackup).isDirty
+        }
+    }
+
+    private func isOnboardingPublishOnline() async -> Bool {
+        #if DEBUG
+        if let hook = onboardingPublishConnectivityHookForTesting {
+            return await hook()
+        }
+        #endif
+        return await isRelayConnected()
     }
 
     // MARK: - Forwarding to SDK (through SyncCoordinator)
@@ -367,7 +542,31 @@ public final class AppState {
     /// Test-only override for the SDK call inside `requestKeyRefresh(pubkey:)`.
     /// Set via `setKeyRefreshSDKHookForTesting(_:)`. See that method's docs.
     var keyRefreshSDKHookForTesting: ((String) async throws -> Void)?
+
+    /// Test-only overrides for the onboarding-publish failure surface. See
+    /// `setOnboardingPublishHooksForTesting(...)` for usage.
+    var onboardingPublishHookForTesting: ((OnboardingPublishDomain) async -> Void)?
+    var onboardingPublishConnectivityHookForTesting: (() async -> Bool)?
+    var onboardingPublishIsDirtyHookForTesting: ((OnboardingPublishDomain) -> Bool)?
+    var onboardingPublishTimeoutOverrideForTesting: TimeInterval?
+    var onboardingPublishRearmOverrideForTesting: TimeInterval?
     #endif
+
+    /// In-flight watchdog Task. Cancelled and replaced when the user retries
+    /// or starts a fresh onboarding-publish (e.g. tapping Continue on
+    /// PaymentSetup after Continue on ProfileSetup).
+    private var onboardingPublishWatchdogTask: Task<Void, Never>?
+
+    /// In-flight publish Task spawned alongside the watchdog. Tracked so a
+    /// retry / chained Continue can mark it cancelled before the publish
+    /// switch runs (`runOnboardingPublishImpl` early-bails on
+    /// `Task.isCancelled`). Note: the underlying SDK call
+    /// (`publishProfileAndMark`) doesn't check cancellation itself, so a
+    /// publish whose `await publishProfile()` has already started completes
+    /// regardless. Cancellation only avoids the duplicate when the cancel
+    /// lands before the spawned Task is scheduled — which is the common
+    /// case for back-to-back Continue taps and rapid retries.
+    private var onboardingPublishTask: Task<Void, Never>?
 
     /// Returns `true` when `driver` is a valid ping target.
     ///
@@ -483,7 +682,24 @@ public final class AppState {
         await rm.reconnectIfNeeded()
         guard await rm.isConnected else { return }
         await syncCoordinator?.flushPendingSyncPublishes(rideCoordinator: rideCoordinator)
+        clearOnboardingPublishStatusIfDomainsClean()
         await rideCoordinator?.restoreLiveSubscriptions()
+    }
+
+    /// If the failure banner was up but the post-flush dirty flags are now
+    /// clear (background reconnect-flush succeeded), dismiss the banner.
+    /// Without this, a user who had the banner up could fix connectivity,
+    /// have their publish silently succeed via the sync-coordinator's
+    /// retry path, and still see the banner until they tapped Retry.
+    private func clearOnboardingPublishStatusIfDomainsClean() {
+        guard case .failed(let domain) = onboardingPublishStatus else { return }
+        if !isOnboardingDomainDirty(domain) {
+            onboardingPublishWatchdogTask?.cancel()
+            onboardingPublishWatchdogTask = nil
+            onboardingPublishTask?.cancel()
+            onboardingPublishTask = nil
+            onboardingPublishStatus = .idle
+        }
     }
 
     // MARK: - Auth Helpers
@@ -803,6 +1019,11 @@ public final class AppState {
         }
         pingCooldowns = [:]
         keyRefreshCooldowns = [:]
+        onboardingPublishWatchdogTask?.cancel()
+        onboardingPublishWatchdogTask = nil
+        onboardingPublishTask?.cancel()
+        onboardingPublishTask = nil
+        onboardingPublishStatus = .idle
 
         // 6. Nil service refs
         rideCoordinator = nil
@@ -1143,6 +1364,33 @@ extension AppState {
     /// throws) without wiring a full RideCoordinator.
     func setKeyRefreshSDKHookForTesting(_ hook: ((String) async throws -> Void)?) {
         keyRefreshSDKHookForTesting = hook
+    }
+
+    /// Test-only overrides for the onboarding-publish failure surface.
+    /// Lets tests substitute the publish call (so dirty stays set without
+    /// hitting a relay), drive connectivity, fake the dirty check, and
+    /// shorten the watchdog timing so tests run in milliseconds rather
+    /// than minutes. Pass `nil` for any parameter to keep the production
+    /// behavior; pass a value to override.
+    func setOnboardingPublishHooksForTesting(
+        publish: ((OnboardingPublishDomain) async -> Void)? = nil,
+        connectivity: (() async -> Bool)? = nil,
+        isDirty: ((OnboardingPublishDomain) -> Bool)? = nil,
+        timeout: TimeInterval? = nil,
+        rearmInterval: TimeInterval? = nil
+    ) {
+        onboardingPublishHookForTesting = publish
+        onboardingPublishConnectivityHookForTesting = connectivity
+        onboardingPublishIsDirtyHookForTesting = isDirty
+        onboardingPublishTimeoutOverrideForTesting = timeout
+        onboardingPublishRearmOverrideForTesting = rearmInterval
+    }
+
+    /// Test seam exposing the post-flush banner-dismissal logic so unit
+    /// tests can exercise it without standing up a full RelayManager +
+    /// SyncCoordinator.
+    func clearOnboardingPublishStatusIfDomainsCleanForTesting() {
+        clearOnboardingPublishStatusIfDomainsClean()
     }
 
     /// Replace the persistence-backed `rideHistory` / `savedLocations` repos so
