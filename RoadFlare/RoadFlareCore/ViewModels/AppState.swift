@@ -441,8 +441,14 @@ public final class AppState {
     }
 
     public func saveAndPublishSettings() async throws {
-        try await publishProfile()
-        try await publishProfileBackup()
+        // Always attempt both publishes — they target independent Nostr kinds
+        // (Kind 0 profile vs Kind 30177 backup) and a transient failure of one
+        // shouldn't suppress the other. Capture the first error and rethrow so
+        // the onboarding eager-error path (ADR-0017) still fires the banner.
+        var firstError: (any Error)?
+        do { try await publishProfile() } catch { firstError = error }
+        do { try await publishProfileBackup() } catch { firstError = firstError ?? error }
+        if let firstError { throw firstError }
     }
 
     func buildProfileBackupContent() -> ProfileBackupContent {
