@@ -435,9 +435,8 @@ public final class AppState {
     }
 
     public func publishProfileBackup() async throws {
-        try await syncCoordinator?.profileBackupCoordinator?.publishAndMark(
-            settings: settings, savedLocations: savedLocations
-        )
+        guard let coordinator = syncCoordinator?.profileBackupCoordinator else { return }
+        try await coordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
     }
 
     public func saveAndPublishSettings() async throws {
