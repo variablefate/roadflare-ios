@@ -238,7 +238,7 @@ struct AddFavoriteSheet: View {
                         timestampMs: Int(Date.now.timeIntervalSince1970 * 1000)
                     )
                     appState.saveLocation(loc)
-                    await appState.publishProfileBackup()
+                    try? await appState.publishProfileBackup()
                 }
             } catch {
                 // Non-fatal
@@ -302,7 +302,7 @@ struct EditLocationSheet: View {
                     if !location.isFavorite {
                         Button {
                             appState.pinLocation(id: location.id, nickname: nickname.isEmpty ? location.displayName : nickname)
-                            Task { await appState.publishProfileBackup() }
+                            Task { try? await appState.publishProfileBackup() }
                             dismiss()
                         } label: {
                             Label("Save as Favorite", systemImage: "star.fill")
@@ -314,7 +314,7 @@ struct EditLocationSheet: View {
                             if !nickname.isEmpty {
                                 appState.pinLocation(id: location.id, nickname: nickname)
                             }
-                            Task { await appState.publishProfileBackup() }
+                            Task { try? await appState.publishProfileBackup() }
                             dismiss()
                         } label: {
                             Text("Save")
@@ -326,7 +326,7 @@ struct EditLocationSheet: View {
 
                     Button(role: .destructive) {
                         appState.removeLocation(id: location.id)
-                        Task { await appState.publishProfileBackup() }
+                        Task { try? await appState.publishProfileBackup() }
                         dismiss()
                     } label: {
                         Text(location.isFavorite ? "Remove Favorite" : "Remove")

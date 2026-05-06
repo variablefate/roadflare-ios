@@ -310,17 +310,36 @@ public final class AppState {
         // round-trip completes regardless — `publishProfileAndMark` doesn't
         // observe cooperative cancellation.
         guard !Task.isCancelled else { return }
-        #if DEBUG
-        if let hook = onboardingPublishHookForTesting {
-            await hook(domain)
-            return
-        }
-        #endif
-        switch domain {
-        case .profile:
-            await publishProfile()
-        case .settingsBackup:
-            await saveAndPublishSettings()
+        do {
+            #if DEBUG
+            if let hook = onboardingPublishHookForTesting {
+                try await hook(domain)
+                return
+            }
+            #endif
+            switch domain {
+            case .profile:
+                try await publishProfile()
+            case .settingsBackup:
+                try await saveAndPublishSettings()
+            }
+        } catch {
+            // Eager-error surface (ADR-0017): an SDK throw is a faster signal
+            // than the dirty-flag watchdog. If the relay is reachable, fire
+            // the banner immediately and cancel the watchdog (its +60s
+            // `.failed(domain:)` write would be a redundant idempotent set).
+            // If offline, do nothing — the watchdog's offline-park loop is
+            // the right place to wait for connectivity to come back.
+            guard !Task.isCancelled else { return }
+            AppLogger.auth.warning(
+                "Onboarding publish (\(String(describing: domain))) failed: \(error.localizedDescription)"
+            )
+            let online = await isOnboardingPublishOnline()
+            guard !Task.isCancelled else { return }
+            if online {
+                onboardingPublishStatus = .failed(domain: domain)
+                onboardingPublishWatchdogTask?.cancel()
+            }
         }
     }
 
@@ -409,21 +428,27 @@ public final class AppState {
 
     // MARK: - Forwarding to SDK (through SyncCoordinator)
 
-    func publishProfile() async {
+    func publishProfile() async throws {
         guard let service = roadflareDomainService,
               let syncStore = syncCoordinator?.roadflareSyncStore else { return }
-        await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+        try await service.publishProfileAndMark(from: settings, syncStore: syncStore)
     }
 
-    public func publishProfileBackup() async {
-        await syncCoordinator?.profileBackupCoordinator?.publishAndMark(
+    public func publishProfileBackup() async throws {
+        try await syncCoordinator?.profileBackupCoordinator?.publishAndMark(
             settings: settings, savedLocations: savedLocations
         )
     }
 
-    public func saveAndPublishSettings() async {
-        await publishProfile()
-        await publishProfileBackup()
+    public func saveAndPublishSettings() async throws {
+        // Always attempt both publishes — they target independent Nostr kinds
+        // (Kind 0 profile vs Kind 30177 backup) and a transient failure of one
+        // shouldn't suppress the other. Capture the first error and rethrow so
+        // the onboarding eager-error path (ADR-0017) still fires the banner.
+        var firstError: (any Error)?
+        do { try await publishProfile() } catch { firstError = error }
+        do { try await publishProfileBackup() } catch { firstError = firstError ?? error }
+        if let firstError { throw firstError }
     }
 
     func buildProfileBackupContent() -> ProfileBackupContent {
@@ -545,7 +570,7 @@ public final class AppState {
 
     /// Test-only overrides for the onboarding-publish failure surface. See
     /// `setOnboardingPublishHooksForTesting(...)` for usage.
-    var onboardingPublishHookForTesting: ((OnboardingPublishDomain) async -> Void)?
+    var onboardingPublishHookForTesting: ((OnboardingPublishDomain) async throws -> Void)?
     var onboardingPublishConnectivityHookForTesting: (() async -> Bool)?
     var onboardingPublishIsDirtyHookForTesting: ((OnboardingPublishDomain) -> Bool)?
     var onboardingPublishTimeoutOverrideForTesting: TimeInterval?
@@ -1303,7 +1328,7 @@ extension AppState {
     /// Clear all saved locations and publish the profile backup.
     public func clearAllLocations() async {
         savedLocations.clearAll()
-        await publishProfileBackup()
+        try? await publishProfileBackup()
     }
 }
 
@@ -1373,7 +1398,7 @@ extension AppState {
     /// than minutes. Pass `nil` for any parameter to keep the production
     /// behavior; pass a value to override.
     func setOnboardingPublishHooksForTesting(
-        publish: ((OnboardingPublishDomain) async -> Void)? = nil,
+        publish: ((OnboardingPublishDomain) async throws -> Void)? = nil,
         connectivity: (() async -> Bool)? = nil,
         isDirty: ((OnboardingPublishDomain) -> Bool)? = nil,
         timeout: TimeInterval? = nil,

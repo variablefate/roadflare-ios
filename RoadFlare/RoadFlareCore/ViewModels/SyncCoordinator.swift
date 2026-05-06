@@ -143,7 +143,11 @@ final class SyncCoordinator {
             },
             undecodableWarning: "Latest profile metadata is not decodable; preserving local profile state",
             publishLocal: { @Sendable in
-                await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+                // Best-effort: failure here keeps the dirty flag set so the
+                // next reconnect-flush retries. The onboarding eager-error
+                // path (ADR-0017) lives in `runOnboardingPublishImpl`, not
+                // in startup-sync `publishLocal` closures.
+                try? await service.publishProfileAndMark(from: settings, syncStore: syncStore)
             }
         )
 
@@ -191,7 +195,7 @@ final class SyncCoordinator {
             },
             undecodableWarning: "Latest profile backup is not decodable; preserving local backup state",
             publishLocal: { @Sendable in
-                await backupCoordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
+                try? await backupCoordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
             },
             onSnapshotSeen: { @Sendable value in
                 backupCoordinator.preserveSettingsTemplate(value.settings)
@@ -250,13 +254,13 @@ final class SyncCoordinator {
               let backupCoordinator = profileBackupCoordinator else { return }
 
         if syncStore.metadata(for: .profile).isDirty {
-            await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+            try? await service.publishProfileAndMark(from: settings, syncStore: syncStore)
         }
         if syncStore.metadata(for: .followedDrivers).isDirty {
             await rideCoordinator?.publishFollowedDriversList()
         }
         if syncStore.metadata(for: .profileBackup).isDirty {
-            await backupCoordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
+            try? await backupCoordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
         }
         if syncStore.metadata(for: .rideHistory).isDirty {  // Empty history is valid — may be a delete-all
             await service.publishRideHistoryAndMark(from: rideHistory, syncStore: syncStore)

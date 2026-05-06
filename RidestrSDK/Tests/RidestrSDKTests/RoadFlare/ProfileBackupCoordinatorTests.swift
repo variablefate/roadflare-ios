@@ -86,7 +86,7 @@ struct ProfileBackupCoordinatorTests {
         let kit = try await makeKit()
         kit.settings.setRoadflarePaymentMethods(["zelle"])
 
-        await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
+        try await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
 
         #expect(kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt > 0)
         #expect(kit.relay.publishedEvents.count == 1)
@@ -99,7 +99,7 @@ struct ProfileBackupCoordinatorTests {
         // Fire two concurrent calls — second should coalesce into a republish.
         async let first: Void = kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
         async let second: Void = kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
-        _ = await (first, second)
+        _ = try await (first, second)
 
         // First call publishes once, second sets republishRequested → first loops and publishes again.
         // Since the relay is fake and completes immediately, the second call's guard may or may not
@@ -112,8 +112,13 @@ struct ProfileBackupCoordinatorTests {
         kit.relay.shouldFailPublish = true
         kit.settings.setRoadflarePaymentMethods(["zelle"])
 
-        await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
-
+        // ADR-0017: terminal-iteration failure rethrows so the onboarding
+        // eager-error path can fire the banner without waiting for the watchdog.
+        await #expect(throws: (any Error).self) {
+            try await kit.coordinator.publishAndMark(
+                settings: kit.settings, savedLocations: kit.savedLocations
+            )
+        }
         #expect(kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt == 0)
     }
 
@@ -136,7 +141,10 @@ struct ProfileBackupCoordinatorTests {
         kit.relay.publishDelay = .milliseconds(100)
 
         let publishTask = Task {
-            await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
+            // Session crossed by clearAll: ADR-0017 contract says we return
+            // without throwing — the caller's identity has been replaced and
+            // the error is meaningless. `try await` accepts both.
+            try await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
         }
 
         // Let publish start its await
@@ -147,9 +155,9 @@ struct ProfileBackupCoordinatorTests {
 
         // New publish session starts clean
         kit.settings.setRoadflarePaymentMethods(["venmo"])
-        await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
+        try await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
 
-        await publishTask.value
+        try await publishTask.value
 
         // The new session's publish reached the relay.
         #expect(kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt > 0)
@@ -167,12 +175,12 @@ struct ProfileBackupCoordinatorTests {
         let kit = try await makeKit()
         kit.settings.setRoadflarePaymentMethods(["zelle"])
 
-        await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
+        try await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
         let firstTimestamp = kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt
 
         try await Task.sleep(for: .milliseconds(10))
         kit.settings.setRoadflarePaymentMethods(["venmo"])
-        await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
+        try await kit.coordinator.publishAndMark(settings: kit.settings, savedLocations: kit.savedLocations)
 
         let secondTimestamp = kit.syncStore.metadata(for: .profileBackup).lastSuccessfulPublishAt
         #expect(secondTimestamp >= firstTimestamp)

@@ -112,10 +112,18 @@ public final class ProfileBackupCoordinator: @unchecked Sendable {
     ///   longer matches, and we exit WITHOUT touching shared state (a new
     ///   publish session may own it) and WITHOUT calling `markPublished`
     ///   (identity has changed).
+    /// - Error semantic (ADR-0017): rethrows the *terminal* iteration's error
+    ///   if and only if no successful publish landed during the call window.
+    ///   A coalesced republish that succeeds rescues an earlier failed
+    ///   iteration — the call returns without throw. Coalesced calls (the
+    ///   ones that hit the `shouldQueue` short-circuit) never throw; they
+    ///   have no awaitable publish of their own to fail. A session
+    ///   invalidated by `clearAll()` returns without throw — the caller's
+    ///   identity has been replaced and the error is meaningless.
     public func publishAndMark(
         settings: UserSettingsRepository,
         savedLocations: SavedLocationsRepository
-    ) async {
+    ) async throws {
         var entryGeneration: UInt64 = 0
         let shouldQueue: Bool = lock.withLock {
             if isPublishing {
@@ -129,6 +137,7 @@ public final class ProfileBackupCoordinator: @unchecked Sendable {
         }
         guard !shouldQueue else { return }
 
+        var lastIterationError: (any Error)?
         while true {
             let content = buildContent(settings: settings, savedLocations: savedLocations)
             do {
@@ -138,8 +147,10 @@ public final class ProfileBackupCoordinator: @unchecked Sendable {
                     syncStoreRef?.markPublished(.profileBackup, at: event.createdAt)
                     RidestrLogger.info("[ProfileBackupCoordinator] Published profile backup")
                 }
+                lastIterationError = nil
             } catch {
                 RidestrLogger.info("[ProfileBackupCoordinator] Failed to publish profile backup: \(error.localizedDescription)")
+                lastIterationError = error
             }
 
             // Atomic exit: either continue with a fresh iteration (consuming
@@ -154,7 +165,13 @@ public final class ProfileBackupCoordinator: @unchecked Sendable {
                 isPublishing = false
                 return false
             }
-            if !shouldContinue { return }
+            if !shouldContinue {
+                if let error = lastIterationError,
+                   lock.withLock({ generation == entryGeneration }) {
+                    throw error
+                }
+                return
+            }
         }
     }
 
