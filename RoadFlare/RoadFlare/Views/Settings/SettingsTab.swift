@@ -387,7 +387,7 @@ struct EditProfileSheet: View {
         saveState = .saving
         appState.settings.setProfileName(trimmed)
         Task {
-            await appState.saveAndPublishSettings()
+            try? await appState.saveAndPublishSettings()
             saveState = .saved
             try? await Task.sleep(for: .milliseconds(600))
             dismiss()
