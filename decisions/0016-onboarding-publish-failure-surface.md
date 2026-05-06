@@ -1,4 +1,4 @@
-# ADR-0015: Onboarding Publish Failure Surface
+# ADR-0016: Onboarding Publish Failure Surface
 
 **Status:** Active
 **Created:** 2026-05-05
@@ -71,4 +71,4 @@ Add a thin observation layer on `AppState` and a banner pinned to the top of `Ro
 - `RoadFlare/RoadFlare/Views/Shared/OnboardingPublishFailureBanner.swift` — new view.
 - `RoadFlare/RoadFlare/Views/RootView.swift` — VStack-rooted layout with banner above `@ViewBuilder` `authStateContent`.
 - `RoadFlare/RoadFlareTests/AppState/OnboardingPublishWatchdogTests.swift` — 9 watchdog tests via the test seam.
-- `decisions/0015-onboarding-publish-failure-surface.md` — this file.
+- `decisions/0016-onboarding-publish-failure-surface.md` — this file.
