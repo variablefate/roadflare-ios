@@ -21,17 +21,31 @@ struct ConnectivityPill: View {
     @State private var isOffline = false
     @State private var showSheet = false
 
-    /// Polling cadence matches `ConnectivitySheet`'s own self-refresh loop.
-    private static let pollIntervalSeconds: UInt64 = 5
+    /// 10s matches the persistent per-tab polling cadence in `RideTab`,
+    /// `DriversTab`, and `HistoryTab`. `ConnectivitySheet` polls faster (5s)
+    /// because it's a modal the user is actively looking at; the pill is a
+    /// background indicator and doesn't need that responsiveness.
+    private static let pollIntervalSeconds: UInt64 = 10
+
+    /// Computed visibility — combines the polled flag with the auth-state
+    /// gate. Animating on this (rather than `isOffline` alone) ensures the
+    /// pill animates in correctly on the cold-start path where `isOffline`
+    /// flips to `true` while still in `.loading`, then `authState` exits
+    /// `.loading` later: keying on `isOffline` alone would skip the
+    /// animation since `isOffline` didn't change at the visible-transition
+    /// moment.
+    private var shouldShow: Bool {
+        isOffline && appState.authState != .loading
+    }
 
     var body: some View {
         ZStack {
-            if isOffline && appState.authState != .loading {
+            if shouldShow {
                 pillBar
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: isOffline)
+        .animation(.easeInOut(duration: 0.2), value: shouldShow)
         .sheet(isPresented: $showSheet) { ConnectivitySheet() }
         .task { await pollLoop() }
     }
