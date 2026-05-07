@@ -11,6 +11,13 @@ struct SettingsTab: View {
     @State private var showConnectivity = false
     @State private var showDeleteAccount = false
 
+    private var appVersionLabel: String {
+        let info = Bundle.main.infoDictionary
+        let marketing = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(marketing) (\(build))"
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -150,7 +157,7 @@ struct SettingsTab: View {
                                             .font(RFFont.body(15))
                                             .foregroundColor(Color.rfOnSurface)
                                         Spacer()
-                                        Text("Version \(RidestrSDKVersion.version)")
+                                        Text(appVersionLabel)
                                             .font(RFFont.body(14))
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Image(systemName: "chevron.right")
