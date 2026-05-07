@@ -278,12 +278,18 @@ public final class AppState {
     }
 
     /// Spawn the publish + watchdog for an onboarding domain. Cancels any
-    /// in-flight watchdog and clears prior failure state, so a fast user
-    /// chaining ProfileSetup → PaymentSetup doesn't surface a stale
-    /// `.failed` from the first publish while the second is still in
-    /// flight. The publish itself is unsupervised (matches pre-watchdog
-    /// optimistic-transition contract from ADR-0014); the watchdog is the
-    /// only signal we need to cancel-and-restart.
+    /// in-flight publish and watchdog and clears prior failure state, so a
+    /// fast user chaining ProfileSetup → PaymentSetup doesn't surface a
+    /// stale `.failed` from the first publish while the second is still in
+    /// flight.
+    ///
+    /// Two failure-surface paths run concurrently per ADR-0017: the publish
+    /// Task's catch block (eager-error — fires the banner immediately when
+    /// the SDK throws and the relay is reachable, then cancels the
+    /// watchdog) and the watchdog Task (safety net at the timeout for the
+    /// hang case). Either is enough to surface `.failed`; both are tracked
+    /// here so retry / chain / identity-replacement can cancel them
+    /// atomically.
     private func startOnboardingPublish(domain: OnboardingPublishDomain) {
         onboardingPublishWatchdogTask?.cancel()
         onboardingPublishTask?.cancel()
@@ -582,14 +588,20 @@ public final class AppState {
     private var onboardingPublishWatchdogTask: Task<Void, Never>?
 
     /// In-flight publish Task spawned alongside the watchdog. Tracked so a
-    /// retry / chained Continue can mark it cancelled before the publish
-    /// switch runs (`runOnboardingPublishImpl` early-bails on
-    /// `Task.isCancelled`). Note: the underlying SDK call
-    /// (`publishProfileAndMark`) doesn't check cancellation itself, so a
-    /// publish whose `await publishProfile()` has already started completes
-    /// regardless. Cancellation only avoids the duplicate when the cancel
-    /// lands before the spawned Task is scheduled — which is the common
-    /// case for back-to-back Continue taps and rapid retries.
+    /// retry / chained Continue / identity-replacement can mark it
+    /// cancelled. Cooperative cancellation matters at three places in
+    /// `runOnboardingPublishImpl`: (a) the entry-point `guard !Task.isCancelled`
+    /// before the publish switch (catches the cancel-before-scheduled case for
+    /// back-to-back Continue taps); and (b)+(c) the two `guard
+    /// !Task.isCancelled` checks bracketing the connectivity await in the
+    /// catch block (introduced by the eager-error path in ADR-0017 — they
+    /// suppress a stale `.failed` write if the user chained or retried
+    /// during the relay's `await isOnboardingPublishOnline()` resolution).
+    /// Note: the underlying SDK call (`publishProfileAndMark`) doesn't
+    /// check cancellation itself, so a publish whose `await publishProfile()`
+    /// has already started completes regardless — we can avoid the
+    /// duplicate publish only when the cancel lands before the SDK switch
+    /// runs.
     private var onboardingPublishTask: Task<Void, Never>?
 
     /// Returns `true` when `driver` is a valid ping target.

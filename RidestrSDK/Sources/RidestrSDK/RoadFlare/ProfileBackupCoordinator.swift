@@ -155,9 +155,14 @@ public final class ProfileBackupCoordinator: @unchecked Sendable {
 
             // Atomic exit: either continue with a fresh iteration (consuming
             // the republish request) OR release isPublishing. If generation
-            // changed, bail without touching shared state.
+            // changed, bail without touching shared state. Captures
+            // `generationStillValid` inside the same lock region so the
+            // post-loop throw decision doesn't need a second lock acquisition
+            // (per .claude/CLAUDE.md "atomic single-lock exits").
+            var generationStillValid = false
             let shouldContinue: Bool = lock.withLock {
                 guard generation == entryGeneration else { return false }
+                generationStillValid = true
                 if republishRequested {
                     republishRequested = false
                     return true
@@ -166,8 +171,7 @@ public final class ProfileBackupCoordinator: @unchecked Sendable {
                 return false
             }
             if !shouldContinue {
-                if let error = lastIterationError,
-                   lock.withLock({ generation == entryGeneration }) {
+                if let error = lastIterationError, generationStillValid {
                     throw error
                 }
                 return
