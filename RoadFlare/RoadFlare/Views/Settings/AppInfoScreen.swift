@@ -1,11 +1,17 @@
 import SwiftUI
-import RidestrSDK
 
 struct AppInfoScreen: View {
     @Environment(\.openURL) private var openURL
 
     private let repoURL = "https://github.com/variablefate/roadflare-ios"
     private let licenseURL = "https://github.com/variablefate/roadflare-ios/blob/main/LICENSE"
+
+    private var appVersionLabel: String {
+        let info = Bundle.main.infoDictionary
+        let marketing = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "Version \(marketing) (\(build))"
+    }
 
     var body: some View {
         ZStack {
@@ -34,7 +40,7 @@ struct AppInfoScreen: View {
                                 .foregroundColor(Color.rfPrimary)
                         }
 
-                        Text("Version \(RidestrSDKVersion.version)")
+                        Text(appVersionLabel)
                             .font(RFFont.caption(13))
                             .foregroundColor(Color.rfOnSurfaceVariant)
                     }
