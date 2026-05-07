@@ -14,7 +14,6 @@ public actor RelayManager: RelayManagerProtocol {
     private var connectedRelayURLs: [URL] = []
     private var notificationHandler: NotificationRouter?
     private var notificationTask: Task<Void, Never>?
-    private var _handlerAlive = false  // Explicit liveness flag — Task.isCancelled doesn't detect normal completion
 
     public init(keypair: NostrKeypair) {
         self.keypair = keypair
@@ -31,21 +30,42 @@ public actor RelayManager: RelayManagerProtocol {
         await teardownConnection(clearRelayURLs: true)
     }
 
+    /// At least one relay is currently connected. Queries the underlying
+    /// rust-nostr `Client` for the live per-relay status — the previous
+    /// impl checked only Swift-side cached state (the client pointer, a
+    /// configured-URLs list, and a handler-liveness flag), all of which
+    /// stay true through airplane-mode toggles and other transient network
+    /// drops, so it lied about the actual WebSocket state.
     public var isConnected: Bool {
-        client != nil && !connectedRelayURLs.isEmpty && _handlerAlive
+        get async {
+            guard let client else { return false }
+            let relays = await client.relays()
+            for relay in relays.values where relay.isConnected() {
+                return true
+            }
+            return false
+        }
     }
 
-    private func markHandlerDead() {
-        _handlerAlive = false
-    }
-
-    /// Reconnect to relays if disconnected. Call from app foreground handler.
-    /// Does NOT restart subscriptions — callers must re-subscribe after this returns.
+    /// Force-rebuild the relay client. Call from app foreground handler.
+    ///
+    /// Always replaces the client (when relay URLs are configured) rather
+    /// than short-circuiting on cached state because the cached state
+    /// lies on iOS background→foreground: the OS suspends WebSockets on
+    /// background, and rust-nostr's per-relay status doesn't update until
+    /// the next read/write attempt fails (which can take minutes on a
+    /// silently-killed socket). Tearing down and rebuilding is the only
+    /// way to get truthful state — the alternative is letting the user
+    /// sit in "everything looks fine" while their relays are dead.
+    ///
+    /// Does NOT restart subscriptions — callers must re-subscribe after
+    /// this returns. Cheap when relays are reachable (~1s handshake);
+    /// the trade-off vs. per-call cost is correctness on every foreground.
+    /// No-op if `connect(to:)` has not been called yet (no URLs to reach).
     public func reconnectIfNeeded() async {
         guard !connectedRelayURLs.isEmpty else { return }
-        guard client == nil || !_handlerAlive else { return }
 
-        RidestrLogger.error("[RelayManager] Reconnecting relay client")
+        RidestrLogger.info("[RelayManager] Force-rebuilding relay client (foreground / explicit reconnect)")
         do {
             try await replaceClient(with: connectedRelayURLs)
         } catch {
@@ -80,7 +100,6 @@ public actor RelayManager: RelayManagerProtocol {
     private func startNotificationHandler(for client: Client) {
         let router = NotificationRouter()
         self.notificationHandler = router
-        self._handlerAlive = true
         let clientRef = client
         notificationTask = Task.detached { [router] in
             do {
@@ -93,15 +112,9 @@ public actor RelayManager: RelayManagerProtocol {
             router.removeAll()
             RidestrLogger.error("[RelayManager] All subscription streams terminated due to disconnect")
         }
-        // Monitor handler liveness from a separate task
-        Task { [weak self] in
-            await self?.notificationTask?.value  // Suspends until task completes
-            await self?.markHandlerDead()
-        }
     }
 
     private func teardownConnection(clearRelayURLs: Bool) async {
-        _handlerAlive = false
         notificationHandler?.removeAll()
         activeStreams.removeAll()
         subscriptionGenerations.removeAll()
