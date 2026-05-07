@@ -31,8 +31,23 @@ public actor RelayManager: RelayManagerProtocol {
         await teardownConnection(clearRelayURLs: true)
     }
 
+    /// At least one relay is currently connected. Queries the underlying
+    /// rust-nostr `Client` for the live per-relay status — the previous impl
+    /// returned `client != nil && !connectedRelayURLs.isEmpty && _handlerAlive`
+    /// which all stay true through airplane-mode toggles and other transient
+    /// network drops, so it lied about the actual WebSocket state. The
+    /// `_handlerAlive` flag remains relevant for `reconnectIfNeeded`'s
+    /// liveness gate; it's a separate concern from "is a relay reachable
+    /// right now."
     public var isConnected: Bool {
-        client != nil && !connectedRelayURLs.isEmpty && _handlerAlive
+        get async {
+            guard let client else { return false }
+            let relays = await client.relays()
+            for relay in relays.values where relay.isConnected() {
+                return true
+            }
+            return false
+        }
     }
 
     private func markHandlerDead() {
