@@ -250,4 +250,62 @@ struct OnboardingPublishWatchdogTests {
             Issue.record("Expected .failed(settingsBackup), got \(appState.onboardingPublishStatus)")
         }
     }
+
+    /// ADR-0017: when the publish hook throws AND the user is online, the
+    /// banner fires eagerly without waiting for the watchdog timeout. With a
+    /// 60s `timeout` configured (production value) and a sub-second wait, a
+    /// surface in <500ms can only have come from the eager-error path —
+    /// proves the watchdog isn't the one firing.
+    @Test func eagerErrorSurfacesBannerBeforeWatchdogTimeoutWhenOnline() async {
+        let appState = AppState()
+        struct PublishFailure: Error {}
+        appState.setOnboardingPublishHooksForTesting(
+            publish: { _ in throw PublishFailure() },
+            connectivity: { true },
+            isDirty: { _ in true },
+            timeout: 60.0,                              // production value; far longer than the test window
+            rearmInterval: 60.0
+        )
+
+        let started = Date.now
+        await appState.completeProfileSetup(name: "Alice")
+        let surfaced = await waitFor(timeout: 1.0) {
+            appState.onboardingPublishStatus == .failed(domain: .profile)
+        }
+        let elapsed = Date.now.timeIntervalSince(started)
+
+        #expect(surfaced)
+        #expect(elapsed < 0.5, "Eager path expected to fire well under the 60s watchdog timeout, got \(elapsed)s")
+    }
+
+    /// ADR-0017: when the publish throws while OFFLINE, the eager path stays
+    /// quiet and lets the watchdog's offline-park branch handle it. The
+    /// banner only fires once connectivity returns.
+    @Test func eagerErrorStaysQuietWhenOffline() async {
+        let appState = AppState()
+        struct PublishFailure: Error {}
+        var online = false
+        appState.setOnboardingPublishHooksForTesting(
+            publish: { _ in throw PublishFailure() },
+            connectivity: { online },
+            isDirty: { _ in true },
+            timeout: 0.05,
+            rearmInterval: 0.05
+        )
+
+        await appState.completeProfileSetup(name: "Alice")
+
+        // Offline: eager path defers to the watchdog's parking loop. Wait
+        // long enough for several rearm cycles to confirm the banner stays
+        // idle until connectivity returns.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        #expect(appState.onboardingPublishStatus == .idle)
+
+        // Bring user online; next watchdog rearm tick surfaces failure.
+        online = true
+        let surfaced = await waitFor(timeout: 1.0) {
+            appState.onboardingPublishStatus == .failed(domain: .profile)
+        }
+        #expect(surfaced)
+    }
 }

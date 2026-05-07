@@ -181,23 +181,22 @@ public final class RoadflareDomainService: @unchecked Sendable {
     // MARK: - Publish-and-Mark Convenience Helpers
     //
     // Each helper: reads from its repo → builds content → publishes → marks
-    // syncStore published on success. Throws swallowed by logging.
+    // syncStore published on success. `publishProfileAndMark` rethrows so the
+    // onboarding eager-error path (ADR-0017) can surface the banner without
+    // waiting for the watchdog timeout; the followed-drivers and ride-history
+    // helpers stay best-effort because no UI surface observes them directly.
 
     public func publishProfileAndMark(
         from settings: UserSettingsRepository,
         syncStore: RoadflareSyncStateStore
-    ) async {
+    ) async throws {
         let profile = UserProfileContent(
             name: settings.profileName,
             displayName: settings.profileName
         )
-        do {
-            let event = try await publishProfile(profile)
-            syncStore.markPublished(.profile, at: event.createdAt)
-            RidestrLogger.info("[RoadflareDomainService] Published profile")
-        } catch {
-            RidestrLogger.info("[RoadflareDomainService] Failed to publish profile: \(error.localizedDescription)")
-        }
+        let event = try await publishProfile(profile)
+        syncStore.markPublished(.profile, at: event.createdAt)
+        RidestrLogger.info("[RoadflareDomainService] Published profile")
     }
 
     public func publishFollowedDriversListAndMark(

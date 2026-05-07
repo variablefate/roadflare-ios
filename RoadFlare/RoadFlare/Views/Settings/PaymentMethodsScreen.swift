@@ -15,7 +15,7 @@ struct PaymentMethodsScreen: View {
                     PaymentMethodPicker(settings: appState.settings)
                         .onChange(of: appState.settings.roadflarePaymentMethods) { oldValue, newValue in
                             guard oldValue != newValue, appState.authState == .ready else { return }
-                            Task { await appState.publishProfileBackup() }
+                            Task { try? await appState.publishProfileBackup() }
                         }
                 }
                 .padding(.horizontal, 16)

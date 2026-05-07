@@ -278,12 +278,23 @@ public final class AppState {
     }
 
     /// Spawn the publish + watchdog for an onboarding domain. Cancels any
-    /// in-flight watchdog and clears prior failure state, so a fast user
-    /// chaining ProfileSetup → PaymentSetup doesn't surface a stale
-    /// `.failed` from the first publish while the second is still in
-    /// flight. The publish itself is unsupervised (matches pre-watchdog
-    /// optimistic-transition contract from ADR-0014); the watchdog is the
-    /// only signal we need to cancel-and-restart.
+    /// in-flight publish and watchdog and clears prior failure state, so a
+    /// fast user chaining ProfileSetup → PaymentSetup doesn't surface a
+    /// stale `.failed` from the first publish while the second is still in
+    /// flight.
+    ///
+    /// Two failure-surface paths run concurrently per ADR-0017: the publish
+    /// Task's catch block (eager-error — fires the banner immediately when
+    /// the SDK throws and the relay is reachable, then cancels the
+    /// watchdog) and the watchdog Task. The watchdog now serves two
+    /// purposes: (a) safety net for the case where the SDK call hangs
+    /// without throwing or returning, and (b) the offline-park loop the
+    /// eager path defers to when the relay isn't reachable — the catch
+    /// block intentionally does nothing in the offline branch because
+    /// the watchdog's parking + rearm-poll is the right place to wait
+    /// for connectivity to come back. Either path is enough to surface
+    /// `.failed`; both are tracked here so retry / chain /
+    /// identity-replacement can cancel them atomically.
     private func startOnboardingPublish(domain: OnboardingPublishDomain) {
         onboardingPublishWatchdogTask?.cancel()
         onboardingPublishTask?.cancel()
@@ -310,17 +321,36 @@ public final class AppState {
         // round-trip completes regardless — `publishProfileAndMark` doesn't
         // observe cooperative cancellation.
         guard !Task.isCancelled else { return }
-        #if DEBUG
-        if let hook = onboardingPublishHookForTesting {
-            await hook(domain)
-            return
-        }
-        #endif
-        switch domain {
-        case .profile:
-            await publishProfile()
-        case .settingsBackup:
-            await saveAndPublishSettings()
+        do {
+            #if DEBUG
+            if let hook = onboardingPublishHookForTesting {
+                try await hook(domain)
+                return
+            }
+            #endif
+            switch domain {
+            case .profile:
+                try await publishProfile()
+            case .settingsBackup:
+                try await saveAndPublishSettings()
+            }
+        } catch {
+            // Eager-error surface (ADR-0017): an SDK throw is a faster signal
+            // than the dirty-flag watchdog. If the relay is reachable, fire
+            // the banner immediately and cancel the watchdog (its +60s
+            // `.failed(domain:)` write would be a redundant idempotent set).
+            // If offline, do nothing — the watchdog's offline-park loop is
+            // the right place to wait for connectivity to come back.
+            guard !Task.isCancelled else { return }
+            AppLogger.auth.warning(
+                "Onboarding publish (\(String(describing: domain))) failed: \(error.localizedDescription)"
+            )
+            let online = await isOnboardingPublishOnline()
+            guard !Task.isCancelled else { return }
+            if online {
+                onboardingPublishStatus = .failed(domain: domain)
+                onboardingPublishWatchdogTask?.cancel()
+            }
         }
     }
 
@@ -409,21 +439,38 @@ public final class AppState {
 
     // MARK: - Forwarding to SDK (through SyncCoordinator)
 
-    func publishProfile() async {
+    func publishProfile() async throws {
+        #if DEBUG
+        if let hook = publishProfileSDKHookForTesting {
+            try await hook()
+            return
+        }
+        #endif
         guard let service = roadflareDomainService,
               let syncStore = syncCoordinator?.roadflareSyncStore else { return }
-        await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+        try await service.publishProfileAndMark(from: settings, syncStore: syncStore)
     }
 
-    public func publishProfileBackup() async {
-        await syncCoordinator?.profileBackupCoordinator?.publishAndMark(
-            settings: settings, savedLocations: savedLocations
-        )
+    public func publishProfileBackup() async throws {
+        #if DEBUG
+        if let hook = publishProfileBackupSDKHookForTesting {
+            try await hook()
+            return
+        }
+        #endif
+        guard let coordinator = syncCoordinator?.profileBackupCoordinator else { return }
+        try await coordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
     }
 
-    public func saveAndPublishSettings() async {
-        await publishProfile()
-        await publishProfileBackup()
+    public func saveAndPublishSettings() async throws {
+        // Always attempt both publishes — they target independent Nostr kinds
+        // (Kind 0 profile vs Kind 30177 backup) and a transient failure of one
+        // shouldn't suppress the other. Capture the first error and rethrow so
+        // the onboarding eager-error path (ADR-0017) still fires the banner.
+        var firstError: (any Error)?
+        do { try await publishProfile() } catch { firstError = error }
+        do { try await publishProfileBackup() } catch { firstError = firstError ?? error }
+        if let firstError { throw firstError }
     }
 
     func buildProfileBackupContent() -> ProfileBackupContent {
@@ -545,9 +592,20 @@ public final class AppState {
 
     /// Test-only overrides for the onboarding-publish failure surface. See
     /// `setOnboardingPublishHooksForTesting(...)` for usage.
-    var onboardingPublishHookForTesting: ((OnboardingPublishDomain) async -> Void)?
+    var onboardingPublishHookForTesting: ((OnboardingPublishDomain) async throws -> Void)?
     var onboardingPublishConnectivityHookForTesting: (() async -> Bool)?
     var onboardingPublishIsDirtyHookForTesting: ((OnboardingPublishDomain) -> Bool)?
+
+    /// Test-only overrides for the per-publish SDK calls inside
+    /// `publishProfile()` and `publishProfileBackup()`. Lets unit tests
+    /// drive `saveAndPublishSettings`'s "always run both" invariant
+    /// without standing up a full RoadflareDomainService +
+    /// ProfileBackupCoordinator. The `onboardingPublishHookForTesting`
+    /// short-circuits at a coarser granularity (replaces the entire
+    /// `runOnboardingPublishImpl` body), so it can't exercise the
+    /// `saveAndPublishSettings` switch case.
+    var publishProfileSDKHookForTesting: (() async throws -> Void)?
+    var publishProfileBackupSDKHookForTesting: (() async throws -> Void)?
     var onboardingPublishTimeoutOverrideForTesting: TimeInterval?
     var onboardingPublishRearmOverrideForTesting: TimeInterval?
     #endif
@@ -558,14 +616,20 @@ public final class AppState {
     private var onboardingPublishWatchdogTask: Task<Void, Never>?
 
     /// In-flight publish Task spawned alongside the watchdog. Tracked so a
-    /// retry / chained Continue can mark it cancelled before the publish
-    /// switch runs (`runOnboardingPublishImpl` early-bails on
-    /// `Task.isCancelled`). Note: the underlying SDK call
-    /// (`publishProfileAndMark`) doesn't check cancellation itself, so a
-    /// publish whose `await publishProfile()` has already started completes
-    /// regardless. Cancellation only avoids the duplicate when the cancel
-    /// lands before the spawned Task is scheduled — which is the common
-    /// case for back-to-back Continue taps and rapid retries.
+    /// retry / chained Continue / identity-replacement can mark it
+    /// cancelled. Cooperative cancellation matters at three places in
+    /// `runOnboardingPublishImpl`: (a) the entry-point `guard !Task.isCancelled`
+    /// before the publish switch (catches the cancel-before-scheduled case for
+    /// back-to-back Continue taps); and (b)+(c) the two `guard
+    /// !Task.isCancelled` checks bracketing the connectivity await in the
+    /// catch block (introduced by the eager-error path in ADR-0017 — they
+    /// suppress a stale `.failed` write if the user chained or retried
+    /// during the relay's `await isOnboardingPublishOnline()` resolution).
+    /// Note: the underlying SDK call (`publishProfileAndMark`) doesn't
+    /// check cancellation itself, so a publish whose `await publishProfile()`
+    /// has already started completes regardless — we can avoid the
+    /// duplicate publish only when the cancel lands before the SDK switch
+    /// runs.
     private var onboardingPublishTask: Task<Void, Never>?
 
     /// Returns `true` when `driver` is a valid ping target.
@@ -1303,7 +1367,7 @@ extension AppState {
     /// Clear all saved locations and publish the profile backup.
     public func clearAllLocations() async {
         savedLocations.clearAll()
-        await publishProfileBackup()
+        try? await publishProfileBackup()
     }
 }
 
@@ -1373,7 +1437,7 @@ extension AppState {
     /// than minutes. Pass `nil` for any parameter to keep the production
     /// behavior; pass a value to override.
     func setOnboardingPublishHooksForTesting(
-        publish: ((OnboardingPublishDomain) async -> Void)? = nil,
+        publish: ((OnboardingPublishDomain) async throws -> Void)? = nil,
         connectivity: (() async -> Bool)? = nil,
         isDirty: ((OnboardingPublishDomain) -> Bool)? = nil,
         timeout: TimeInterval? = nil,

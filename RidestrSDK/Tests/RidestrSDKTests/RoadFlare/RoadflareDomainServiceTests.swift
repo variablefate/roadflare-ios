@@ -340,10 +340,31 @@ struct RoadflareDomainServiceTests {
         let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
         _ = settings.setProfileName("Alice")
 
-        await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+        try await service.publishProfileAndMark(from: settings, syncStore: syncStore)
 
         #expect(syncStore.metadata(for: .profile).lastSuccessfulPublishAt > 0)
         #expect(relay.publishedEvents.count == 1)
+    }
+
+    @Test func publishProfileAndMarkRethrowsRelayFailure() async throws {
+        // ADR-0017: SDK helper rethrows so the onboarding eager-error path
+        // can fire the failure banner without waiting for the watchdog.
+        let keypair = try NostrKeypair.generate()
+        let relay = FakeRelayManager()
+        try await relay.connect(to: [URL(string: "wss://fake")!])
+        relay.shouldFailPublish = true
+        let service = RoadflareDomainService(relayManager: relay, keypair: keypair)
+        let syncStore = RoadflareSyncStateStore(
+            defaults: UserDefaults(suiteName: "test_\(UUID().uuidString)")!,
+            namespace: UUID().uuidString
+        )
+        let settings = UserSettingsRepository(persistence: InMemoryUserSettingsPersistence())
+        _ = settings.setProfileName("Alice")
+
+        await #expect(throws: (any Error).self) {
+            try await service.publishProfileAndMark(from: settings, syncStore: syncStore)
+        }
+        #expect(syncStore.metadata(for: .profile).lastSuccessfulPublishAt == 0)
     }
 
     @Test func publishFollowedDriversListAndMarkMarksSyncStore() async throws {
