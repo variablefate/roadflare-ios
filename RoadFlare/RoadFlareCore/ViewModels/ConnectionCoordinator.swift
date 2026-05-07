@@ -26,6 +26,13 @@ final class ConnectionCoordinator {
     private var watchdogTask: Task<Void, Never>?
     private var pathMonitor: NWPathMonitor?
     private var pathMonitorQueue: DispatchQueue?
+    /// Reconnect Tasks spawned by path-update events. Tracked so `stop()`
+    /// can cancel any in-flight reconnect that landed mid-tear-down (e.g.
+    /// on logout / identity replacement). Without this, a fire-and-forget
+    /// path Task could continue calling the injected `reconnect` closure
+    /// after the coordinator has been torn down. Mirrors the tracked-Task
+    /// pattern from PR #95's onboarding-publish watchdog.
+    private var pathReconnectTasks: [Task<Void, Never>] = []
     private var hasReceivedFirstPath = false
     private var isReconnecting = false
 
@@ -58,9 +65,12 @@ final class ConnectionCoordinator {
         let queue = DispatchQueue(label: "com.roadflare.connection-coordinator.path-monitor")
         monitor.pathUpdateHandler = { [weak self] _ in
             // The very first path update fires on monitor start with the
-            // current path — not a real change. Skip that to avoid a
-            // spurious rebuild on app launch when `setupServices` has just
-            // established the initial connection.
+            // current path — not a real change in production paths. Skip
+            // it to avoid a spurious rebuild on app launch right after
+            // `setupServices` has established the initial connection.
+            // (Apple's `NWPathMonitor` documentation does not strictly
+            // contract this, but it is the consistently observed behavior
+            // for `start(queue:)` and is widely relied on across iOS apps.)
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if !self.hasReceivedFirstPath {
@@ -68,9 +78,17 @@ final class ConnectionCoordinator {
                     return
                 }
                 guard !self.isReconnecting, shouldReconnect() else { return }
-                self.isReconnecting = true
-                defer { self.isReconnecting = false }
-                await reconnect()
+                let reconnectTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    guard !Task.isCancelled else { return }
+                    self.isReconnecting = true
+                    defer { self.isReconnecting = false }
+                    await reconnect()
+                }
+                self.pathReconnectTasks.append(reconnectTask)
+                // Best-effort cleanup of finished Tasks so the array doesn't
+                // grow unboundedly across many path transitions.
+                self.pathReconnectTasks.removeAll(where: { $0.isCancelled })
             }
         }
         monitor.start(queue: queue)
@@ -85,6 +103,10 @@ final class ConnectionCoordinator {
         pathMonitor?.cancel()
         pathMonitor = nil
         pathMonitorQueue = nil
+        for task in pathReconnectTasks {
+            task.cancel()
+        }
+        pathReconnectTasks.removeAll()
         hasReceivedFirstPath = false
         isReconnecting = false
     }
