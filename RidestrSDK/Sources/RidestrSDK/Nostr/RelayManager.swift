@@ -31,10 +31,11 @@ public actor RelayManager: RelayManagerProtocol {
     }
 
     /// At least one relay is currently connected. Queries the underlying
-    /// rust-nostr `Client` for the live per-relay status — the previous impl
-    /// returned `client != nil && !connectedRelayURLs.isEmpty && handlerAlive`
-    /// which all stay true through airplane-mode toggles and other transient
-    /// network drops, so it lied about the actual WebSocket state.
+    /// rust-nostr `Client` for the live per-relay status — the previous
+    /// impl checked only Swift-side cached state (the client pointer, a
+    /// configured-URLs list, and a handler-liveness flag), all of which
+    /// stay true through airplane-mode toggles and other transient network
+    /// drops, so it lied about the actual WebSocket state.
     public var isConnected: Bool {
         get async {
             guard let client else { return false }
@@ -48,18 +49,19 @@ public actor RelayManager: RelayManagerProtocol {
 
     /// Force-rebuild the relay client. Call from app foreground handler.
     ///
-    /// Always replaces the client rather than short-circuiting on cached
-    /// state because the cached state lies on iOS background→foreground:
-    /// the OS suspends WebSockets on background, and rust-nostr's
-    /// per-relay status doesn't update until the next read/write attempt
-    /// fails (which can take minutes on a silently-killed socket).
-    /// Tearing down and rebuilding is the only way to get truthful state —
-    /// the alternative is letting the user sit in "everything looks fine"
-    /// while their relays are dead.
+    /// Always replaces the client (when relay URLs are configured) rather
+    /// than short-circuiting on cached state because the cached state
+    /// lies on iOS background→foreground: the OS suspends WebSockets on
+    /// background, and rust-nostr's per-relay status doesn't update until
+    /// the next read/write attempt fails (which can take minutes on a
+    /// silently-killed socket). Tearing down and rebuilding is the only
+    /// way to get truthful state — the alternative is letting the user
+    /// sit in "everything looks fine" while their relays are dead.
     ///
     /// Does NOT restart subscriptions — callers must re-subscribe after
     /// this returns. Cheap when relays are reachable (~1s handshake);
     /// the trade-off vs. per-call cost is correctness on every foreground.
+    /// No-op if `connect(to:)` has not been called yet (no URLs to reach).
     public func reconnectIfNeeded() async {
         guard !connectedRelayURLs.isEmpty else { return }
 

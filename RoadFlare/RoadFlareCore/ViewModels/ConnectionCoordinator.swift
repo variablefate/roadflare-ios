@@ -6,9 +6,11 @@ import Network
 ///
 /// Two complementary mechanisms drive reconnects:
 ///
-/// 1. **Periodic watchdog** — polls `isConnected` on a fixed interval and
-///    triggers reconnect when it returns false. Bounded latency for any
-///    drop the relay manager has noticed.
+/// 1. **Periodic watchdog** — polls the live `isConnected` query (which,
+///    after PR #101, asks rust-nostr for per-relay status rather than
+///    reading a cached flag) on a fixed interval and triggers reconnect
+///    when it returns false. Bounded latency for any drop visible to
+///    rust-nostr.
 ///
 /// 2. **`NWPathMonitor` reactive signal** — fires whenever iOS observes a
 ///    network path change (Wi-Fi/cellular swap, airplane mode toggle,
@@ -79,11 +81,17 @@ final class ConnectionCoordinator {
                     return
                 }
                 guard !self.isReconnecting, shouldReconnect() else { return }
+                // Set the busy flag synchronously, in the same critical
+                // section as the guard check, so a second path event
+                // landing between this Task and the inner reconnect Task
+                // observes the busy state and short-circuits. (Setting it
+                // inside the inner Task left a race window where two
+                // rapid path events both passed the guard and spawned
+                // overlapping reconnects.)
+                self.isReconnecting = true
                 self.pathReconnectTask = Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    defer { self?.isReconnecting = false }
                     guard !Task.isCancelled else { return }
-                    self.isReconnecting = true
-                    defer { self.isReconnecting = false }
                     await reconnect()
                 }
             }
