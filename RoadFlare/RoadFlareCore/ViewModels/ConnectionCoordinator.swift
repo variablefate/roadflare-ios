@@ -58,6 +58,12 @@ final class ConnectionCoordinator {
                 try? await Task.sleep(for: interval)
                 guard let self, !self.isReconnecting, shouldReconnect() else { continue }
                 guard !(await isConnected()) else { continue }
+                // Re-check after the connectivity await: a path-monitor
+                // event landing during the suspension can have set
+                // `isReconnecting = true` and started its own reconnect.
+                // Without this guard we'd kick off a second concurrent
+                // reconnect, tearing down the in-flight rebuild's client.
+                guard !self.isReconnecting else { continue }
                 self.isReconnecting = true
                 defer { self.isReconnecting = false }
                 await reconnect()
