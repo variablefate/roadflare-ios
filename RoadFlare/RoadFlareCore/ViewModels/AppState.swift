@@ -286,10 +286,15 @@ public final class AppState {
     /// Two failure-surface paths run concurrently per ADR-0017: the publish
     /// Task's catch block (eager-error — fires the banner immediately when
     /// the SDK throws and the relay is reachable, then cancels the
-    /// watchdog) and the watchdog Task (safety net at the timeout for the
-    /// hang case). Either is enough to surface `.failed`; both are tracked
-    /// here so retry / chain / identity-replacement can cancel them
-    /// atomically.
+    /// watchdog) and the watchdog Task. The watchdog now serves two
+    /// purposes: (a) safety net for the case where the SDK call hangs
+    /// without throwing or returning, and (b) the offline-park loop the
+    /// eager path defers to when the relay isn't reachable — the catch
+    /// block intentionally does nothing in the offline branch because
+    /// the watchdog's parking + rearm-poll is the right place to wait
+    /// for connectivity to come back. Either path is enough to surface
+    /// `.failed`; both are tracked here so retry / chain /
+    /// identity-replacement can cancel them atomically.
     private func startOnboardingPublish(domain: OnboardingPublishDomain) {
         onboardingPublishWatchdogTask?.cancel()
         onboardingPublishTask?.cancel()
@@ -435,12 +440,24 @@ public final class AppState {
     // MARK: - Forwarding to SDK (through SyncCoordinator)
 
     func publishProfile() async throws {
+        #if DEBUG
+        if let hook = publishProfileSDKHookForTesting {
+            try await hook()
+            return
+        }
+        #endif
         guard let service = roadflareDomainService,
               let syncStore = syncCoordinator?.roadflareSyncStore else { return }
         try await service.publishProfileAndMark(from: settings, syncStore: syncStore)
     }
 
     public func publishProfileBackup() async throws {
+        #if DEBUG
+        if let hook = publishProfileBackupSDKHookForTesting {
+            try await hook()
+            return
+        }
+        #endif
         guard let coordinator = syncCoordinator?.profileBackupCoordinator else { return }
         try await coordinator.publishAndMark(settings: settings, savedLocations: savedLocations)
     }
@@ -578,6 +595,17 @@ public final class AppState {
     var onboardingPublishHookForTesting: ((OnboardingPublishDomain) async throws -> Void)?
     var onboardingPublishConnectivityHookForTesting: (() async -> Bool)?
     var onboardingPublishIsDirtyHookForTesting: ((OnboardingPublishDomain) -> Bool)?
+
+    /// Test-only overrides for the per-publish SDK calls inside
+    /// `publishProfile()` and `publishProfileBackup()`. Lets unit tests
+    /// drive `saveAndPublishSettings`'s "always run both" invariant
+    /// without standing up a full RoadflareDomainService +
+    /// ProfileBackupCoordinator. The `onboardingPublishHookForTesting`
+    /// short-circuits at a coarser granularity (replaces the entire
+    /// `runOnboardingPublishImpl` body), so it can't exercise the
+    /// `saveAndPublishSettings` switch case.
+    var publishProfileSDKHookForTesting: (() async throws -> Void)?
+    var publishProfileBackupSDKHookForTesting: (() async throws -> Void)?
     var onboardingPublishTimeoutOverrideForTesting: TimeInterval?
     var onboardingPublishRearmOverrideForTesting: TimeInterval?
     #endif
