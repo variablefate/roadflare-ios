@@ -54,13 +54,25 @@ public actor RelayManager: RelayManagerProtocol {
         _handlerAlive = false
     }
 
-    /// Reconnect to relays if disconnected. Call from app foreground handler.
-    /// Does NOT restart subscriptions — callers must re-subscribe after this returns.
+    /// Force-rebuild the relay client. Call from app foreground handler.
+    ///
+    /// Always replaces the client rather than short-circuiting on cached
+    /// state because the cached state lies on iOS background→foreground:
+    /// the OS suspends WebSockets on background, rust-nostr's per-relay
+    /// status doesn't update until the next read/write attempt fails, and
+    /// the `_handlerAlive` flag only flips false on a hard error from the
+    /// notification handler (which doesn't fire on a silently-killed
+    /// socket). Tearing down and rebuilding is the only way to get
+    /// truthful state — the alternative is letting the user sit in
+    /// "everything looks fine" while their relays are dead.
+    ///
+    /// Does NOT restart subscriptions — callers must re-subscribe after
+    /// this returns. Cheap when relays are reachable (~1s handshake);
+    /// the trade-off vs. per-call cost is correctness on every foreground.
     public func reconnectIfNeeded() async {
         guard !connectedRelayURLs.isEmpty else { return }
-        guard client == nil || !_handlerAlive else { return }
 
-        RidestrLogger.error("[RelayManager] Reconnecting relay client")
+        RidestrLogger.info("[RelayManager] Force-rebuilding relay client (foreground / explicit reconnect)")
         do {
             try await replaceClient(with: connectedRelayURLs)
         } catch {
