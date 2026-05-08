@@ -150,7 +150,7 @@ struct SettingsTab: View {
                                             .font(RFFont.body(15))
                                             .foregroundColor(Color.rfOnSurface)
                                         Spacer()
-                                        Text("Version \(RidestrSDKVersion.version)")
+                                        Text(Bundle.main.appVersionLabel)
                                             .font(RFFont.body(14))
                                             .foregroundColor(Color.rfOnSurfaceVariant)
                                         Image(systemName: "chevron.right")

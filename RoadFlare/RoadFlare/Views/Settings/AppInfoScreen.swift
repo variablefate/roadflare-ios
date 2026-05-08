@@ -1,5 +1,4 @@
 import SwiftUI
-import RidestrSDK
 
 struct AppInfoScreen: View {
     @Environment(\.openURL) private var openURL
@@ -34,7 +33,7 @@ struct AppInfoScreen: View {
                                 .foregroundColor(Color.rfPrimary)
                         }
 
-                        Text("Version \(RidestrSDKVersion.version)")
+                        Text(Bundle.main.appVersionLabel)
                             .font(RFFont.caption(13))
                             .foregroundColor(Color.rfOnSurfaceVariant)
                     }
