@@ -172,7 +172,7 @@ private struct WaitingContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
                         .padding(.horizontal, 24)
                 }
-                Spacer().frame(height: 40)
+                Spacer().frame(height: 24)
             }
         }
         .onAppear { startDate = .now }
@@ -297,7 +297,7 @@ private struct WaitingContentView: View {
             }
             chatButton
                 .padding(.horizontal, 24)
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
     }
 
@@ -334,7 +334,7 @@ private struct WaitingContentView: View {
                 }
                 .padding(.horizontal, 24)
             }
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
     }
 
