@@ -64,4 +64,31 @@ struct RequestPingDriverHintTests {
 
         #expect(appState.pendingPingHint == nil)
     }
+
+    @MainActor
+    @Test func pendingPingHintSurvivesIdentityReplacementWhenNoKeypair() async throws {
+        // Parallels `HandleIncomingURLTests.navigationIntentSurvivesIdentity-
+        // ReplacementWhenNoKeypair`: `prepareForIdentityReplacement` clears
+        // navigation intents only when there's a prior keypair. With no prior
+        // keypair (cold-start), the conditional must preserve `pendingPingHint`
+        // alongside `selectedTab`, `requestRideDriverPubkey`, and
+        // `pendingDriverDeepLink`. This pins the contract so a future refactor
+        // of the conditional doesn't accidentally drop `pendingPingHint` from
+        // the preservation set. See ADR-0012.
+        //
+        // The keypair-SET branch cannot be unit-tested here: RoadFlareTests
+        // lacks Keychain entitlement, so generateNewKey/createWithPasskey/
+        // importKey all fail with errSecMissingEntitlement (-34018). That
+        // branch is verified via the manual test plan in this PR.
+        let appState = AppState()
+        appState.requestPingDriverHint()
+        #expect(appState.pendingPingHint != nil)
+        #expect(appState.selectedTab == 1)
+        #expect(appState.keypair == nil)
+
+        await appState.logout()
+
+        #expect(appState.pendingPingHint != nil, "Ping hint must survive identity replacement when no prior keypair existed")
+        #expect(appState.selectedTab == 1, "Tab selection must survive identity replacement when no prior keypair existed")
+    }
 }
