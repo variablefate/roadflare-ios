@@ -104,11 +104,17 @@ struct RFFont {
 /// Primary CTA button with flare gradient.
 struct RFPrimaryButtonStyle: ButtonStyle {
     var isDisabled = false
+    /// Override for the label foreground. Defaults to `.black`, which reads
+    /// well on the flare gradient. Callers can swap in a brand color when
+    /// the button enters a state where the gradient is replaced — e.g. the
+    /// disabled grey background during a loading state, where black-on-grey
+    /// has lower contrast than orange-on-grey.
+    var foregroundColor: Color = .black
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(RFFont.title(18))
-            .foregroundStyle(.black)
+            .foregroundStyle(foregroundColor)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
             .background(

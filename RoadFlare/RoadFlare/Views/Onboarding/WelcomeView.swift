@@ -225,13 +225,16 @@ struct ImportKeySheet: View {
                             } icon: {
                                 if passkeyLoading.isLoading {
                                     ProgressView()
-                                        .tint(.black)
+                                        .tint(.rfPrimary)
                                 } else {
                                     Image(systemName: "person.badge.key.fill")
                                 }
                             }
                         }
-                        .buttonStyle(RFPrimaryButtonStyle(isDisabled: passkeyLoading.isLoading))
+                        .buttonStyle(RFPrimaryButtonStyle(
+                            isDisabled: passkeyLoading.isLoading,
+                            foregroundColor: passkeyLoading.isLoading ? .rfPrimary : .black
+                        ))
                         .disabled(passkeyLoading.isLoading)
                         .accessibilityLabel(passkeyLoading.isLoading ? "Signing in with passkey" : "Sign in with passkey")
                         .accessibilityHint(passkeyLoading.isLoading ? "Waiting for the system passkey sheet" : "Opens the system passkey sheet to recover your account")
