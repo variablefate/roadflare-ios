@@ -27,6 +27,13 @@ struct DriversTab: View {
     @State private var sharingDriver: DriverListItem?
     @State private var pingToastMessage: String?
     @State private var pingToastIsError = false
+    /// Local trigger forwarded to every visible `DriverCard`. Issue #92: when
+    /// the user lands here via "Ping a Driver" in the ride flow, every bell
+    /// pulses once to teach the affordance. The value is mirrored from
+    /// `appState.pendingPingHint` (consumed below); we keep a local copy so
+    /// the cards' `.phaseAnimator` sees a clean nil → UUID transition AFTER
+    /// they have mounted, even on the first navigation to this tab.
+    @State private var bellPulseTrigger: UUID?
 
     var body: some View {
         NavigationStack {
@@ -42,6 +49,7 @@ struct DriversTab: View {
                             ForEach(appState.driverListItems()) { item in
                                 DriverCard(
                                     item: item,
+                                    bellPulseTrigger: bellPulseTrigger,
                                     onRequest: {
                                         appState.requestRideDriverPubkey = item.pubkey
                                         appState.selectedTab = 0
@@ -152,6 +160,17 @@ struct DriversTab: View {
                 guard let parsed = newValue else { return }
                 addDriverPresentation = AddDriverPresentation(prefill: parsed)
             }
+            .onChange(of: appState.pendingPingHint, initial: true) { _, newValue in
+                // "Ping a Driver" in the ride flow raised the hint. `initial:
+                // true` covers the first-mount case where the CTA fired before
+                // this tab's body had ever evaluated. We mirror to a local
+                // trigger and clear the AppState signal so the cards see a
+                // distinct nil → UUID transition AFTER they're already in the
+                // view tree (issue #92).
+                guard let token = newValue else { return }
+                bellPulseTrigger = token
+                appState.pendingPingHint = nil
+            }
             .toast($pingToastMessage, isError: pingToastIsError)
         }
     }
@@ -192,6 +211,9 @@ struct DriversTab: View {
 
 struct DriverCard: View {
     let item: DriverListItem
+    /// Changes when the parent wants every visible bell to pulse once
+    /// (issue #92). Nil means no pulse; a new UUID retriggers.
+    var bellPulseTrigger: UUID? = nil
     let onRequest: () -> Void
     let onShare: () -> Void
     let onPing: () -> Void
@@ -272,7 +294,7 @@ struct DriverCard: View {
                         Button(action: onPing) {
                             Image(systemName: "bell")
                                 .font(.system(size: 16))
-                                .foregroundColor(Color.rfOnSurfaceVariant)
+                                .modifier(BellPulseModifier(trigger: bellPulseTrigger))
                                 .frame(width: 44, height: 44)
                                 .background(Color.rfSurfaceContainerHigh)
                                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -377,6 +399,41 @@ struct DriverCard: View {
         case .keyStale:        return .rfError
         case .pendingApproval: return .rfTertiary
         case .offline:         return .rfOffline
+        }
+    }
+}
+
+// MARK: - Bell Pulse
+
+/// One-shot pulse hint for the bell icon — issue #92. Cycles foreground
+/// colour, scale, and opacity through three soft peaks so a first-time user
+/// arriving via "Ping a Driver" learns the bell is the tappable target.
+/// `phaseAnimator` runs the sequence once each time `trigger` becomes a new
+/// non-nil value; the final phase is the rest state, so the icon settles
+/// back to its normal appearance with no leftover styling. Honours Reduce
+/// Motion by short-circuiting to the static rest style.
+private struct BellPulseModifier: ViewModifier {
+    let trigger: UUID?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// 0.0 = rest, 1.0 = peak. Seven entries, six transitions = three
+    /// full pulse oscillations; ending on 0.0 leaves the icon at rest.
+    private static let phases: [Double] = [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
+    func body(content: Content) -> some View {
+        Group {
+            if reduceMotion {
+                content.foregroundColor(Color.rfOnSurfaceVariant)
+            } else {
+                content.phaseAnimator(Self.phases, trigger: trigger) { view, intensity in
+                    view
+                        .foregroundColor(intensity > 0.5 ? .orange : Color.rfOnSurfaceVariant)
+                        .scaleEffect(1.0 + 0.15 * intensity)
+                        .opacity(1.0 - 0.3 * intensity)
+                } animation: { _ in
+                    .easeInOut(duration: 0.25)
+                }
+            }
         }
     }
 }
