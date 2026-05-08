@@ -117,11 +117,23 @@ struct LocationCoordinatorSubscriptionRaceTests {
         #expect(firstID != secondID,
                 "Re-added subscription must use a fresh ID; otherwise the empty-frame's detached unsubscribe can tear it down")
 
-        // The detached unsubscribe targets the FIRST id, never the SECOND id.
+        // The new subscription must be live on the relay BEFORE the detached
+        // unsubscribe of `firstID` lands — otherwise we cannot tell whether the
+        // teardown survived.
+        #expect(await eventually { fake.isSubscriptionActive(secondID.rawValue) },
+                "Re-added subscription must register a live relay continuation")
+
+        // Now wait for the empty-frame's detached unsubscribe to fully resolve,
+        // and assert the new subscription is STILL live afterwards. With unique
+        // IDs the unsubscribe targets `firstID` only and cannot remove
+        // `secondID`'s continuation. With the old stable-ID design, `firstID`
+        // and `secondID` would collide and this assertion would fail.
         #expect(await eventually { fake.unsubscribeCalls.contains(firstID) },
-                "Empty-pubkeys path must unsubscribe the prior subscription so the negative assertion below is meaningful")
+                "Empty-pubkeys path must unsubscribe the prior subscription")
+        #expect(fake.isSubscriptionActive(secondID.rawValue),
+                "Late detached unsubscribe of firstID must not tear down secondID — events still flow")
         #expect(!fake.unsubscribeCalls.contains(secondID),
-                "A late unsubscribe targeting the new ID would prove the race is still possible")
+                "Defense in depth: secondID must never appear in unsubscribe calls in this sequence")
     }
 
     @Test func locationSubscriptionEmptyTearsDownPriorSubscription() async throws {
@@ -195,10 +207,15 @@ struct LocationCoordinatorSubscriptionRaceTests {
 
         let secondID = fake.subscribeCalls
             .last(where: { $0.id.rawValue.hasPrefix(Self.availabilityPrefix) })!.id
-        #expect(firstID != secondID)
+        #expect(firstID != secondID,
+                "Re-added subscription must use a fresh ID")
 
+        #expect(await eventually { fake.isSubscriptionActive(secondID.rawValue) },
+                "Re-added subscription must register a live relay continuation")
         #expect(await eventually { fake.unsubscribeCalls.contains(firstID) },
-                "Empty-pubkeys path must unsubscribe the prior subscription so the negative assertion below is meaningful")
+                "Empty-pubkeys path must unsubscribe the prior subscription")
+        #expect(fake.isSubscriptionActive(secondID.rawValue),
+                "Late detached unsubscribe of firstID must not tear down secondID — events still flow")
         #expect(!fake.unsubscribeCalls.contains(secondID))
     }
 
