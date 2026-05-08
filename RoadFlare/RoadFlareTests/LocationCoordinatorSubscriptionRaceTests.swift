@@ -15,9 +15,12 @@ import Testing
 @MainActor
 struct LocationCoordinatorSubscriptionRaceTests {
 
-    private static let locationPrefix = "roadflare-locations"
-    private static let availabilityPrefix = "driver-availability"
-    private static let keySharePrefix = "key-shares"
+    // Trailing dash anchors the match against the per-invocation UUID suffix,
+    // so a hypothetical future stable ID like `"key-shares-v2"` cannot silently
+    // satisfy these prefix checks.
+    private static let locationPrefix = "roadflare-locations-"
+    private static let availabilityPrefix = "driver-availability-"
+    private static let keySharePrefix = "key-shares-"
 
     private func makeBundle() throws -> (
         coordinator: LocationCoordinator,
@@ -115,7 +118,8 @@ struct LocationCoordinatorSubscriptionRaceTests {
                 "Re-added subscription must use a fresh ID; otherwise the empty-frame's detached unsubscribe can tear it down")
 
         // The detached unsubscribe targets the FIRST id, never the SECOND id.
-        _ = await eventually { fake.unsubscribeCalls.contains(firstID) }
+        #expect(await eventually { fake.unsubscribeCalls.contains(firstID) },
+                "Empty-pubkeys path must unsubscribe the prior subscription so the negative assertion below is meaningful")
         #expect(!fake.unsubscribeCalls.contains(secondID),
                 "A late unsubscribe targeting the new ID would prove the race is still possible")
     }
