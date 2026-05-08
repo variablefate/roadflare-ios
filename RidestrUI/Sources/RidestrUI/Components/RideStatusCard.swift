@@ -172,7 +172,7 @@ private struct WaitingContentView: View {
                         .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius))
                         .padding(.horizontal, 24)
                 }
-                Spacer().frame(height: 40)
+                Spacer().frame(height: 24)
             }
         }
         .onAppear { startDate = .now }
@@ -188,7 +188,7 @@ private struct WaitingContentView: View {
     // MARK: - En Route
 
     private var enRouteView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
             ZStack {
                 Circle().fill(theme.accentColor.opacity(0.1)).frame(width: 100, height: 100)
@@ -219,9 +219,14 @@ private struct WaitingContentView: View {
                 }
             }
 
-            Spacer()
+            // Note: no flexible Spacer between content and actionButtons —
+            // SwiftUI's default Spacer minLength equals the parent VStack's
+            // spacing (16pt), which previously contributed ~48pt of forced
+            // gap (16 + 16 min + 16) and pushed the AppHeader off-screen on
+            // smaller iPhones during the en-route stage. The single VStack
+            // spacing (16pt) is enough visual separation. See issue #90.
             actionButtons
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
     }
@@ -229,7 +234,7 @@ private struct WaitingContentView: View {
     // MARK: - Arrived (PIN)
 
     private var arrivedView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
             Image(systemName: "mappin.circle.fill")
                 .font(.system(size: 56))
@@ -258,9 +263,11 @@ private struct WaitingContentView: View {
                     .foregroundColor(theme.onSurfaceSecondaryColor)
                     .multilineTextAlignment(.center)
             }
-            Spacer()
+            // No flexible Spacer here — see enRouteView note. The default
+            // Spacer minLength would be 16pt, contributing a baseline ~48pt
+            // gap before actionButtons even when content overflows.
             actionButtons
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
     }
@@ -297,7 +304,7 @@ private struct WaitingContentView: View {
             }
             chatButton
                 .padding(.horizontal, 24)
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
     }
 
@@ -334,7 +341,7 @@ private struct WaitingContentView: View {
                 }
                 .padding(.horizontal, 24)
             }
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
     }
 
