@@ -123,6 +123,14 @@ public final class AppState {
     /// `AddDriverSheet` pre-filled; the consumer is responsible for clearing
     /// it back to `nil` after the sheet is dismissed. See `handleIncomingURL`.
     public var pendingDriverDeepLink: ParsedDriverQRCode?
+    /// One-shot signal raised by `requestPingDriverHint()` when the user taps
+    /// the "Ping a Driver" CTA in the ride flow. `DriversTab` observes this
+    /// and pulses the bell icon on every visible driver card to teach the
+    /// affordance — issue #92. The value is a UUID rather than a Bool so that
+    /// successive taps register as distinct changes (an idempotent `true`
+    /// would not retrigger SwiftUI observers). The consumer is responsible
+    /// for clearing it back to `nil` after consuming.
+    public var pendingPingHint: UUID?
 
     // MARK: - SDK Services
 
@@ -733,6 +741,21 @@ public final class AppState {
         selectedTab = 1  // Drivers tab — see MainTabView.swift
     }
 
+    // MARK: - Ping Driver Hint
+
+    /// Entry point for the "Ping a Driver" CTA in the ride flow. Switches to
+    /// the Drivers tab and raises a one-shot bell-pulse signal so DriversTab
+    /// can teach first-time users that the bell icon is the tappable target.
+    /// Issue #92.
+    ///
+    /// Direct `selectedTab = 1` assignments (Add-a-Driver empty state,
+    /// SettingsTab quick links, deep links) bypass this method on purpose —
+    /// only the Ping-a-Driver path should trigger the pulse.
+    public func requestPingDriverHint() {
+        pendingPingHint = UUID()
+        selectedTab = 1
+    }
+
     // MARK: - Connection & Foreground
 
     /// Called when app returns to foreground. Reconnects relays and restarts subscriptions if needed.
@@ -1066,20 +1089,21 @@ public final class AppState {
 
         // 5. UI state
         // Navigation intents (`selectedTab`, `requestRideDriverPubkey`,
-        // `pendingDriverDeepLink`) are only cleared on actual REPLACEMENT
-        // of a prior identity (logout, key import/regen with a prior
-        // keypair). On first-time setup (`keypair == nil`), preserve them
-        // so cold-start state — e.g. a `roadflared:` URL tapped before
-        // onboarding sets `selectedTab = 1` and `pendingDriverDeepLink` —
-        // survives the user's first `generateNewKey` / `createWithPasskey`
-        // / `importKey` call (each of which routes through this function
-        // BEFORE establishing the new identity) and is consumed by
-        // `DriversTab` once the user reaches the main tab view post-`.ready`.
-        // See ADR-0012.
+        // `pendingDriverDeepLink`, `pendingPingHint`) are only cleared on
+        // actual REPLACEMENT of a prior identity (logout, key import/regen
+        // with a prior keypair). On first-time setup (`keypair == nil`),
+        // preserve them so cold-start state — e.g. a `roadflared:` URL
+        // tapped before onboarding sets `selectedTab = 1` and
+        // `pendingDriverDeepLink` — survives the user's first
+        // `generateNewKey` / `createWithPasskey` / `importKey` call (each
+        // of which routes through this function BEFORE establishing the
+        // new identity) and is consumed by `DriversTab` once the user
+        // reaches the main tab view post-`.ready`. See ADR-0012.
         if keypair != nil {
             requestRideDriverPubkey = nil
             selectedTab = 0
             pendingDriverDeepLink = nil
+            pendingPingHint = nil
         }
         pingCooldowns = [:]
         keyRefreshCooldowns = [:]

@@ -78,7 +78,7 @@ struct RideRequestView: View {
                                 .padding(.horizontal, 32)
                             if appState.hasPingableDriver {
                                 Button("Ping a Driver") {
-                                    appState.selectedTab = 1
+                                    appState.requestPingDriverHint()
                                 }
                                 .buttonStyle(RFPrimaryButtonStyle())
                                 .padding(.horizontal, 48)
