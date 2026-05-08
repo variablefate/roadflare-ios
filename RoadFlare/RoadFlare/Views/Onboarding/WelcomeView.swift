@@ -208,7 +208,7 @@ struct ImportKeySheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var passkeyManager = PasskeyManager()
-    @State private var isLoading = false
+    @State private var passkeyLoading = LoadingTaskState()
 
     var body: some View {
         ZStack {
@@ -220,10 +220,24 @@ struct ImportKeySheet: View {
                         Button {
                             loginWithPasskey()
                         } label: {
-                            Label("Sign In with Passkey", systemImage: "person.badge.key.fill")
+                            Label {
+                                Text(passkeyLoading.isLoading ? "Signing In…" : "Sign In with Passkey")
+                            } icon: {
+                                if passkeyLoading.isLoading {
+                                    ProgressView()
+                                        .tint(.rfPrimary)
+                                } else {
+                                    Image(systemName: "person.badge.key.fill")
+                                }
+                            }
                         }
-                        .buttonStyle(RFPrimaryButtonStyle())
-                        .disabled(isLoading)
+                        .buttonStyle(RFPrimaryButtonStyle(
+                            isDisabled: passkeyLoading.isLoading,
+                            foregroundColor: passkeyLoading.isLoading ? .rfPrimary : .black
+                        ))
+                        .disabled(passkeyLoading.isLoading)
+                        .accessibilityLabel(passkeyLoading.isLoading ? "Signing in with passkey" : "Sign in with passkey")
+                        .accessibilityHint(passkeyLoading.isLoading ? "Waiting for the system passkey sheet" : "Opens the system passkey sheet to recover your account")
 
                         Text("Use your existing passkey to recover your account")
                             .font(RFFont.caption())
@@ -274,9 +288,9 @@ struct ImportKeySheet: View {
     }
 
     private func loginWithPasskey() {
-        guard !isLoading else { return }
-        isLoading = true
+        guard passkeyLoading.begin() else { return }
         Task {
+            defer { passkeyLoading.end() }
             do {
                 let keypair = try await passkeyManager.authenticateAndDeriveKey()
                 try await appState.importKey(keypair.exportNsec())
@@ -284,7 +298,6 @@ struct ImportKeySheet: View {
             } catch {
                 if !"\(error)".contains("cancelled") { errorMessage = error.localizedDescription }
             }
-            isLoading = false
         }
     }
 }
