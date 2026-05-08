@@ -197,7 +197,8 @@ struct LocationCoordinatorSubscriptionRaceTests {
             .last(where: { $0.id.rawValue.hasPrefix(Self.availabilityPrefix) })!.id
         #expect(firstID != secondID)
 
-        _ = await eventually { fake.unsubscribeCalls.contains(firstID) }
+        #expect(await eventually { fake.unsubscribeCalls.contains(firstID) },
+                "Empty-pubkeys path must unsubscribe the prior subscription so the negative assertion below is meaningful")
         #expect(!fake.unsubscribeCalls.contains(secondID))
     }
 
