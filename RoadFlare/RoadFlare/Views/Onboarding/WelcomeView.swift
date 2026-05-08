@@ -235,7 +235,6 @@ struct ImportKeySheet: View {
                         .disabled(passkeyLoading.isLoading)
                         .accessibilityLabel(passkeyLoading.isLoading ? "Signing in with passkey" : "Sign in with passkey")
                         .accessibilityHint(passkeyLoading.isLoading ? "Waiting for the system passkey sheet" : "Opens the system passkey sheet to recover your account")
-                        .accessibilityAddTraits(passkeyLoading.isLoading ? .isStaticText : [])
 
                         Text("Use your existing passkey to recover your account")
                             .font(RFFont.caption())
