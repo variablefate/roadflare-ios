@@ -233,20 +233,10 @@ struct DriverCard: View {
                         .foregroundColor(Color.rfOnSurface)
                         .lineLimit(1)
 
-                    HStack(spacing: 0) {
-                        if let vehicle = item.vehicleDescription {
-                            Text(vehicle.uppercased())
-                                .font(RFFont.caption(11))
-                                .foregroundColor(Color.rfOnSurfaceVariant)
-                            Text(" · ")
-                                .font(RFFont.caption(11))
-                                .foregroundColor(Color.rfOffline)
-                        }
-                        Text(statusText)
-                            .font(RFFont.caption(11))
-                            .foregroundColor(statusColor)
-                    }
-                    .lineLimit(1)
+                    Text(statusText)
+                        .font(RFFont.caption(11))
+                        .foregroundColor(statusColor)
+                        .lineLimit(1)
 
                     // Status badge / request button
                     if item.canRequestRide {
