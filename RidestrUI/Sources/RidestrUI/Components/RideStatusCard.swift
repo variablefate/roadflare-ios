@@ -219,7 +219,12 @@ private struct WaitingContentView: View {
                 }
             }
 
-            Spacer()
+            // Note: no flexible Spacer between content and actionButtons —
+            // SwiftUI's default Spacer minLength equals the parent VStack's
+            // spacing (16pt), which previously contributed ~48pt of forced
+            // gap (16 + 16 min + 16) and pushed the AppHeader off-screen on
+            // smaller iPhones during the en-route stage. The single VStack
+            // spacing (16pt) is enough visual separation. See issue #90.
             actionButtons
             Spacer().frame(height: 24)
         }
@@ -258,7 +263,9 @@ private struct WaitingContentView: View {
                     .foregroundColor(theme.onSurfaceSecondaryColor)
                     .multilineTextAlignment(.center)
             }
-            Spacer()
+            // No flexible Spacer here — see enRouteView note. The default
+            // Spacer minLength would be 16pt, contributing a baseline ~48pt
+            // gap before actionButtons even when content overflows.
             actionButtons
             Spacer().frame(height: 24)
         }
