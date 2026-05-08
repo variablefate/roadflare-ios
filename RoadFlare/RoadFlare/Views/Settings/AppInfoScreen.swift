@@ -6,13 +6,6 @@ struct AppInfoScreen: View {
     private let repoURL = "https://github.com/variablefate/roadflare-ios"
     private let licenseURL = "https://github.com/variablefate/roadflare-ios/blob/main/LICENSE"
 
-    private var appVersionLabel: String {
-        let info = Bundle.main.infoDictionary
-        let marketing = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "Version \(marketing) (\(build))"
-    }
-
     var body: some View {
         ZStack {
             Color.rfSurface.ignoresSafeArea()
@@ -40,7 +33,7 @@ struct AppInfoScreen: View {
                                 .foregroundColor(Color.rfPrimary)
                         }
 
-                        Text(appVersionLabel)
+                        Text(Bundle.main.appVersionLabel)
                             .font(RFFont.caption(13))
                             .foregroundColor(Color.rfOnSurfaceVariant)
                     }
