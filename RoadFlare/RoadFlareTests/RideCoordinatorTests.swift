@@ -239,7 +239,7 @@ struct RideCoordinatorTests {
         // Step 1: establish initial location subscription so there is something to tear down.
         coordinator.location.startLocationSubscriptions()
         let initialSubscribed = await eventually {
-            fake.subscribeCalls.filter { $0.id.rawValue == "roadflare-locations" }.count >= 1
+            fake.subscribeCalls.filter { $0.id.rawValue.hasPrefix("roadflare-locations-") }.count >= 1
         }
         #expect(initialSubscribed, "initial subscribe must be established before key share arrives")
 
@@ -272,10 +272,10 @@ struct RideCoordinatorTests {
         // count >= 2 proves startLocationSubscriptions() fired twice.
         // unsubscribeCalls proves the old subscription was torn down first (LocationCoordinator.swift:71).
         let restarted = await eventually {
-            fake.subscribeCalls.filter { $0.id.rawValue == "roadflare-locations" }.count >= 2
+            fake.subscribeCalls.filter { $0.id.rawValue.hasPrefix("roadflare-locations-") }.count >= 2
         }
         #expect(restarted, "startLocationSubscriptions() must fire a second time after appliedNewer")
-        let unsubscribed = fake.unsubscribeCalls.contains { $0.rawValue == "roadflare-locations" }
+        let unsubscribed = fake.unsubscribeCalls.contains { $0.rawValue.hasPrefix("roadflare-locations-") }
         #expect(unsubscribed, "old location subscription must be torn down before the new one starts")
         #expect(fake.publishedEvents.contains { $0.kind == EventKind.followedDriversList.rawValue },
                 "appliedNewer key share must republish the followed-drivers list (Kind 30011)")
@@ -665,7 +665,7 @@ struct RideCoordinatorTests {
         await coordinator.restoreLiveSubscriptions()
 
         let wired = await eventually {
-            fake.subscribeCalls.contains { $0.id.rawValue == "key-shares" } &&
+            fake.subscribeCalls.contains { $0.id.rawValue.hasPrefix("key-shares-") } &&
                 fake.subscribeCalls.contains { $0.id.rawValue == "driver-state-\(rideCoordinatorConfirmationEventId)" } &&
                 fake.subscribeCalls.contains { $0.id.rawValue == "cancel-\(rideCoordinatorConfirmationEventId)" } &&
                 fake.subscribeCalls.contains { $0.id.rawValue == "chat-\(rideCoordinatorConfirmationEventId)" }

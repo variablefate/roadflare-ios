@@ -90,8 +90,12 @@ final class LocationCoordinator {
             return
         }
 
-        let subId = SubscriptionID("roadflare-locations")
+        // Issue #96: per-invocation unique IDs prevent the empty-pubkeys → re-add race.
+        // The empty-path detached unsubscribe targets the OLD unique ID, never reused, so
+        // a late CLOSE cannot tear down a freshly-issued REQ. Same pattern in all three
+        // managed subscriptions (`startKeyShareSubscription`, `startDriverAvailabilitySubscription`).
         let generation = UUID()
+        let subId = SubscriptionID("roadflare-locations-\(generation.uuidString)")
 
         let task = Task {
             previous?.task.cancel()
@@ -168,8 +172,8 @@ final class LocationCoordinator {
             return
         }
 
-        let subId = SubscriptionID("driver-availability")
         let generation = UUID()
+        let subId = SubscriptionID("driver-availability-\(generation.uuidString)")
 
         let task = Task {
             previous?.task.cancel()
@@ -216,8 +220,8 @@ final class LocationCoordinator {
     func startKeyShareSubscription() {
         let previous = takeKeyShareSubscription()
 
-        let subId = SubscriptionID("key-shares")
         let generation = UUID()
+        let subId = SubscriptionID("key-shares-\(generation.uuidString)")
 
         let task = Task {
             previous?.task.cancel()
