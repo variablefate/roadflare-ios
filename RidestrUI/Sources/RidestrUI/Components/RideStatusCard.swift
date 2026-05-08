@@ -188,7 +188,7 @@ private struct WaitingContentView: View {
     // MARK: - En Route
 
     private var enRouteView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
             ZStack {
                 Circle().fill(theme.accentColor.opacity(0.1)).frame(width: 100, height: 100)
@@ -221,7 +221,7 @@ private struct WaitingContentView: View {
 
             Spacer()
             actionButtons
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
     }
@@ -229,7 +229,7 @@ private struct WaitingContentView: View {
     // MARK: - Arrived (PIN)
 
     private var arrivedView: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
             Image(systemName: "mappin.circle.fill")
                 .font(.system(size: 56))
@@ -260,7 +260,7 @@ private struct WaitingContentView: View {
             }
             Spacer()
             actionButtons
-            Spacer().frame(height: 40)
+            Spacer().frame(height: 24)
         }
         .padding(.horizontal, 24)
     }

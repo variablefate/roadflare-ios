@@ -17,10 +17,10 @@ public struct PINDisplayView: View {
 
     public var body: some View {
         Text(pin)
-            .font(theme.display(72))
+            .font(theme.display(60))
             .foregroundColor(theme.accentColor)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 16)
+            .padding(.horizontal, 28)
+            .padding(.vertical, 12)
             .background(theme.surfaceSecondaryColor)
             .clipShape(RoundedRectangle(cornerRadius: theme.cardCornerRadius + 4))
             .themedShadow()
