@@ -405,13 +405,15 @@ struct DriverCard: View {
 
 // MARK: - Bell Pulse
 
-/// One-shot pulse hint for the bell icon — issue #92. Cycles foreground
-/// colour, scale, and opacity through three soft peaks so a first-time user
-/// arriving via "Ping a Driver" learns the bell is the tappable target.
-/// `phaseAnimator` runs the sequence once each time `trigger` becomes a new
-/// non-nil value; the final phase is the rest state, so the icon settles
-/// back to its normal appearance with no leftover styling. Honours Reduce
-/// Motion by short-circuiting to the static rest style.
+/// One-shot pulse hint for the bell icon — issue #92. At each peak the
+/// outline bell swaps to the filled `bell.fill` variant tinted orange, then
+/// drains back to the outline rest state, three times. `phaseAnimator` runs
+/// the sequence once each time `trigger` becomes a new non-nil value; the
+/// final phase is rest, so the icon settles back to its normal appearance
+/// with no leftover styling. The `.contentTransition(.symbolEffect(.replace))`
+/// smooths the outline ↔ fill swap so the bell appears to fill in rather
+/// than snap. Honours Reduce Motion by short-circuiting to the static rest
+/// style.
 private struct BellPulseModifier: ViewModifier {
     let trigger: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -425,14 +427,17 @@ private struct BellPulseModifier: ViewModifier {
             if reduceMotion {
                 content.foregroundColor(Color.rfOnSurfaceVariant)
             } else {
-                content.phaseAnimator(Self.phases, trigger: trigger) { view, intensity in
-                    view
-                        .foregroundColor(intensity > 0.5 ? .orange : Color.rfOnSurfaceVariant)
-                        .scaleEffect(1.0 + 0.15 * intensity)
-                        .opacity(1.0 - 0.3 * intensity)
-                } animation: { _ in
-                    .easeInOut(duration: 0.25)
-                }
+                content
+                    .contentTransition(.symbolEffect(.replace))
+                    .phaseAnimator(Self.phases, trigger: trigger) { view, intensity in
+                        view
+                            .symbolVariant(intensity > 0.5 ? .fill : .none)
+                            .foregroundColor(intensity > 0.5 ? .orange : Color.rfOnSurfaceVariant)
+                            .scaleEffect(1.0 + 0.15 * intensity)
+                            .opacity(1.0 - 0.3 * intensity)
+                    } animation: { _ in
+                        .easeInOut(duration: 0.25)
+                    }
             }
         }
     }
