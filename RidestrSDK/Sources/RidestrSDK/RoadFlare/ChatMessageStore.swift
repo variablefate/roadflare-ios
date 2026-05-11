@@ -35,8 +35,10 @@ public enum ChatMessageAppendOutcome: Equatable, Sendable {
 ///
 /// Owns deduplication (by message id), stable timestamp-ascending +
 /// id-tiebreak sort, fixed FIFO capacity, and unread counting gated by a
-/// caller-supplied cutoff so replayed history on subscription start does
-/// not inflate the badge.
+/// caller-supplied cutoff. Callers set the cutoff via `setUnreadCutoff(_:)`
+/// when a subscription session begins so replayed history does not inflate
+/// the badge; the cutoff defaults to `0`, so without an explicit set every
+/// remote message would count as unread.
 ///
 /// Does not parse Nostr events, decrypt content, manage subscriptions, or
 /// fire UI feedback such as haptics — callers layer those on top. This

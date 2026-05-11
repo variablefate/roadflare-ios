@@ -3,11 +3,12 @@ import RidestrSDK
 
 /// Manages in-ride chat messaging (Kind 3178).
 ///
-/// Owns the subscription lifetime (start/stop, generation-counter guard) and
-/// the iOS-side feedback (haptics on incoming remote messages). All message
-/// list state — dedup, sort, capacity, unread counting — lives in the
-/// SDK-side `ChatMessageStore` so it can be reused by a driver-side
-/// consumer.
+/// Owns the subscription lifetime (start/stop, generation-counter guard),
+/// outbound message publishing via `sendChatMessage(_:)`, the iOS-side
+/// haptic feedback on incoming remote messages, and surfaces send failures
+/// via `lastError`. All message-list state — dedup, sort, capacity, unread
+/// counting — lives in the SDK-side `ChatMessageStore` so it can be reused
+/// by a driver-side consumer.
 @Observable
 @MainActor
 public final class ChatCoordinator {
