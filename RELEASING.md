@@ -11,6 +11,26 @@ This file is the canonical release runbook for this repo. It's written so a Clau
 
 Tagging convention: `v<marketing>-build<number>`, e.g. `v1.0.1-build3`. Tag the commit *after* a successful App Store Connect upload so the tag points at the exact code that was uploaded.
 
+## Pre-archive checklist (read this before clicking Archive)
+
+The build number bump must be a **committed and pushed** change on `main` before you archive. Bumping it in Xcode's UI at archive time and clicking Archive is the failure mode that left 1.0.2 untagged for weeks — the local edit never made it into git, so there was no SHA whose tree matched the shipped build.
+
+Run these three commands from the repo root before archiving. If any of them fail the assertion, **stop and fix it** before archiving:
+
+```bash
+# 1. No uncommitted changes (especially to project.pbxproj).
+git status --porcelain     # must print nothing
+
+# 2. Your local main is in sync with origin/main (bump is pushed).
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && echo OK
+
+# 3. The committed build number is what you intend to ship.
+git show HEAD:RoadFlare/RoadFlare.xcodeproj/project.pbxproj \
+  | grep -m1 CURRENT_PROJECT_VERSION
+```
+
+If `git status` shows `project.pbxproj` modified, you bumped via Xcode's Identity panel without committing — that's the 1.0.2 mistake. Commit it (`chore(release): build N`), push, then archive.
+
 ## Ask-Claude prompt templates
 
 Copy-paste these. They contain everything Claude needs.
@@ -27,10 +47,11 @@ Copy-paste these. They contain everything Claude needs.
 > 1. Read RELEASING.md.
 > 2. Find the highest existing build number across this repo and App Store Connect (I'll tell you what App Store Connect shows if you can't infer it from the repo) and pick the next integer above that.
 > 3. Bump CURRENT_PROJECT_VERSION in `project.pbxproj` to that number across all 8 occurrences.
-> 4. Commit on a clean main with message `chore(release): build N`.
-> 5. Tell me the exact `git tag` command to run *after* I confirm the upload to App Store Connect succeeded.
+> 4. Commit on a clean main with message `chore(release): build N` and **push** to `origin/main`. The bump must be on origin before I archive.
+> 5. Run the pre-archive checklist commands and confirm all three pass.
+> 6. Tell me the exact `git tag` command to run *after* I confirm the upload to App Store Connect succeeded.
 
-(Tag-after-upload, not tag-before-upload, so a failed upload doesn't leave a stale tag pointing at code that never shipped.)
+(Tag-after-upload, not tag-before-upload, so a failed upload doesn't leave a stale tag pointing at code that never shipped. But the bump-commit itself **must** be pushed before archive, not after — otherwise the shipped tree won't match any SHA in the repo.)
 
 ### When you've confirmed an upload succeeded
 
@@ -61,44 +82,39 @@ git commit -m "chore(release): bump marketing version to 1.0.1"
 ### Bump build number (right before archive)
 
 ```bash
-# Replace 1 with the current build number, 2 with the next
-sed -i '' 's/CURRENT_PROJECT_VERSION = 1;/CURRENT_PROJECT_VERSION = 2;/g' \
+# Replace 3 with the current build number, 4 with the next, 1.0.2 with the current marketing version
+sed -i '' 's/CURRENT_PROJECT_VERSION = 3;/CURRENT_PROJECT_VERSION = 4;/g' \
   RoadFlare/RoadFlare.xcodeproj/project.pbxproj
 git add RoadFlare/RoadFlare.xcodeproj/project.pbxproj
-git commit -m "chore(release): build 2"
+git commit -m "chore(release): build 4 for 1.0.2"
 git push origin main
 ```
 
 ### Tag a successful upload
 
 ```bash
-# Run after App Store Connect confirms the upload was accepted
-git tag v1.0.1-build2
-git push origin v1.0.1-build2
+# Run after App Store Connect confirms the upload was accepted.
+# Use an annotated tag (-a -m) so the tag carries its own metadata.
+git tag -a v1.0.2-build4 -m "Release 1.0.2 build 4"
+git push origin v1.0.2-build4
 ```
 
-## Anchoring history (one-time, for current production build)
+## Anchoring history
 
-The build that uploaded to App Store Connect at **2026-04-16 20:25 PT** has not been tagged. To anchor it retroactively (find the most plausible commit ancestor, likely `8b591b7` or a slightly later commit on `main`):
+Retroactive anchors that exist today (only create new retroactive tags if you also commit a backfill of the matching pbxproj state — the tag must point at a tree whose `CURRENT_PROJECT_VERSION` matches the shipped build):
 
-```bash
-# List candidate commits around the upload time
-git log --before="2026-04-16T20:25:00-07:00" --after="2026-04-16T13:00:00-07:00" --oneline
+- `v1.0.1-build2` — points at the `chore(release): build 2 for 1.0.1` commit.
+- `v1.0.2-build3` — points at the `chore(release): build 3 for 1.0.2 (retroactive)` commit. The bump was applied locally at archive time and never committed; #74 backfilled the commit so the tag has a tree to point at.
 
-# Pick the most likely sha and tag it
-git tag v1.0-build1 <sha>
-git push origin v1.0-build1
-```
+The 1.0 build 1 ship (App Store upload at 2026-04-16 20:25 PT) was never tagged and is not worth anchoring now — its bump was `CURRENT_PROJECT_VERSION = 1`, which is the same value the repo had at HEAD at the time, so any nearby commit's tree matches. Use `git log --before=2026-04-16T20:25 main --oneline | head -1` if you ever need the closest SHA.
 
-This is a one-time anchor — once tagged, future "what's shipped vs what's pending" queries work cleanly via `git log v1.0-build1..main`.
+## Current versioning state
 
-## Versioning state at the time this file was written
-
-- Most recent App Store upload: **2026-04-16 20:25 PT**
-- That upload's build settings: `MARKETING_VERSION = 1.0`, `CURRENT_PROJECT_VERSION = 1`
-- **Current marketing version on `main`: `1.0.1`** (bumped in this commit; reflects the next-shipping release, not the live App Store version)
-- Current build number on `main`: still `1` — bump immediately before next archive (next number is at minimum `2`; cross-check App Store Connect for any TestFlight uploads that may have occupied higher numbers)
-- No git tags exist yet. The "anchoring history" step above creates the first one.
+- **Latest App Store release:** `1.0.2` build `3` — tagged `v1.0.2-build3`.
+- **Latest TestFlight upload:** same.
+- **`MARKETING_VERSION` on `main`:** `1.0.2`.
+- **`CURRENT_PROJECT_VERSION` on `main`:** `3`.
+- **Next upload:** bump `CURRENT_PROJECT_VERSION` to `4` minimum. Bump `MARKETING_VERSION` only if starting a new public release cycle. Run the pre-archive checklist before clicking Archive.
 
 ## Why this file exists
 
