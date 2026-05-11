@@ -163,7 +163,7 @@ struct HandleIncomingURLTests {
         // first-time user who tapped a share link before onboarding would
         // lose the intent the moment they tap "Generate Key" / "Create with
         // Passkey" — both of which call `prepareForIdentityReplacement`
-        // internally before establishing the new identity. See ADR-0012.
+        // internally before establishing the new identity. See ADR-0019.
         //
         // The keypair-SET branch (cross-user leak protection on logout)
         // cannot be unit-tested here: the RoadFlareTests target lacks

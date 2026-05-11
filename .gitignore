@@ -1,6 +1,12 @@
 # Xcode
 **/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.pbxuser
+*.moved-aside
+*.hmap
 DerivedData/
 build/
 *.ipa
@@ -15,11 +21,31 @@ Package.resolved
 
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
 *.swp
+*.swo
 *~
+*.bak
+*.orig
+
+# Editors / IDEs (contributor-local)
+.idea/
+.vscode/
+.cursor/
+.zed/
+.fleet/
 
 # Local product docs
 PRD.md
+
+# Local-only planning, triage, and review scratch (agent-authored, contributor-
+# irrelevant). Architecture decisions belong in `decisions/` (ADRs); contributor
+# guidance belongs in README / RELEASING / CONTRIBUTING.
+docs/superpowers/
+docs/triage/
+docs/plans/
 
 # Branding backups (local-only design iterations)
 Branding/backups/

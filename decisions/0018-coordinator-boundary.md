@@ -1,4 +1,4 @@
-# ADR-0011: Coordinator Boundary Review — RoadFlareCore vs RidestrSDK
+# ADR-0018: Coordinator Boundary Review — RoadFlareCore vs RidestrSDK
 
 **Status:** Active
 **Created:** 2026-04-17
@@ -135,7 +135,7 @@ coordinators are already thin wrappers and wiring layers.
 The more pressing issue is not coordinator placement but **view bypass**: views
 importing `RidestrSDK` directly to read `FollowedDriversRepository` properties,
 pass `FollowedDriver` values, and call `RelayManager`. That is addressed in Phase B
-of this PR (ADR-0011 companion, issue #48).
+of this PR (ADR-0018 companion, issue #48).
 
 ## Alternatives Considered
 

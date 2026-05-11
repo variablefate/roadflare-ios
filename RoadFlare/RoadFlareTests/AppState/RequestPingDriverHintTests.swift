@@ -74,7 +74,7 @@ struct RequestPingDriverHintTests {
         // alongside `selectedTab`, `requestRideDriverPubkey`, and
         // `pendingDriverDeepLink`. This pins the contract so a future refactor
         // of the conditional doesn't accidentally drop `pendingPingHint` from
-        // the preservation set. See ADR-0012.
+        // the preservation set. See ADR-0019.
         //
         // The keypair-SET branch cannot be unit-tested here: RoadFlareTests
         // lacks Keychain entitlement, so generateNewKey/createWithPasskey/
