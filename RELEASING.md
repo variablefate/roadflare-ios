@@ -15,14 +15,21 @@ Tagging convention: `v<marketing>-build<number>`, e.g. `v1.0.1-build3`. Tag the 
 
 The build number bump must be a **committed and pushed** change on `main` before you archive. Bumping it in Xcode's UI at archive time and clicking Archive is the failure mode that left 1.0.2 untagged for weeks — the local edit never made it into git, so there was no SHA whose tree matched the shipped build.
 
-Run these three commands from the repo root before archiving. If any of them fail the assertion, **stop and fix it** before archiving:
+Run these checks from the repo root before archiving. Each prints `OK` on success or `FAIL: <reason>` on failure — if you see any `FAIL`, **stop and fix it** before archiving:
 
 ```bash
+# 0. Refresh remote refs so the in-sync check below isn't comparing against stale origin/main.
+git fetch origin --quiet
+
 # 1. No uncommitted changes (especially to project.pbxproj).
-git status --porcelain     # must print nothing
+[ -z "$(git status --porcelain)" ] \
+  && echo OK \
+  || { echo "FAIL: uncommitted changes:"; git status --porcelain; }
 
 # 2. Your local main is in sync with origin/main (bump is pushed).
-test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && echo OK
+[ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] \
+  && echo OK \
+  || echo "FAIL: HEAD=$(git rev-parse --short HEAD), origin/main=$(git rev-parse --short origin/main)"
 
 # 3. The committed build number is what you intend to ship.
 git show HEAD:RoadFlare/RoadFlare.xcodeproj/project.pbxproj \
