@@ -1,4 +1,4 @@
-# ADR-0012: `roadflared:` Custom URL Scheme for Driver Deep Links
+# ADR-0019: `roadflared:` Custom URL Scheme for Driver Deep Links
 
 **Status:** Active
 **Created:** 2026-04-27
@@ -104,7 +104,7 @@ without any in-app switching logic.
 - **`AppState` ownership of the intent** matches the existing pattern for
   `requestRideDriverPubkey` / `selectedTab`: external triggers write to
   `AppState`, the relevant tab observes and presents. Consistent with
-  ADR-0011's "AppState as single facade for view data."
+  ADR-0018's "AppState as single facade for view data."
 - **`pendingDriverDeepLink` as state, not a one-shot callback** survives
   cold-start: `.onOpenURL` can fire before `DriversTab` has even mounted.
   The state-based model lets the view consume the intent on first `.task`

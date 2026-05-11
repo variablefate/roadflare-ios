@@ -21,7 +21,7 @@ Constraints:
   silently leak old data across vehicle swaps.
 - `RidestrUI` ride surfaces are shared with Android; the on-wire Kind 30173
   shape and `d`-tag are already pinned by the protocol.
-- ADR-0011 (coordinator boundary) constrains where Nostr-protocol logic vs.
+- ADR-0018 (coordinator boundary) constrains where Nostr-protocol logic vs.
   iOS-presentation logic may live.
 - The active-ride view must stay locked to the vehicle the rider agreed to,
   even when the driver swaps mid-trip.
@@ -31,7 +31,7 @@ Constraints:
 Add a third managed Nostr subscription to `LocationCoordinator` —
 `activeDriverAvailabilitySubscription` — modeled exactly on the existing
 `activeLocationSubscription` and `activeKeyShareSubscription` (so
-`LocationCoordinator` now manages three subscriptions; ADR-0011's "two
+`LocationCoordinator` now manages three subscriptions; ADR-0018's "two
 subscriptions" prose is superseded by this ADR). The `FollowedDriversRepository`
 carries an in-memory `driverVehicles: [String: VehicleInfo]` cache with
 **overwrite-only semantics** (never merge).
@@ -77,7 +77,7 @@ live cache and fall back to the Kind 0 profile.
   fires `onDriverVehicleUpdate` after every successful parse, and
   `RideCoordinator.adoptVehicleIfNeeded` adopts the *first* event observed for
   the active driver, then locks the snapshot for the rest of the ride.
-- **ADR-0011 boundary preserved.** Parser, model, filter, and cache live in
+- **ADR-0018 boundary preserved.** Parser, model, filter, and cache live in
   `RidestrSDK` (Nostr-protocol semantics). Subscription lifecycle and the
   `activeRideVehicle` UI snapshot live in `RoadFlareCore` (platform glue).
 
@@ -94,7 +94,7 @@ live cache and fall back to the Kind 0 profile.
 - **Push the snapshot into `RiderRideSession` / `RideContext`** — keeps the
   ride-state machine aware of vehicle, but the SDK has no protocol-level reason
   to know about vehicle data, so this would conflate UI presentation with ride
-  protocol state. Rejected per ADR-0011.
+  protocol state. Rejected per ADR-0018.
 - **Replace the `onDriverVehicleUpdate` callback with `@Observable` reactive
   observation of `driversRepository.driverVehicles`** — `RideCoordinator` is
   itself `@Observable`, so it would naturally re-render when the repo's
