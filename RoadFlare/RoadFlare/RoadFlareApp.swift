@@ -35,6 +35,14 @@ struct RoadFlareApp: App {
                     // the parsed driver intent into the drivers tab.
                     appState.handleIncomingURL(url)
                 }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    // Universal Link dispatch (e.g. `https://roadflare.app/share/d/npub1...`).
+                    // Symmetric with `.onOpenURL` above; AppState extracts the
+                    // `webpageURL` and routes through the same `handleIncomingURL`
+                    // path. Requires `applinks:roadflare.app` in entitlements
+                    // plus the AASA file hosted on roadflare.app — see issue #63.
+                    appState.handleIncomingUserActivity(activity)
+                }
         }
     }
 }

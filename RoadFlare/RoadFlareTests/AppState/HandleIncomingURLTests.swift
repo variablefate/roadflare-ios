@@ -86,6 +86,74 @@ struct HandleIncomingURLTests {
     }
 
     @MainActor
+    @Test func universalLinkDriverShareRoutesToDriversTab() throws {
+        // Universal Links from `https://roadflare.app/share/d/<npub>` arrive
+        // via `.onContinueUserActivity(NSUserActivityTypeBrowsingWeb)`.
+        // `handleIncomingUserActivity` extracts `webpageURL` and dispatches
+        // through the same `handleIncomingURL` path used by the custom scheme.
+        // Issue #63.
+        let appState = AppState()
+        appState.selectedTab = 0
+        let npub = try makeNpub(hex: String(repeating: "6f", count: 32))
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        activity.webpageURL = URL(string: "https://roadflare.app/share/d/\(npub)?name=Universal%20Linker")
+
+        appState.handleIncomingUserActivity(activity)
+
+        #expect(appState.pendingDriverDeepLink == ParsedDriverQRCode(pubkeyInput: npub, scannedName: "Universal Linker"))
+        #expect(appState.selectedTab == 1)
+    }
+
+    @MainActor
+    @Test func universalLinkRiderShareRoutesToDriversTab() throws {
+        // `/share/r/<npub>` URLs go through the same parser path — the
+        // parser extracts the embedded npub regardless of `d` vs `r` segment.
+        // Routing them to the drivers tab is consistent with the parser's
+        // existing behavior for the matching custom-scheme inputs.
+        let appState = AppState()
+        appState.selectedTab = 0
+        let npub = try makeNpub(hex: String(repeating: "7a", count: 32))
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        activity.webpageURL = URL(string: "https://roadflare.app/share/r/\(npub)")
+
+        appState.handleIncomingUserActivity(activity)
+
+        #expect(appState.pendingDriverDeepLink == ParsedDriverQRCode(pubkeyInput: npub, scannedName: nil))
+        #expect(appState.selectedTab == 1)
+    }
+
+    @MainActor
+    @Test func userActivityWithoutWebpageURLIsDropped() {
+        // If the activity arrives without a `webpageURL` (shouldn't happen
+        // for `NSUserActivityTypeBrowsingWeb` in practice, but defend anyway),
+        // nothing happens — tab stays put, no deep-link intent populated.
+        let appState = AppState()
+        appState.selectedTab = 0
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+
+        appState.handleIncomingUserActivity(activity)
+
+        #expect(appState.pendingDriverDeepLink == nil)
+        #expect(appState.selectedTab == 0)
+    }
+
+    @MainActor
+    @Test func universalLinkUnknownPathIsDropped() {
+        // Unknown roadflare.app paths (no embedded npub) drop silently —
+        // the AASA `components` filter should keep them out of the app in
+        // production, but the in-app parser is the second line of defense.
+        let appState = AppState()
+        appState.selectedTab = 0
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        activity.webpageURL = URL(string: "https://roadflare.app/about")
+
+        appState.handleIncomingUserActivity(activity)
+
+        #expect(appState.pendingDriverDeepLink == nil)
+        #expect(appState.selectedTab == 0)
+    }
+
+    @MainActor
     @Test func navigationIntentSurvivesIdentityReplacementWhenNoKeypair() async throws {
         // Cold-start regression: when a `roadflared:` URL arrives before the
         // user has created an account (keypair is nil), the conditional in
@@ -117,6 +185,31 @@ struct HandleIncomingURLTests {
         await appState.logout()
 
         #expect(appState.pendingDriverDeepLink != nil, "Deep link must survive identity replacement when no prior keypair existed")
+        #expect(appState.selectedTab == 1, "Tab selection must survive identity replacement when no prior keypair existed")
+    }
+
+    @MainActor
+    @Test func userActivityNavigationIntentSurvivesIdentityReplacementWhenNoKeypair() async throws {
+        // Cold-start regression parity for Universal Links: same invariant as
+        // `navigationIntentSurvivesIdentityReplacementWhenNoKeypair` above, but
+        // exercised through `handleIncomingUserActivity`. Universal Links are
+        // the long-term primary share path (per ADR-0012 + issue #63), so the
+        // pre-onboarding tap path needs explicit coverage on this entry point
+        // — not just the `roadflared:` shim. See PR #66 for the precedent of
+        // pinning parallel regression coverage on each new entry seam.
+        let appState = AppState()
+        let npub = try makeNpub(hex: String(repeating: "8e", count: 32))
+        let activity = NSUserActivity(activityType: NSUserActivityTypeBrowsingWeb)
+        activity.webpageURL = URL(string: "https://roadflare.app/share/d/\(npub)")
+
+        appState.handleIncomingUserActivity(activity)
+        #expect(appState.pendingDriverDeepLink != nil)
+        #expect(appState.selectedTab == 1)
+        #expect(appState.keypair == nil)
+
+        await appState.logout()
+
+        #expect(appState.pendingDriverDeepLink != nil, "Universal Link intent must survive identity replacement when no prior keypair existed")
         #expect(appState.selectedTab == 1, "Tab selection must survive identity replacement when no prior keypair existed")
     }
 }
