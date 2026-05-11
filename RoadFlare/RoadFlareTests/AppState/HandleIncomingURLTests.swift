@@ -193,7 +193,7 @@ struct HandleIncomingURLTests {
         // Cold-start regression parity for Universal Links: same invariant as
         // `navigationIntentSurvivesIdentityReplacementWhenNoKeypair` above, but
         // exercised through `handleIncomingUserActivity`. Universal Links are
-        // the long-term primary share path (per ADR-0012 + issue #63), so the
+        // the long-term primary share path (per ADR-0019 + issue #63), so the
         // pre-onboarding tap path needs explicit coverage on this entry point
         // — not just the `roadflared:` shim. See PR #66 for the precedent of
         // pinning parallel regression coverage on each new entry seam.
