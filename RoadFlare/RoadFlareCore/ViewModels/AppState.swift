@@ -741,6 +741,20 @@ public final class AppState {
         selectedTab = 1  // Drivers tab — see MainTabView.swift
     }
 
+    /// Route an incoming Universal Link user activity into the app.
+    ///
+    /// Universal Links from `https://roadflare.app/share/...` arrive as an
+    /// `NSUserActivity` of type `NSUserActivityTypeBrowsingWeb` with the URL
+    /// in `webpageURL`. Extract the URL and dispatch through the same path
+    /// as custom-scheme URLs — `DriverQRCodeParser` already accepts the
+    /// `https://roadflare.app/share/d/<npub>` and `/share/r/<npub>` shapes.
+    /// Requires `applinks:roadflare.app` in entitlements and the AASA file
+    /// at `https://roadflare.app/.well-known/apple-app-site-association`.
+    public func handleIncomingUserActivity(_ activity: NSUserActivity) {
+        guard let url = activity.webpageURL else { return }
+        handleIncomingURL(url)
+    }
+
     // MARK: - Ping Driver Hint
 
     /// Entry point for the "Ping a Driver" CTA in the ride flow. Switches to
