@@ -75,7 +75,7 @@ public final class RideCoordinator {
     }
 
     var driversRepository: FollowedDriversRepository { location.driversRepository }
-    public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] { chat.chatMessages }
+    public var chatMessages: [ChatMessage] { chat.chatMessages }
     public var activeRidePaymentMethods: [String] {
         if !session.fiatPaymentMethods.isEmpty {
             return session.fiatPaymentMethods
