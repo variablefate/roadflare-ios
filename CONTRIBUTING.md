@@ -15,10 +15,7 @@ Open an issue describing the problem, what you expected, what happened, and the 
 
 ## Code signing for local builds
 
-`RoadFlare.xcodeproj` commits a `DEVELOPMENT_TEAM` value — that's the maintainer's Apple Developer Team ID, not a secret (every signed iOS binary exposes it). For your own local builds you have two options:
-
-- **GUI path:** open Xcode → select the `RoadFlare` target → Signing & Capabilities → set Team to your account. Xcode will rewrite `project.pbxproj` with your Team ID. Don't commit that change.
-- **xcconfig path (recommended for forks):** create an untracked `Local.xcconfig` next to the project with `DEVELOPMENT_TEAM = YOURTEAMID`, then set the project's base configuration to that file in Xcode's Info tab. This keeps your team ID out of `project.pbxproj` entirely.
+`RoadFlare.xcodeproj` commits a `DEVELOPMENT_TEAM` value — that's the maintainer's Apple Developer Team ID, not a secret (every signed iOS binary exposes it). To build locally on your own account, open Xcode → select the `RoadFlare` target → **Signing & Capabilities** → set **Team** to your developer account. Xcode rewrites `project.pbxproj` with your Team ID; don't commit that change.
 
 ## Security issues
 

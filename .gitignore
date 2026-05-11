@@ -37,9 +37,6 @@ Package.resolved
 .zed/
 .fleet/
 
-# Contributor-local signing override (see CONTRIBUTING.md)
-Local.xcconfig
-
 # Local product docs
 PRD.md
 
