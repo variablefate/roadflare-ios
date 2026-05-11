@@ -1098,7 +1098,7 @@ public final class AppState {
         // `generateNewKey` / `createWithPasskey` / `importKey` call (each
         // of which routes through this function BEFORE establishing the
         // new identity) and is consumed by `DriversTab` once the user
-        // reaches the main tab view post-`.ready`. See ADR-0012.
+        // reaches the main tab view post-`.ready`. See ADR-0019.
         if keypair != nil {
             requestRideDriverPubkey = nil
             selectedTab = 0
