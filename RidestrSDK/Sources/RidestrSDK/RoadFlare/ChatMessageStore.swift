@@ -68,6 +68,11 @@ public final class ChatMessageStore: @unchecked Sendable {
     /// Set the unread-counting cutoff (Unix seconds). Subsequent remote
     /// messages with `timestamp >= cutoff` will bump `unreadCount`.
     /// Callers typically invoke this when a new subscription session begins.
+    ///
+    /// The cutoff defaults to `0`, which means every remote message would
+    /// count as unread if `append(_:)` is called before a cutoff is set.
+    /// In normal use, the subscription-managing caller sets the cutoff at
+    /// subscribe-time before any events are routed in.
     public func setUnreadCutoff(_ timestamp: Int) {
         lock.withLock { self.unreadCutoff = timestamp }
     }

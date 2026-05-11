@@ -113,13 +113,16 @@ struct ChatMessageStoreTests {
     @Test func arrivingOlderMessageOverCapacityIsEvictedImmediately() {
         // Edge case: a stale message that sorts to the front of an already-full
         // store gets evicted in the same call. Documents the existing behaviour
-        // inherited from the coordinator.
+        // inherited from the coordinator: `unreadCount` is still incremented
+        // for the evicted message (the unread check runs after eviction).
+        // Locked in by the assertion below; revisit if that semantics changes.
         let store = makeStore(capacity: 2)
-        _ = store.append(message(id: "b", timestamp: 200))
-        _ = store.append(message(id: "c", timestamp: 300))
-        let outcome = store.append(message(id: "a", timestamp: 100))
-        if case .inserted = outcome {} else { Issue.record("expected inserted outcome") }
+        _ = store.append(message(id: "b", isMine: true, timestamp: 200))
+        _ = store.append(message(id: "c", isMine: true, timestamp: 300))
+        let outcome = store.append(message(id: "a", isMine: false, timestamp: 100))
+        #expect(outcome == .inserted(incrementedUnread: true))
         #expect(store.messages.map(\.id) == ["b", "c"])
+        #expect(store.unreadCount == 1)
     }
 
     // MARK: - Unread tracking
