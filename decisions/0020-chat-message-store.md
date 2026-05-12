@@ -1,4 +1,4 @@
-# ADR-0018: ChatMessageStore — SDK-side chat message-list state
+# ADR-0020: ChatMessageStore — SDK-side chat message-list state
 
 **Status:** Active
 **Created:** 2026-05-11
@@ -6,7 +6,7 @@
 
 ## Context
 
-ADR-0011 (coordinator boundary review) concluded that `ChatCoordinator`'s
+ADR-0018 (coordinator boundary review) concluded that `ChatCoordinator`'s
 *subscription lifetime* belongs in `RoadFlareCore` while its *message-list
 state machine* (dedup by event id, timestamp+id sort, 500-message FIFO cap,
 unread counting gated by a subscription cutoff) is platform-neutral and a
@@ -23,7 +23,7 @@ existing Ridestr/Drivestr Kind 3178 stream produced by `RideshareEventBuilder`
 and parsed by `RideshareEventParser`.
 
 This ADR captures the design decisions made when extracting the type — the
-big-picture deferral was already justified in ADR-0011, but the
+big-picture deferral was already justified in ADR-0018, but the
 implementation-level choices (concurrency model, append API shape, capacity
 plumbing, default cutoff) belong here so a future reader does not have to
 infer them from git blame.
@@ -76,7 +76,7 @@ Specific decisions captured:
 8. **Field set on `ChatMessage`:** `id`, `text`, `isMine`, `timestamp` — no
    `senderPubkey`.
 9. **`ChatCoordinator` keeps its rider-framing parameter names**
-   (`driverPubkey`) and stays in `RoadFlareCore` per ADR-0011. The driver
+   (`driverPubkey`) and stays in `RoadFlareCore` per ADR-0018. The driver
    iOS app will build its own coordinator atop the same SDK store.
 
 ## Rationale
@@ -155,7 +155,7 @@ determination all stay in the SDK's `RideshareEventParser` /
 bit-for-bit). No protocol-surface changes are introduced.
 
 **Rider-framing parameter names on `ChatCoordinator`.** This coordinator
-is the rider's app-layer adapter. Per ADR-0011 it stays in `RoadFlareCore`
+is the rider's app-layer adapter. Per ADR-0018 it stays in `RoadFlareCore`
 and is not shared infrastructure — only the SDK store is. The driver iOS
 app will write a sibling `DriverChatCoordinator` (or whatever
 generalization makes sense at the time) that consumes `ChatMessageStore`
@@ -201,7 +201,7 @@ gain and the driver coordinator will not call this type at all.
 
 - **Generalize `ChatCoordinator` to be role-symmetric** (rename
   `driverPubkey` to `counterpartyPubkey`). Rejected — the coordinator
-  stays rider-only per ADR-0011; the driver app builds its own. Renaming
+  stays rider-only per ADR-0018; the driver app builds its own. Renaming
   would touch many rider call sites for no driver benefit.
 
 ## Consequences
