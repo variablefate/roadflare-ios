@@ -188,6 +188,11 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// This is the ride-side parallel of `canPingDriver`: both check `hasKey` and
     /// `!isStale`, but `canPingDriver` requires the driver to be offline while
     /// `canRequestRide` requires them to be online.
+    ///
+    /// Note: `!isStale` gates location-tracking UX, not offer encryption.
+    /// Kind 3173 encrypts to the driver's identity pubkey (unaffected by
+    /// RoadFlare key rotation); staleness only blocks Kind 30014 location
+    /// decryption mid-ride, recovered by Kind 3188 → 3186 refresh (ADR-0013).
     public func canRequestRide(_ driver: FollowedDriver) -> Bool {
         lock.withLock { canRequestRideLocked(driverPubkey: driver.pubkey) }
     }
