@@ -2,7 +2,7 @@
 
 A Swift Package implementing the [Ridestr](https://github.com/variablefate/ridestr) decentralized rideshare protocol on Nostr. Built on [rust-nostr](https://github.com/rust-nostr/nostr-sdk-swift) for relay management, event signing, and NIP-44 encryption.
 
-**iOS 17+ | macOS 14+ | Swift 6.0 | 528 tests | 80%+ coverage**
+**iOS 18+ | macOS 14+ | Swift 6.0 | 528 tests | 80%+ coverage**
 
 ## Quick Start
 
@@ -190,7 +190,7 @@ Fully interoperable with the [Android Ridestr app](https://github.com/variablefa
 
 ## Requirements
 
-- iOS 17.0+ / macOS 14.0+
+- iOS 18.0+ / macOS 14.0+
 - Swift 6.0+
 - Xcode 16.0+
 - [nostr-sdk-swift](https://github.com/rust-nostr/nostr-sdk-swift) 0.44.0+
