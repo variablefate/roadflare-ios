@@ -247,6 +247,96 @@ struct AppStateOnlineDriverOptionsTests {
     }
 }
 
+// MARK: - Issue #94: canRequestRide consolidation matrix
+
+/// Pins the contract from issue #94: both `driverDetailViewState(pubkey:).canRequestRide`
+/// and the `onlineDriverOptions()` membership predicate must agree with
+/// `FollowedDriversRepository.canRequestRide(_:)` across the canonical state matrix.
+///
+/// If a future change re-introduces an inline predicate at either projection
+/// site (or drifts the SDK helper from these expectations), this suite fails —
+/// no silent divergence between the SDK contract and the UI's view of "can ride
+/// be requested from this driver".
+@Suite("AppState canRequestRide matrix")
+@MainActor
+struct AppStateCanRequestRideMatrixTests {
+
+    /// Drives one row of (hasKey × keyStale × locationStatus) → expected outcome.
+    /// `locationStatus: nil` means no location broadcast was ever received.
+    struct Row: CustomStringConvertible, Sendable {
+        let hasKey: Bool
+        let keyStale: Bool
+        let locationStatus: String?
+        let expectedCanRequestRide: Bool
+
+        var description: String {
+            "hasKey=\(hasKey) stale=\(keyStale) status=\(locationStatus ?? "nil")"
+        }
+    }
+
+    /// Hand-rolled full matrix so any change to the truth table is explicit in the diff.
+    /// `true` only when the driver has a key, the key is not stale, AND the last broadcast
+    /// status is exactly "online" — the same conditions enforced by the SDK helper.
+    static let matrix: [Row] = [
+        // hasKey == false → always false, regardless of status / staleness.
+        .init(hasKey: false, keyStale: false, locationStatus: nil,        expectedCanRequestRide: false),
+        .init(hasKey: false, keyStale: false, locationStatus: "online",   expectedCanRequestRide: false),
+        .init(hasKey: false, keyStale: false, locationStatus: "offline",  expectedCanRequestRide: false),
+        .init(hasKey: false, keyStale: false, locationStatus: "on_ride",  expectedCanRequestRide: false),
+        .init(hasKey: false, keyStale: false, locationStatus: "unknown",  expectedCanRequestRide: false),
+        // hasKey + keyStale → always false.
+        .init(hasKey: true,  keyStale: true,  locationStatus: "online",   expectedCanRequestRide: false),
+        .init(hasKey: true,  keyStale: true,  locationStatus: "offline",  expectedCanRequestRide: false),
+        .init(hasKey: true,  keyStale: true,  locationStatus: "on_ride",  expectedCanRequestRide: false),
+        // hasKey + fresh, but status not online → false.
+        .init(hasKey: true,  keyStale: false, locationStatus: nil,        expectedCanRequestRide: false),
+        .init(hasKey: true,  keyStale: false, locationStatus: "offline",  expectedCanRequestRide: false),
+        .init(hasKey: true,  keyStale: false, locationStatus: "on_ride",  expectedCanRequestRide: false),
+        .init(hasKey: true,  keyStale: false, locationStatus: "unknown",  expectedCanRequestRide: false),
+        // The single "true" cell.
+        .init(hasKey: true,  keyStale: false, locationStatus: "online",   expectedCanRequestRide: true),
+    ]
+
+    private func setUp(_ row: Row) -> (AppState, FollowedDriversRepository, FollowedDriver) {
+        let driver = FollowedDriver(
+            pubkey: fakePubkeyA, name: "Matrix",
+            roadflareKey: row.hasKey ? fakeKey : nil
+        )
+        let repo = makeRepo(drivers: [driver])
+        if let status = row.locationStatus {
+            _ = repo.updateDriverLocation(pubkey: fakePubkeyA, latitude: 0, longitude: 0,
+                                          status: status, timestamp: 1_000_000, keyVersion: 1)
+        }
+        if row.keyStale { repo.markKeyStale(pubkey: fakePubkeyA) }
+        let appState = AppState()
+        appState.installDriverPingTestContext(driversRepository: repo)
+        return (appState, repo, driver)
+    }
+
+    @Test(arguments: AppStateCanRequestRideMatrixTests.matrix)
+    func sdkHelperAgreesWithMatrix(row: Row) {
+        let (_, repo, driver) = setUp(row)
+        #expect(repo.canRequestRide(driver) == row.expectedCanRequestRide,
+                "SDK helper diverged from matrix at \(row)")
+    }
+
+    @Test(arguments: AppStateCanRequestRideMatrixTests.matrix)
+    func driverDetailViewStateMatchesHelper(row: Row) {
+        let (appState, _, _) = setUp(row)
+        let state = appState.driverDetailViewState(pubkey: fakePubkeyA)
+        #expect(state?.canRequestRide == row.expectedCanRequestRide,
+                "DriverDetailViewState.canRequestRide diverged at \(row)")
+    }
+
+    @Test(arguments: AppStateCanRequestRideMatrixTests.matrix)
+    func onlineDriverOptionsMembershipMatchesHelper(row: Row) {
+        let (appState, _, _) = setUp(row)
+        let included = appState.onlineDriverOptions().contains { $0.pubkey == fakePubkeyA }
+        #expect(included == row.expectedCanRequestRide,
+                "onlineDriverOptions() membership diverged at \(row)")
+    }
+}
+
 // MARK: - AppState.hasPingableDriver
 
 @Suite("AppState.hasPingableDriver")

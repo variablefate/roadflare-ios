@@ -38,19 +38,21 @@ extension AppState {
             profile: repo.driverProfiles[pubkey],
             vehicle: repo.driverVehicles[pubkey],
             isKeyStale: repo.staleKeyPubkeys.contains(pubkey),
-            canPing: repo.canPingDriver(driver)
+            canPing: repo.canPingDriver(driver),
+            canRequestRide: repo.canRequestRide(driver)
         )
     }
 
     /// Available driver options for a new ride request (online, non-stale drivers only).
     public func onlineDriverOptions() -> [RideRequestDriverOption] {
         guard let repo = driversRepository else { return [] }
-        return RideRequestDriverOption.onlineOptions(
-            from: repo.drivers,
-            driverNames: repo.driverNames,
-            driverLocations: repo.driverLocations,
-            staleKeyPubkeys: repo.staleKeyPubkeys
-        )
+        return repo.drivers.compactMap { driver in
+            RideRequestDriverOption.from(
+                driver,
+                displayName: repo.cachedDriverName(pubkey: driver.pubkey),
+                canRequestRide: repo.canRequestRide(driver)
+            )
+        }
     }
 
     /// `true` when any followed driver is currently a valid ping target.

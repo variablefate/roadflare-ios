@@ -34,7 +34,8 @@ Initial types: `DriverListItem`, `DriverDetailViewState`, `RideRequestDriverOpti
 - All new screen state types follow this pattern: `public struct Foo: Equatable, Sendable` with `static func from(...)`.
 - Views import `RoadFlareCore` only; zero direct `RidestrSDK` imports in view files.
 - Factory signatures are the contract: adding a new display field means adding a parameter (or deriving it from existing ones), keeping the call site explicit about what data each type needs.
-- Callers must supply `isKeyStale:` for driver-facing types; this comes from `FollowedDriversRepository.staleKeyPubkeys`.
+- Callers must supply `isKeyStale:` for the driver-facing types that surface key-staleness as a separate status field — currently `DriverListItem` and `DriverDetailViewState`. The boolean comes from `FollowedDriversRepository.staleKeyPubkeys`.
+- Cross-cutting SDK-owned domain rules (e.g. ride-request eligibility) are resolved by `AppState+Presentation` via the SDK helper that owns the rule and passed in as a resolved boolean — not re-derived inside the factory. `canRequestRide: Bool` follows this pattern via `FollowedDriversRepository.canRequestRide(_:)`; see issue #94 / PR #117.
 
 ## Affected Files
 
