@@ -43,7 +43,7 @@ public struct ChatMessage: Hashable, Sendable {
 
 public enum ChatMessageAppendOutcome: Equatable, Sendable {
     case duplicate
-    case inserted(incrementedUnread: Bool)
+    case inserted
 }
 
 @Observable
@@ -68,7 +68,9 @@ Specific decisions captured:
 3. **Sort:** ascending `timestamp`, tiebreak ascending `id` — deterministic.
 4. **Capacity:** init parameter with default `500`. FIFO eviction (drop
    `removeFirst()` after sort).
-5. **Append API:** returns `enum AppendOutcome { duplicate, inserted(incrementedUnread:) }`.
+5. **Append API:** returns `enum AppendOutcome { duplicate, inserted }`. Callers
+   that need to know whether the append also bumped `unreadCount` observe the
+   counter directly rather than receiving it as a return-value side channel.
 6. **Unread cutoff:** caller-supplied via `setUnreadCutoff(_:)`, defaults to
    `0`, inclusive check (`timestamp >= cutoff`).
 7. **`reset()` semantics:** clears messages, message-id set, and
@@ -114,11 +116,18 @@ costs essentially nothing, lets tests exercise the boundary with small
 capacities (`capacity: 2` and `capacity: 5` in the test suite), and gives
 future consumers a config knob without forcing a refactor.
 
-**Append outcome enum.** `Bool` would have told callers *whether* a message
-was inserted but not whether it bumped the unread counter — and the
-coordinator's haptic decision needs to know both. The enum bundles the two
-signals atomically without polling the counter or recomputing the cutoff
-check externally.
+**Append outcome enum.** The enum's named cases (`.duplicate`, `.inserted`)
+read more clearly at call sites than a `Bool` would — the haptic decision
+in `ChatCoordinator.handleChatEvent` becomes a self-describing
+`if case .inserted = store.append(message), !message.isMine`. An earlier
+revision attached an `incrementedUnread: Bool` payload to `.inserted`,
+motivated by a hypothetical caller that needed to know whether the badge
+just bumped (e.g. for a "fresh-unread pulse" UI). The actual coordinator
+never read the payload — it only checks the case — and every test that
+exercised the unread side effect also asserts `store.unreadCount` directly,
+which is the canonical source. The payload was therefore dead public surface
+and was dropped; if a future consumer genuinely needs a fresh-unread signal
+it can be added back as an associated value at that time.
 
 **Default cutoff of 0.** This makes "no cutoff set" equivalent to "every
 remote message is unread," which is the safe default for a fresh store
@@ -178,10 +187,20 @@ gain and the driver coordinator will not call this type at all.
   test-seam value (running boundary tests with `capacity: 2` instead of
   pushing 501 messages) was outsized.
 
-- **`@discardableResult func append(_:) -> Bool`.** Simpler. Rejected
-  because the coordinator's haptic decision needs to know whether the
-  message also bumped unread; `Bool` would have forced callers to poll
-  `unreadCount` deltas, which is brittle.
+- **`@discardableResult func append(_:) -> Bool`.** Strictly equivalent
+  to the chosen `enum { duplicate, inserted }`. Rejected on readability —
+  `if case .inserted = store.append(msg)` at the call site documents what
+  the value means; `if store.append(msg)` requires the reader to remember
+  which boolean polarity means "inserted."
+
+- **Bundle unread-bump info into the return value** (e.g. `.inserted(incrementedUnread:)`).
+  An earlier revision did this. Dropped because the only production
+  caller — `ChatCoordinator.handleChatEvent` — never read the payload;
+  it branches solely on `.inserted` vs `.duplicate` for haptics. Tests
+  that check the unread side effect assert `store.unreadCount` directly,
+  which is the canonical source. If a future consumer genuinely needs
+  a "fresh-unread" signal it can be added back as an associated value
+  at that point.
 
 - **Construct with cutoff in init, no `setUnreadCutoff(_:)`.** Removes
   the default-0 footgun. Rejected because the subscription-managing caller

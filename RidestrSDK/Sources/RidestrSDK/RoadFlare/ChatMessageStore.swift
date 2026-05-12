@@ -22,13 +22,13 @@ public struct ChatMessage: Hashable, Sendable {
 
 /// Result of appending a message to a `ChatMessageStore`.
 ///
-/// `.duplicate` is returned when a message with the same `id` is already
-/// present; the store is unchanged. `.inserted` is returned when the message
-/// is accepted; `incrementedUnread` is `true` iff the message was remote
-/// (`!isMine`) and its timestamp was at or after the current unread cutoff.
+/// `.duplicate` — a message with the same `id` is already present and the
+/// store is unchanged. `.inserted` — the message was accepted. Callers
+/// that need to know whether the append also incremented `unreadCount`
+/// observe `unreadCount` directly.
 public enum ChatMessageAppendOutcome: Equatable, Sendable {
     case duplicate
-    case inserted(incrementedUnread: Bool)
+    case inserted
 }
 
 /// Platform-neutral in-memory store for an in-ride chat thread.
@@ -97,11 +97,10 @@ public final class ChatMessageStore: @unchecked Sendable {
                 let removed = messages.removeFirst()
                 messageIds.remove(removed.id)
             }
-            let incrementedUnread = !message.isMine && message.timestamp >= unreadCutoff
-            if incrementedUnread {
+            if !message.isMine && message.timestamp >= unreadCutoff {
                 unreadCount += 1
             }
-            return .inserted(incrementedUnread: incrementedUnread)
+            return .inserted
         }
     }
 
