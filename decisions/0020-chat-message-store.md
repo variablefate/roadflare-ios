@@ -125,9 +125,9 @@ motivated by a hypothetical caller that needed to know whether the badge
 just bumped (e.g. for a "fresh-unread pulse" UI). The actual coordinator
 never read the payload — it only checks the case — and every test that
 exercised the unread side effect also asserts `store.unreadCount` directly,
-which is the canonical source. Per the project's YAGNI guidance the
-payload was dropped; if a future consumer genuinely needs a fresh-unread
-signal it can be added back as an associated value at that time.
+which is the canonical source. The payload was therefore dead public surface
+and was dropped; if a future consumer genuinely needs a fresh-unread signal
+it can be added back as an associated value at that time.
 
 **Default cutoff of 0.** This makes "no cutoff set" equivalent to "every
 remote message is unread," which is the safe default for a fresh store
