@@ -999,7 +999,7 @@ struct RideCoordinatorTests {
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
         coordinator.selectedPaymentMethod = "zelle"
         coordinator.lastError = "stale"
-        coordinator.chat.chatMessages = [(id: "m1", text: "hello", isMine: false, timestamp: 1)]
+        coordinator.chat.store.append(ChatMessage(id: "m1", text: "hello", isMine: false, timestamp: 1))
 
         coordinator.sessionDidReachTerminal(.cancelledByRider(reason: "Changed plans"))
 
@@ -1019,7 +1019,7 @@ struct RideCoordinatorTests {
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
         coordinator.selectedPaymentMethod = "zelle"
         coordinator.lastError = "stale"
-        coordinator.chat.chatMessages = [(id: "m1", text: "hello", isMine: false, timestamp: 1)]
+        coordinator.chat.store.append(ChatMessage(id: "m1", text: "hello", isMine: false, timestamp: 1))
 
         coordinator.sessionDidReachTerminal(.cancelledByDriver(reason: "No longer available"))
 
@@ -1039,7 +1039,7 @@ struct RideCoordinatorTests {
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
         coordinator.selectedPaymentMethod = "zelle"
         coordinator.lastError = "stale"
-        coordinator.chat.chatMessages = [(id: "m1", text: "hello", isMine: false, timestamp: 1)]
+        coordinator.chat.store.append(ChatMessage(id: "m1", text: "hello", isMine: false, timestamp: 1))
 
         coordinator.sessionDidReachTerminal(.expired(stage: .waitingForAcceptance))
 
@@ -1059,7 +1059,7 @@ struct RideCoordinatorTests {
         coordinator.currentFareEstimate = FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
         coordinator.selectedPaymentMethod = "zelle"
         coordinator.lastError = "stale"
-        coordinator.chat.chatMessages = [(id: "m1", text: "hello", isMine: false, timestamp: 1)]
+        coordinator.chat.store.append(ChatMessage(id: "m1", text: "hello", isMine: false, timestamp: 1))
 
         coordinator.sessionDidReachTerminal(.bruteForcePin)
 

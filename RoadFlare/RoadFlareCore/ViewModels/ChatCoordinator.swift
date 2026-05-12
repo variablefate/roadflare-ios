@@ -2,16 +2,23 @@ import Foundation
 import RidestrSDK
 
 /// Manages in-ride chat messaging (Kind 3178).
+///
+/// Owns the subscription lifetime (start/stop, generation-counter guard),
+/// outbound message publishing via `sendChatMessage(_:)`, the iOS-side
+/// haptic feedback on incoming remote messages, and surfaces send failures
+/// via `lastError`. All message-list state — dedup, sort, capacity, unread
+/// counting — lives in the SDK-side `ChatMessageStore` so it can be reused
+/// by a driver-side consumer.
 @Observable
 @MainActor
 public final class ChatCoordinator {
     private let relayManager: any RelayManagerProtocol
     private let keypair: NostrKeypair
+    let store: ChatMessageStore
 
-    public var chatMessages: [(id: String, text: String, isMine: Bool, timestamp: Int)] = []
-    public var unreadCount: Int = 0
-    private var chatMessageIds: Set<String> = []
-    private var subscriptionStartTime: Int = 0
+    public var chatMessages: [ChatMessage] { store.messages }
+    public var unreadCount: Int { store.unreadCount }
+
     private struct ActiveSubscription {
         let id: SubscriptionID
         let generation: UUID
@@ -24,13 +31,14 @@ public final class ChatCoordinator {
     public init(relayManager: any RelayManagerProtocol, keypair: NostrKeypair) {
         self.relayManager = relayManager
         self.keypair = keypair
+        self.store = ChatMessageStore()
     }
 
     // MARK: - Subscribe
 
     func subscribeToChat(driverPubkey: String, confirmationEventId: String) {
         let previous = takeActiveSubscription()
-        subscriptionStartTime = Int(Date.now.timeIntervalSince1970)
+        store.setUnreadCutoff(Int(Date.now.timeIntervalSince1970))
         let subId = SubscriptionID("chat-\(confirmationEventId)")
         let generation = UUID()
         let task = Task {
@@ -85,23 +93,13 @@ public final class ChatCoordinator {
                 expectedSenderPubkey: expectedSenderPubkey,
                 expectedConfirmationEventId: expectedConfirmationEventId
             )
-            let isMine = event.pubkey == keypair.publicKeyHex
-            guard !chatMessageIds.contains(event.id) else { return }
-            chatMessageIds.insert(event.id)
-            chatMessages.append((id: event.id, text: content.message, isMine: isMine, timestamp: event.createdAt))
-            // Sort by timestamp; tie-break by event ID for deterministic ordering
-            chatMessages.sort { $0.timestamp != $1.timestamp ? $0.timestamp < $1.timestamp : $0.id < $1.id }
-            // Cap at 500 messages to prevent memory bloat
-            if chatMessages.count > 500 {
-                let removed = chatMessages.removeFirst()
-                chatMessageIds.remove(removed.id)
-            }
-            if !isMine {
-                // Only count as unread if the message arrived after subscription start,
-                // to avoid inflating the badge with replayed history on app restart.
-                if event.createdAt >= subscriptionStartTime {
-                    unreadCount += 1
-                }
+            let message = ChatMessage(
+                id: event.id,
+                text: content.message,
+                isMine: event.pubkey == keypair.publicKeyHex,
+                timestamp: event.createdAt
+            )
+            if case .inserted = store.append(message), !message.isMine {
                 HapticManager.messageReceived()
             }
         } catch {
@@ -120,19 +118,12 @@ public final class ChatCoordinator {
                 keypair: keypair
             )
             _ = try await relayManager.publish(event)
-            guard !chatMessageIds.contains(event.id) else { return }
-            chatMessageIds.insert(event.id)
-            chatMessages.append((
+            store.append(ChatMessage(
                 id: event.id,
                 text: text,
                 isMine: true,
                 timestamp: event.createdAt
             ))
-            chatMessages.sort { $0.timestamp != $1.timestamp ? $0.timestamp < $1.timestamp : $0.id < $1.id }
-            if chatMessages.count > 500 {
-                let removed = chatMessages.removeFirst()
-                chatMessageIds.remove(removed.id)
-            }
         } catch {
             lastError = "Failed to send message: \(error.localizedDescription)"
         }
@@ -159,13 +150,11 @@ public final class ChatCoordinator {
     }
 
     public func markRead() {
-        unreadCount = 0
+        store.markRead()
     }
 
     func reset() {
-        chatMessages = []
-        chatMessageIds = []
-        unreadCount = 0
+        store.reset()
     }
 
     private func takeActiveSubscription() -> ActiveSubscription? {
