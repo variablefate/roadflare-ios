@@ -290,6 +290,10 @@ public final class RideCoordinator {
         destination: Location,
         fareEstimate: FareEstimate
     ) async {
+        // Clear any error from a prior attempt so a successful retry does
+        // not leave the previous failure string visible in the UI.
+        lastError = nil
+
         // Re-validate driver eligibility at send time. The UI gates the
         // "Request ride" button on `canRequestRide(_:)`, but a stale-key
         // event, status flip to offline, or driver removal can land in
@@ -305,6 +309,8 @@ public final class RideCoordinator {
                 lastError = "Driver's key needs a refresh."
             case .offline:
                 lastError = "Driver just went offline."
+            case .onRide:
+                lastError = "Driver is currently on another ride."
             }
             return
         }

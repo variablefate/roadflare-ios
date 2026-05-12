@@ -520,8 +520,14 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         }
         guard driver.hasKey else { return .missingKey }
         guard !staleKeyPubkeys.contains(driverPubkey) else { return .staleKey }
-        guard driverLocations[driverPubkey]?.status == "online" else { return .offline }
-        return nil
+        switch driverLocations[driverPubkey]?.status {
+        case "online":
+            return nil
+        case "on_ride":
+            return .onRide
+        default:
+            return .offline
+        }
     }
 }
 

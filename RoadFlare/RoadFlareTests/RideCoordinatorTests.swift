@@ -632,6 +632,78 @@ struct RideCoordinatorTests {
         #expect(!fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
     }
 
+    @MainActor
+    @Test func sendRideOfferAbortsWhenDriverGoesOnRideBeforeSend() async throws {
+        // Driver is broadcasting `on_ride` — present and reachable but
+        // servicing another ride. The send must surface this distinctly
+        // from a generic offline ("Driver just went offline") so the rider
+        // sees an accurate message and doesn't retry expecting a transient
+        // connection blip.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "on_ride",
+            timestamp: 2_000_000,
+            keyVersion: 1
+        )
+
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.session.stage == .idle)
+        #expect(coordinator.lastError?.contains("another ride") == true)
+        #expect(!fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
+    }
+
+    @MainActor
+    @Test func sendRideOfferClearsStaleLastErrorOnSuccessfulRetry() async throws {
+        // After a preflight failure leaves `lastError` set, a subsequent
+        // successful send must wipe the stale string so the UI does not
+        // continue to display the prior failure message.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "offline",
+            timestamp: 2_000_000,
+            keyVersion: 1
+        )
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+        #expect(coordinator.lastError?.contains("offline") == true)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "online",
+            timestamp: 3_000_000,
+            keyVersion: 1
+        )
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.lastError == nil)
+        #expect(coordinator.session.stage == .waitingForAcceptance)
+        #expect(fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
+    }
+
     // MARK: - Restore
 
     @MainActor

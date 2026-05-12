@@ -116,14 +116,16 @@ struct RideOfferPreflightTests {
         #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .offline)
     }
 
-    @Test func onRide_returnsOffline() {
+    @Test func onRide_returnsOnRide() {
         let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
         let repo = makeRepo(driver: driver)
         _ = repo.updateDriverLocation(pubkey: testPubkey, latitude: 0, longitude: 0,
                                       status: "on_ride", timestamp: 1_000_000, keyVersion: 1)
-        // "on_ride" is not "online" — the preflight surfaces this as .offline
-        // (i.e. "not available for a new offer right now").
-        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .offline)
+        // "on_ride" is distinct from "offline" — the driver is present and
+        // reachable but servicing another ride. The preflight surfaces this
+        // as `.onRide` so callers can show a more accurate message than
+        // "Driver just went offline."
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .onRide)
     }
 
     @Test func onlineWithCurrentKey_returnsNil() {
