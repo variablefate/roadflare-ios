@@ -79,6 +79,9 @@ public struct DriverDetailViewState: Equatable, Sendable, Identifiable {
     ///     for drivers whose Drivestr session never published Kind 30173. See issue #91.
     ///   - isKeyStale: Whether this driver's key has been flagged as stale.
     ///   - canPing: Whether the ping action is currently available for this driver.
+    ///   - canRequestRide: Whether a ride can currently be requested from this driver.
+    ///     Callers resolve this via `FollowedDriversRepository.canRequestRide(_:)` so the
+    ///     UI shares one atomic snapshot of the SDK contract — see issue #94.
     ///   - referenceDate: Used for relative timestamp formatting (injectable for testing).
     ///   - locale: Locale used for the relative timestamp. Defaults to `.current` so
     ///     production output follows the device locale; tests may inject a fixed locale.
@@ -90,6 +93,7 @@ public struct DriverDetailViewState: Equatable, Sendable, Identifiable {
         vehicle: VehicleInfo? = nil,
         isKeyStale: Bool,
         canPing: Bool,
+        canRequestRide: Bool,
         referenceDate: Date = .now,
         locale: Locale = .current
     ) -> DriverDetailViewState {
@@ -97,7 +101,6 @@ public struct DriverDetailViewState: Equatable, Sendable, Identifiable {
             ?? driver.name
             ?? (String(driver.pubkey.prefix(8)) + "...")
 
-        let canRequestRide = driver.hasKey && !isKeyStale && location?.status == "online"
         let status = resolveDriverPresentationStatus(
             hasKey: driver.hasKey, isKeyStale: isKeyStale, location: location
         )

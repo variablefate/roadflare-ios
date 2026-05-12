@@ -3,9 +3,9 @@ import RidestrSDK
 
 /// Display-ready representation of an online driver option in the ride request flow.
 ///
-/// Only drivers that are requestable — have a key, the key is not stale, and
-/// they are broadcasting "online" — should be projected into this type.
-/// The factory enforces that precondition and returns `nil` otherwise.
+/// Only drivers that are requestable — as determined by
+/// `FollowedDriversRepository.canRequestRide(_:)` — should be projected into
+/// this type. The factory enforces that precondition and returns `nil` otherwise.
 public struct RideRequestDriverOption: Equatable, Sendable, Identifiable {
 
     // MARK: - Identity
@@ -19,22 +19,22 @@ public struct RideRequestDriverOption: Equatable, Sendable, Identifiable {
 
     // MARK: - Factory
 
-    /// Project an online `FollowedDriver` into a ride-request driver option.
+    /// Project a `FollowedDriver` into a ride-request driver option.
     ///
-    /// Returns `nil` if the driver is not eligible (no key, stale key, or not online).
+    /// Returns `nil` when `canRequestRide` is `false`. The eligibility decision
+    /// itself is the SDK's responsibility (`FollowedDriversRepository.canRequestRide(_:)`);
+    /// this factory is a pure projection that trusts the resolved boolean. See issue #94.
     ///
     /// - Parameters:
     ///   - driver: The followed driver domain model.
     ///   - displayName: Display name from the repository if known; the factory falls back to driver.name then a short pubkey prefix.
-    ///   - location: The driver's latest cached location broadcast.
-    ///   - isKeyStale: Whether this driver's key has been flagged as stale.
+    ///   - canRequestRide: Whether a ride can currently be requested from this driver.
     public static func from(
         _ driver: FollowedDriver,
         displayName: String?,
-        location: CachedDriverLocation?,
-        isKeyStale: Bool
+        canRequestRide: Bool
     ) -> RideRequestDriverOption? {
-        guard driver.hasKey, !isKeyStale, location?.status == "online" else { return nil }
+        guard canRequestRide else { return nil }
 
         let resolvedName = displayName
             ?? driver.name
@@ -44,33 +44,5 @@ public struct RideRequestDriverOption: Equatable, Sendable, Identifiable {
             pubkey: driver.pubkey,
             displayName: resolvedName
         )
-    }
-
-    // MARK: - Convenience
-
-    /// Build the full list of available driver options from a repository snapshot.
-    ///
-    /// Drivers are included only when they have a key, the key is not stale, and they are broadcasting "online".
-    ///
-    /// - Parameters:
-    ///   - drivers: All followed drivers.
-    ///   - driverNames: Cached display name map from the repository.
-    ///   - driverLocations: Cached location map from the repository.
-    ///   - staleKeyPubkeys: Set of pubkeys whose keys are currently stale (from `FollowedDriversRepository.staleKeyPubkeys`).
-    ///     Always pass this — omitting it silently includes stale-key drivers in the result.
-    public static func onlineOptions(
-        from drivers: [FollowedDriver],
-        driverNames: [String: String],
-        driverLocations: [String: CachedDriverLocation],
-        staleKeyPubkeys: Set<String>
-    ) -> [RideRequestDriverOption] {
-        drivers.compactMap { driver in
-            from(
-                driver,
-                displayName: driverNames[driver.pubkey],
-                location: driverLocations[driver.pubkey],
-                isKeyStale: staleKeyPubkeys.contains(driver.pubkey)
-            )
-        }
     }
 }
