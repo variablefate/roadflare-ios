@@ -35,7 +35,7 @@ struct ChatMessageStoreTests {
     @Test func appendInsertsNewMessage() {
         let store = makeStore()
         let outcome = store.append(message(id: "a", timestamp: 100))
-        #expect(outcome == .inserted(incrementedUnread: true))
+        #expect(outcome == .inserted)
         #expect(store.messages.count == 1)
         #expect(store.messages[0].id == "a")
     }
@@ -120,7 +120,7 @@ struct ChatMessageStoreTests {
         _ = store.append(message(id: "b", isMine: true, timestamp: 200))
         _ = store.append(message(id: "c", isMine: true, timestamp: 300))
         let outcome = store.append(message(id: "a", isMine: false, timestamp: 100))
-        #expect(outcome == .inserted(incrementedUnread: true))
+        #expect(outcome == .inserted)
         #expect(store.messages.map(\.id) == ["b", "c"])
         #expect(store.unreadCount == 1)
     }
@@ -130,7 +130,7 @@ struct ChatMessageStoreTests {
     @Test func unreadDoesNotIncrementForOwnMessages() {
         let store = makeStore()
         let outcome = store.append(message(id: "a", isMine: true, timestamp: 100))
-        #expect(outcome == .inserted(incrementedUnread: false))
+        #expect(outcome == .inserted)
         #expect(store.unreadCount == 0)
     }
 
@@ -145,9 +145,10 @@ struct ChatMessageStoreTests {
         let store = makeStore()
         store.setUnreadCutoff(500)
         let stale = store.append(message(id: "old", isMine: false, timestamp: 400))
+        #expect(stale == .inserted)
+        #expect(store.unreadCount == 0)
         let live = store.append(message(id: "new", isMine: false, timestamp: 600))
-        #expect(stale == .inserted(incrementedUnread: false))
-        #expect(live == .inserted(incrementedUnread: true))
+        #expect(live == .inserted)
         #expect(store.unreadCount == 1)
     }
 
@@ -156,7 +157,7 @@ struct ChatMessageStoreTests {
         let store = makeStore()
         store.setUnreadCutoff(500)
         let atBoundary = store.append(message(id: "boundary", isMine: false, timestamp: 500))
-        #expect(atBoundary == .inserted(incrementedUnread: true))
+        #expect(atBoundary == .inserted)
         #expect(store.unreadCount == 1)
     }
 
@@ -196,7 +197,7 @@ struct ChatMessageStoreTests {
         #expect(store.unreadCount == 0)
         // Cutoff preserved: a message at timestamp 400 should NOT increment unread.
         let outcome = store.append(message(id: "b", isMine: false, timestamp: 400))
-        #expect(outcome == .inserted(incrementedUnread: false))
+        #expect(outcome == .inserted)
         #expect(store.unreadCount == 0)
     }
 
