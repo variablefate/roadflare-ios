@@ -121,7 +121,7 @@ The 1.0 build 1 ship (App Store upload at 2026-04-16 20:25 PT) was never tagged 
 - **Latest TestFlight upload:** same.
 - **`MARKETING_VERSION` on `main`:** `1.0.3` (staged for next upload).
 - **`CURRENT_PROJECT_VERSION` on `main`:** `4` (staged for next upload).
-- **Next upload:** ready to archive once #123 merges. Run the pre-archive checklist before clicking Archive. After App Store Connect confirms upload, tag `v1.0.3-build4`.
+- **Next upload:** the staged bump is sufficient — no further version edits needed before archive. Run the pre-archive checklist before clicking Archive. After App Store Connect confirms upload, tag per the `v<marketing>-build<number>` convention.
 
 ## Why this file exists
 
