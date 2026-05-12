@@ -61,6 +61,30 @@ struct RideCoordinatorTests {
         return (coordinator, fake, keypair, history, persistence)
     }
 
+    /// Add a freshly-generated driver to the coordinator's repo with a current
+    /// RoadFlare key and an `online` location, so `sendRideOffer`'s send-time
+    /// preflight passes and the test can exercise the publish path.
+    @MainActor
+    private func makeEligibleDriver(in coordinator: RideCoordinator) throws -> NostrKeypair {
+        let driver = try NostrKeypair.generate()
+        let roadflareKey = RoadflareKey(
+            privateKeyHex: String(repeating: "b", count: 64),
+            publicKeyHex: String(repeating: "c", count: 64),
+            version: 1, keyUpdatedAt: nil
+        )
+        coordinator.driversRepository.addDriver(
+            FollowedDriver(pubkey: driver.publicKeyHex, name: "Driver", roadflareKey: roadflareKey)
+        )
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "online",
+            timestamp: 1_000_000,
+            keyVersion: 1
+        )
+        return driver
+    }
+
     @MainActor
     private func eventually(
         timeout: Duration = .seconds(1),
@@ -315,7 +339,7 @@ struct RideCoordinatorTests {
     @MainActor
     @Test func sendRideOfferPublishesOfferTransitionsSessionAndPersists() async throws {
         let (coordinator, fake, _, _, persistence) = try await makeCoordinator()
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
         let fare = FareEstimate(distanceMiles: 5.0, durationMinutes: 15, fareUSD: 12.50)
         let pickup = Location(latitude: 40.71, longitude: -74.01, address: "Penn Station")
         let destination = Location(latitude: 40.76, longitude: -73.98, address: "Central Park")
@@ -338,7 +362,7 @@ struct RideCoordinatorTests {
         let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: ["venmo-business", "zelle", "cash"]
         )
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
 
         await coordinator.sendRideOffer(
             driverPubkey: driver.publicKeyHex,
@@ -363,10 +387,11 @@ struct RideCoordinatorTests {
     @MainActor
     @Test func sendRideOfferFailureSurfacesError() async throws {
         let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
         fake.shouldFailPublish = true
 
         await coordinator.sendRideOffer(
-            driverPubkey: String(repeating: "d", count: 64),
+            driverPubkey: driver.publicKeyHex,
             pickup: Location(latitude: 40.71, longitude: -74.01),
             destination: Location(latitude: 40.76, longitude: -73.98),
             fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
@@ -427,7 +452,7 @@ struct RideCoordinatorTests {
         let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: ["zelle"]
         )
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
 
         await coordinator.sendRideOffer(
             driverPubkey: driver.publicKeyHex,
@@ -456,7 +481,7 @@ struct RideCoordinatorTests {
         let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: []
         )
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
 
         await coordinator.sendRideOffer(
             driverPubkey: driver.publicKeyHex,
@@ -483,7 +508,7 @@ struct RideCoordinatorTests {
         let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: ["bitcoin", "cash"]
         )
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
 
         await coordinator.sendRideOffer(
             driverPubkey: driver.publicKeyHex,
@@ -510,7 +535,7 @@ struct RideCoordinatorTests {
         let (coordinator, fake, riderKeypair, _, _) = try await makeCoordinator(
             roadflarePaymentMethods: ["cash", "bitcoin"]
         )
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
 
         await coordinator.sendRideOffer(
             driverPubkey: driver.publicKeyHex,
@@ -530,6 +555,153 @@ struct RideCoordinatorTests {
         #expect(parsed.fiatFare?.amount == "12.50")
         #expect(parsed.fiatFare?.currency == "USD")
         #expect(parsed.paymentMethod == PaymentMethod.cash.rawValue)
+    }
+
+    // MARK: - Send-time preflight
+
+    @MainActor
+    @Test func sendRideOfferAbortsWhenDriverIsNotFollowed() async throws {
+        // UI predicate (`canRequestRide(_:)`) would have rejected this, but
+        // the coordinator must also re-check at send time because state can
+        // drift between button tap and publish. Pass a pubkey that is not
+        // in the repo and assert the offer never goes out.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let unknownDriver = String(repeating: "d", count: 64)
+
+        await coordinator.sendRideOffer(
+            driverPubkey: unknownDriver,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.session.stage == .idle)
+        #expect(coordinator.lastError != nil)
+        #expect(!fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
+    }
+
+    @MainActor
+    @Test func sendRideOfferAbortsWhenStaleKeyArrivesBeforeSend() async throws {
+        // Simulate the race that motivates the send-time preflight: the UI
+        // gated on `canRequestRide(_:)` (true), the rider tapped Request,
+        // and a Kind 3188 stale-key event landed in the gap. The send must
+        // bail with a key-related message rather than publish an offer the
+        // driver cannot decrypt.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
+
+        coordinator.driversRepository.markKeyStale(pubkey: driver.publicKeyHex)
+
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.session.stage == .idle)
+        #expect(coordinator.lastError?.contains("key") == true)
+        #expect(!fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
+    }
+
+    @MainActor
+    @Test func sendRideOfferAbortsWhenDriverGoesOfflineBeforeSend() async throws {
+        // Driver was eligible at UI-predicate time; their next location
+        // event flips status away from "online". The send must catch this
+        // and not publish.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "offline",
+            timestamp: 2_000_000,
+            keyVersion: 1
+        )
+
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.session.stage == .idle)
+        #expect(coordinator.lastError?.contains("offline") == true)
+        #expect(!fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
+    }
+
+    @MainActor
+    @Test func sendRideOfferAbortsWhenDriverGoesOnRideBeforeSend() async throws {
+        // Driver is broadcasting `on_ride` — present and reachable but
+        // servicing another ride. The send must surface this distinctly
+        // from a generic offline ("Driver just went offline") so the rider
+        // sees an accurate message and doesn't retry expecting a transient
+        // connection blip.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "on_ride",
+            timestamp: 2_000_000,
+            keyVersion: 1
+        )
+
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.session.stage == .idle)
+        #expect(coordinator.lastError?.contains("another ride") == true)
+        #expect(!fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
+    }
+
+    @MainActor
+    @Test func sendRideOfferClearsStaleLastErrorOnSuccessfulRetry() async throws {
+        // After a preflight failure leaves `lastError` set, a subsequent
+        // successful send must wipe the stale string so the UI does not
+        // continue to display the prior failure message.
+        let (coordinator, fake, _, _, _) = try await makeCoordinator()
+        let driver = try makeEligibleDriver(in: coordinator)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "offline",
+            timestamp: 2_000_000,
+            keyVersion: 1
+        )
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+        #expect(coordinator.lastError?.contains("offline") == true)
+
+        _ = coordinator.driversRepository.updateDriverLocation(
+            pubkey: driver.publicKeyHex,
+            latitude: 0, longitude: 0,
+            status: "online",
+            timestamp: 3_000_000,
+            keyVersion: 1
+        )
+        await coordinator.sendRideOffer(
+            driverPubkey: driver.publicKeyHex,
+            pickup: Location(latitude: 40.71, longitude: -74.01),
+            destination: Location(latitude: 40.76, longitude: -73.98),
+            fareEstimate: FareEstimate(distanceMiles: 5, durationMinutes: 15, fareUSD: 12.5)
+        )
+
+        #expect(coordinator.lastError == nil)
+        #expect(coordinator.session.stage == .waitingForAcceptance)
+        #expect(fake.publishedEvents.contains { $0.kind == EventKind.rideOffer.rawValue })
     }
 
     // MARK: - Restore
@@ -1295,7 +1467,7 @@ struct RideCoordinatorTests {
     @MainActor
     @Test func cancelRidePublishesTerminationAndClearsPersistence() async throws {
         let (coordinator, fake, _, _, persistence) = try await makeCoordinator()
-        let driver = try NostrKeypair.generate()
+        let driver = try makeEligibleDriver(in: coordinator)
 
         await coordinator.sendRideOffer(
             driverPubkey: driver.publicKeyHex,
