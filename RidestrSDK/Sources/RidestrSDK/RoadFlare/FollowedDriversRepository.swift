@@ -194,7 +194,26 @@ public final class FollowedDriversRepository: @unchecked Sendable {
     /// RoadFlare key rotation); staleness only blocks Kind 30014 location
     /// decryption mid-ride, recovered by Kind 3188 → 3186 refresh (ADR-0013).
     public func canRequestRide(_ driver: FollowedDriver) -> Bool {
-        lock.withLock { canRequestRideLocked(driverPubkey: driver.pubkey) }
+        lock.withLock { rideOfferPreflightLocked(driverPubkey: driver.pubkey) == nil }
+    }
+
+    /// Shared send-time validation for Kind 3177 ride offers.
+    ///
+    /// Returns `nil` when the offer may proceed, or a `RideOfferPreflightFailure`
+    /// case identifying the specific structural reason the driver is not
+    /// currently a valid offer target. The lookup and eligibility check share
+    /// the same lock so a background sync cannot race the caller into observing
+    /// different driver, key-staleness, or location snapshots across separate
+    /// reads.
+    ///
+    /// Callers run this at send time (just before publishing the offer event)
+    /// because the UI predicate `canRequestRide(_:)` can drift in the gap
+    /// between button tap and publish: a stale-key signal can arrive, a
+    /// driver can flip to offline, or the driver can be removed from the
+    /// followed list. This is the ride-side parallel of
+    /// `driverPingPreflight(driverPubkey:)`.
+    public func rideOfferPreflight(driverPubkey: String) -> RideOfferPreflightFailure? {
+        lock.withLock { rideOfferPreflightLocked(driverPubkey: driverPubkey) }
     }
 
     // MARK: - Driver Names
@@ -495,13 +514,14 @@ public final class FollowedDriversRepository: @unchecked Sendable {
         return nil
     }
 
-    private func canRequestRideLocked(driverPubkey: String) -> Bool {
+    private func rideOfferPreflightLocked(driverPubkey: String) -> RideOfferPreflightFailure? {
         guard let driver = drivers.first(where: { $0.pubkey == driverPubkey }) else {
-            return false
+            return .driverNotFollowed
         }
-        guard driver.hasKey else { return false }
-        guard !staleKeyPubkeys.contains(driverPubkey) else { return false }
-        return driverLocations[driverPubkey]?.status == "online"
+        guard driver.hasKey else { return .missingKey }
+        guard !staleKeyPubkeys.contains(driverPubkey) else { return .staleKey }
+        guard driverLocations[driverPubkey]?.status == "online" else { return .offline }
+        return nil
     }
 }
 

@@ -83,3 +83,74 @@ struct CanRequestRideTests {
         #expect(repo.canRequestRide(staleSnapshot) == false)
     }
 }
+
+@Suite("FollowedDriversRepository.rideOfferPreflight")
+struct RideOfferPreflightTests {
+
+    @Test func unknownDriver_returnsDriverNotFollowed() {
+        let repo = FollowedDriversRepository(persistence: InMemoryFollowedDriversPersistence())
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .driverNotFollowed)
+    }
+
+    @Test func missingKey_returnsMissingKey() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: nil)
+        let repo = makeRepo(driver: driver)
+        _ = repo.updateDriverLocation(pubkey: testPubkey, latitude: 0, longitude: 0,
+                                      status: "online", timestamp: 1_000_000, keyVersion: 1)
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .missingKey)
+    }
+
+    @Test func staleKey_returnsStaleKey() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        _ = repo.updateDriverLocation(pubkey: testPubkey, latitude: 0, longitude: 0,
+                                      status: "online", timestamp: 1_000_000, keyVersion: 1)
+        repo.markKeyStale(pubkey: testPubkey)
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .staleKey)
+    }
+
+    @Test func offline_returnsOffline() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        // No location update → status nil → not online
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .offline)
+    }
+
+    @Test func onRide_returnsOffline() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        _ = repo.updateDriverLocation(pubkey: testPubkey, latitude: 0, longitude: 0,
+                                      status: "on_ride", timestamp: 1_000_000, keyVersion: 1)
+        // "on_ride" is not "online" — the preflight surfaces this as .offline
+        // (i.e. "not available for a new offer right now").
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .offline)
+    }
+
+    @Test func onlineWithCurrentKey_returnsNil() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        _ = repo.updateDriverLocation(pubkey: testPubkey, latitude: 0, longitude: 0,
+                                      status: "online", timestamp: 1_000_000, keyVersion: 1)
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == nil)
+    }
+
+    // MARK: - Stale-key surfaces over offline / missing-key priority
+
+    @Test func staleKeyTakesPrecedenceOverOffline() {
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: testKey)
+        let repo = makeRepo(driver: driver)
+        // No location → would be .offline. But stale key takes precedence.
+        repo.markKeyStale(pubkey: testPubkey)
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .staleKey)
+    }
+
+    @Test func missingKeyTakesPrecedenceOverStaleKey() {
+        // Stale-key tracking is keyed by pubkey, so a driver without any key
+        // who somehow ended up in staleKeyPubkeys should still surface
+        // .missingKey — the key gate runs before the stale gate.
+        let driver = FollowedDriver(pubkey: testPubkey, name: "Bob", roadflareKey: nil)
+        let repo = makeRepo(driver: driver)
+        repo.markKeyStale(pubkey: testPubkey)
+        #expect(repo.rideOfferPreflight(driverPubkey: testPubkey) == .missingKey)
+    }
+}

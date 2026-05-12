@@ -290,6 +290,25 @@ public final class RideCoordinator {
         destination: Location,
         fareEstimate: FareEstimate
     ) async {
+        // Re-validate driver eligibility at send time. The UI gates the
+        // "Request ride" button on `canRequestRide(_:)`, but a stale-key
+        // event, status flip to offline, or driver removal can land in
+        // the gap between button tap and this publish. Mirrors the
+        // send-time preflight pattern from `AppState.sendDriverPing`.
+        if let preflight = driversRepository.rideOfferPreflight(driverPubkey: driverPubkey) {
+            switch preflight {
+            case .driverNotFollowed:
+                lastError = "Driver is no longer available."
+            case .missingKey:
+                lastError = "Driver hasn't shared a key yet. Try again in a moment."
+            case .staleKey:
+                lastError = "Driver's key needs a refresh."
+            case .offline:
+                lastError = "Driver just went offline."
+            }
+            return
+        }
+
         guard let fareSats = bitcoinPrice.usdToSats(fareEstimate.fareUSD) else {
             lastError = "Bitcoin price not available. Try again in a moment."
             return
