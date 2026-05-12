@@ -2,7 +2,7 @@
 
 Rider-side iOS client for [Ridestr](https://github.com/variablefate/ridestr), a decentralized rideshare protocol built on [Nostr](https://github.com/nostr-protocol/nostr). Pairs with the Ridestr Android driver app.
 
-**iOS 17+ | Swift 6.0 | SwiftUI**
+**iOS 18+ | Swift 6.0 | SwiftUI**
 
 ## Repo layout
 
